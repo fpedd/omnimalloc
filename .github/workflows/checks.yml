@@ -1,0 +1,117 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_PYTHON: "3.10"
+  # TODO(fpedd): Make minimalloc more easily installable via PyPI
+  MINIMALLOC_URL: "git+https://github.com/google/minimalloc.git"
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang-format
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --all-extras
+      - run: uv run pre-commit run --all-files
+
+  examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      # Run example 1 without all
+      - run: uv sync --no-dev --no-extra all
+      - run: uv run python examples/01_basic.py
+      # Run example 2-4 with all
+      - run: uv sync --no-dev --extra all
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      - run: uv run python examples/02_plotting.py
+      - run: uv run python examples/03_allocators.py
+      - run: uv run python examples/04_sources.py
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --extra all
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      - run: uv run pytest --cov-report=xml --cov-report=term-missing -v
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --all-extras
+      - run: uv build
+
+  # TODO(fpedd): This job currently doesn't actually fail/error on quality issues.
+  # We should act on that. But for now, it's useful to have the reports in CI.
+  cpp-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang-tidy iwyu
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --all-extras
+      - run: CMAKE_ARGS="-DENABLE_CLANG_TIDY=ON -DENABLE_IWYU=ON" uv build
+
+  checks-status:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [pre-commit, examples, test, build, cpp-quality]
+    steps:
+      - run: exit 1
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

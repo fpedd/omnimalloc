@@ -1,0 +1,138 @@
+[build-system]
+requires = ["scikit-build-core>=0.11", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "omnimalloc"
+version = "0.2.0" # Also update CMakeLists.txt
+description = "Your one-stop shop for static memory allocation."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Fabian Peddinghaus", email = "fabianpedd@gmail.com" }]
+keywords = ["memory", "allocation", "allocator", "static-allocation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: C++",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "numpy>=1.25.0",            # This is the only real dependency of omnimalloc
+  "typing-extensions>=4.0.0", # Only needed because we support Python < 3.11
+]
+[project.urls]
+Homepage = "https://github.com/fpedd/omnimalloc"
+Repository = "https://github.com/fpedd/omnimalloc"
+Issues = "https://github.com/fpedd/omnimalloc/issues"
+
+
+[project.optional-dependencies]
+all = [
+  "deap>=1.4.0",
+  "huggingface-hub>=0.35.0",
+  "matplotlib>=3.10.0",
+  "onnx>=1.19.0",
+  "tqdm>=4.66.0",
+]
+
+[dependency-groups]
+dev = [
+  "ipykernel>=6.30.0",
+  "ipywidgets>=8.1.0",
+  "nbconvert>=7.16.0",
+  "pre-commit>=4.0.0",
+  "pytest>=8.0",
+  "pytest-cov>=7.0.0",
+  "ruff>=0.14.0",
+  "ty>=0.0.1a26",
+]
+
+[tool.scikit-build]
+wheel.packages = ["src/python/omnimalloc"]
+cmake.build-type = "Release"                         # TODO(fpedd): Cross-check with CMakeLists.txt
+build-dir = "build/{wheel_tag}"
+sdist.include = ["src/cpp/**"]
+sdist.exclude = [".github", "notebooks", "external"]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "*-musllinux_*"
+# TODO(fpedd): Enable tests in the future
+# test-requires = ["pytest"]
+# test-command = "pytest {project}/tests/unit -x --no-header -q"
+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y cmake || apk add cmake"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+exclude = ["*.ipynb", "*.pyi"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "B019",    # cache decorator
+  "B027",    # non-abstract methods in abc
+  "COM812",  # trailing comma (formatter)
+  "D100",    # module docstring
+  "D101",    # class docstring
+  "D102",    # method docstring
+  "D103",    # function docstring
+  "D104",    # package docstring
+  "D105",    # magic method docstring
+  "D107",    # init docstring
+  "D202",    # blank lines in docstring
+  "D203",    # incompatible with D211
+  "D213",    # incompatible with D212
+  "D401",    # imperative mood
+  "D413",    # blank line after last section
+  "DTZ005",  # datetime.now()
+  "EM101",   # string literals in exceptions
+  "EM102",   # f-strings in exceptions
+  "FBT001",  # boolean positional args
+  "FBT002",  # boolean default args
+  "FIX002",  # TODOs
+  "G004",    # f-strings in logging
+  "INP001",  # allow scripts without init
+  "N801",    # class names not CamelCase
+  "PERF203", # try-except inside loop
+  "PGH003",  # generic type: ignore
+  "PIE790",  # ellipsis in functions
+  "PLC0415", # import outside top-level
+  "PLR0913", # too many arguments
+  "PLR2004", # magic value comparison
+  "PYI019",  # custom TypeVar
+  "RET504",  # unnecessary variable before return
+  "S101",    # assert
+  "S311",    # pseudo-random generators
+  "S603",    # allow untrusted subprocess
+  "SIM102",  # nested if
+  "SIM110",  # for loop replaceable with any()
+  "T201",    # print()
+  "TD003",   # missing issue link
+  "TRY003",  # long exception messages
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
+
+[tool.ty]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.src]
+exclude = ["tests/", "*.pyi"]

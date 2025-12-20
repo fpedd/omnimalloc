@@ -1,0 +1,66 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.so
+*.dylib
+*.dll
+*.pyd
+*.o
+*.a
+*.obj
+*.lib
+*.exp
+
+# Python
+__pycache__/
+*.py[cod]
+*.whl
+.eggs/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# scikit-build-core/cibuildwheel
+_skbuild/
+wheelhouse/
+
+# Virtual environments
+venv*/
+.venv*/
+env*/
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Testing
+.coverage
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+htmlcov/
+*.gcov
+*.gcda
+*.gcno
+*.gcov.json.gz
+**/artifacts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
+.env
+*.pdf
+CLAUDE.md
+.claude
+*.json
