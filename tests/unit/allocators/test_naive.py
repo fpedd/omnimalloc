@@ -5,7 +5,6 @@
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.primitives import Allocation, BufferKind
 
-
 # ---------------------------------------------------------------------------
 # Empty and single-allocation cases
 # ---------------------------------------------------------------------------
@@ -71,7 +70,9 @@ def test_naive_uniform_sizes_produce_regular_offsets() -> None:
 def test_naive_varying_sizes_produce_cumulative_offsets() -> None:
     allocator = NaiveAllocator()
     sizes = [10, 20, 30, 40, 50]
-    allocs = tuple(Allocation(id=i, size=s, start=0, end=5) for i, s in enumerate(sizes))
+    allocs = tuple(
+        Allocation(id=i, size=s, start=0, end=5) for i, s in enumerate(sizes)
+    )
     result = allocator.allocate(allocs)
     expected_offsets = [0, 10, 30, 60, 100]
     for alloc, expected in zip(result, expected_offsets, strict=True):
@@ -138,7 +139,9 @@ def test_naive_preserves_string_ids() -> None:
 def test_naive_preserves_sizes() -> None:
     allocator = NaiveAllocator()
     sizes = [100, 200, 50, 300]
-    allocs = tuple(Allocation(id=i, size=s, start=0, end=5) for i, s in enumerate(sizes))
+    allocs = tuple(
+        Allocation(id=i, size=s, start=0, end=5) for i, s in enumerate(sizes)
+    )
     result = allocator.allocate(allocs)
     assert [a.size for a in result] == sizes
 
