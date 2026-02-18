@@ -5,11 +5,6 @@
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.primitives import Allocation, BufferKind
 
-# ---------------------------------------------------------------------------
-# Empty and single-allocation cases
-# ---------------------------------------------------------------------------
-
-
 def test_naive_empty() -> None:
     allocator = NaiveAllocator()
     result = allocator.allocate(())
@@ -29,11 +24,6 @@ def test_naive_single_large_allocation() -> None:
     alloc = Allocation(id=1, size=1_000_000, start=0, end=1)
     result = allocator.allocate((alloc,))
     assert result[0].offset == 0
-
-
-# ---------------------------------------------------------------------------
-# Sequential placement: offsets are cumulative sums of sizes
-# ---------------------------------------------------------------------------
 
 
 def test_naive_two_allocations_offsets_are_sequential() -> None:
@@ -79,11 +69,6 @@ def test_naive_varying_sizes_produce_cumulative_offsets() -> None:
         assert alloc.offset == expected
 
 
-# ---------------------------------------------------------------------------
-# No space reuse: naive ignores temporal non-overlaps
-# ---------------------------------------------------------------------------
-
-
 def test_naive_non_overlapping_in_time_still_sequential() -> None:
     """Naive allocator does NOT reuse space for temporally disjoint allocations."""
     allocator = NaiveAllocator()
@@ -113,11 +98,6 @@ def test_naive_single_timestep_allocations() -> None:
     result = allocator.allocate((alloc1, alloc2))
     assert result[0].offset == 0
     assert result[1].offset == 32
-
-
-# ---------------------------------------------------------------------------
-# Property preservation
-# ---------------------------------------------------------------------------
 
 
 def test_naive_preserves_integer_ids() -> None:
@@ -168,11 +148,6 @@ def test_naive_allocations_without_kind_stay_without_kind() -> None:
     assert result[0].kind is None
 
 
-# ---------------------------------------------------------------------------
-# Output contract
-# ---------------------------------------------------------------------------
-
-
 def test_naive_returns_tuple() -> None:
     allocator = NaiveAllocator()
     allocs = (Allocation(id=1, size=100, start=0, end=5),)
@@ -203,11 +178,6 @@ def test_naive_input_allocations_are_not_mutated() -> None:
     assert alloc.offset is None
 
 
-# ---------------------------------------------------------------------------
-# Order sensitivity: naive allocates in the order it receives allocations
-# ---------------------------------------------------------------------------
-
-
 def test_naive_order_determines_offsets() -> None:
     allocator = NaiveAllocator()
     a = Allocation(id="a", size=100, start=0, end=5)
@@ -225,11 +195,6 @@ def test_naive_order_determines_offsets() -> None:
     assert result_ba[1].offset == 200
 
 
-# ---------------------------------------------------------------------------
-# Determinism
-# ---------------------------------------------------------------------------
-
-
 def test_naive_is_deterministic() -> None:
     allocator = NaiveAllocator()
     allocs = tuple(
@@ -238,11 +203,6 @@ def test_naive_is_deterministic() -> None:
     result1 = allocator.allocate(allocs)
     result2 = allocator.allocate(allocs)
     assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
-
-
-# ---------------------------------------------------------------------------
-# Large workload
-# ---------------------------------------------------------------------------
 
 
 def test_naive_large_workload_offsets_are_cumulative_sums() -> None:
