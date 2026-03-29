@@ -12,8 +12,9 @@ from typing_extensions import Self
 class Registered(ABC):
     """Mixin for auto-registering and managing subclasses.
 
-    Any direct subclass of will maintain its own registry. Any subclass of that
-    subclass that's not abstract will be registered in the subclass's registry.
+    Any direct subclass of Registered will maintain its own registry. Any
+    subclass of that subclass that's not abstract will be registered in the
+    direct subclass's registry.
     """
 
     _registry: ClassVar[dict[str, type[Self]]]
