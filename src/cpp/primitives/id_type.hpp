@@ -12,6 +12,7 @@
 
 namespace omnimalloc {
 
+// Must match IdType in src/python/omnimalloc/primitives/allocation.py
 using IdType = std::variant<int64_t, std::string>;
 
 struct IdTypeHash {
