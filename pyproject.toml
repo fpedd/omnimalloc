@@ -73,7 +73,11 @@ skip = "*-musllinux_*"
 # test-command = "pytest {project}/tests/unit -x --no-header -q"
 
 [tool.cibuildwheel.linux]
+archs = ["auto"]
 before-all = "yum install -y cmake || apk add cmake"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
 
 [tool.ruff]
 line-length = 88
