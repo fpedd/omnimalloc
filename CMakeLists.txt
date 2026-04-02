@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18...3.30)
 project(
   OmniMalloc
-  VERSION 0.2.0 # Also update pyproject.toml
+  VERSION 0.3.0 # Also update pyproject.toml
   LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
