@@ -18,6 +18,7 @@ from .hillclimb import HillClimbAllocator as HillClimbAllocator
 from .minimalloc import MinimallocAllocator as MinimallocAllocator
 from .naive import NaiveAllocator as NaiveAllocator
 from .random import RandomAllocator as RandomAllocator
+from .supermalloc import SuperMallocAllocator as SuperMallocAllocator
 from .utils import AVAILABLE_ALLOCATORS as AVAILABLE_ALLOCATORS
 from .utils import DEFAULT_ALLOCATOR as DEFAULT_ALLOCATOR
 from .utils import get_allocator_by_name as get_allocator_by_name
