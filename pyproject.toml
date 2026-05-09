@@ -117,6 +117,7 @@ ignore = [
   "PLC0415", # import outside top-level
   "PLR0913", # too many arguments
   "PLR2004", # magic value comparison
+  "PLW2901", # reassign for loop vars
   "PYI019",  # custom TypeVar
   "RET504",  # unnecessary variable before return
   "S101",    # assert
@@ -132,6 +133,10 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)s] %(message)s (%(filename)s:%(lineno)d)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 [tool.ty]
 
