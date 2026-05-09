@@ -2,120 +2,106 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import tempfile
-from pathlib import Path
-
 import pytest
-from omnimalloc.benchmark.sources.minimalloc import MinimallocSource
+from omnimalloc.benchmark.sources.minimalloc import MinimallocSource, MinimallocSubset
 from omnimalloc.primitives import BufferKind
 
 
-@pytest.fixture
-def sample_csv_path() -> Path:
-    """Create a temporary CSV file with sample minimalloc data."""
-    content = """id,lower,upper,size
-0,0,3,4
-1,3,9,4
-2,0,9,8
-3,9,21,4
-4,0,21,16
-"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-        f.write(content)
-        return Path(f.name)
+def test_minimalloc_source_default_subset_is_challenging() -> None:
+    source = MinimallocSource()
+    assert source.subset is MinimallocSubset.CHALLENGING
+    assert source.num_allocations > 0
 
 
-def test_minimalloc_source_basic_creation(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    assert source.file_path == sample_csv_path
-    assert source.num_allocations == 5
+def test_minimalloc_source_accepts_enum_member() -> None:
+    source = MinimallocSource(MinimallocSubset.SMALL)
+    assert source.subset is MinimallocSubset.SMALL
 
 
-def test_minimalloc_source_get_allocations(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    allocations = source.get_allocations()
-    assert len(allocations) == 5
-    assert allocations[0].id == "0"
-    assert allocations[0].start == 0
-    assert allocations[0].end == 3
-    assert allocations[0].size == 4
-    assert allocations[0].kind == BufferKind.WORKSPACE
+def test_minimalloc_source_accepts_string_alias() -> None:
+    """Raw strings are coerced to the matching enum member."""
+    source = MinimallocSource("small")
+    assert source.subset is MinimallocSubset.SMALL
+    assert source.subset == "small"
 
 
-def test_minimalloc_source_get_allocations_with_count(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    allocations = source.get_allocations(num_allocations=3)
-    assert len(allocations) == 3
-    assert allocations[0].id == "0"
-    assert allocations[2].id == "2"
+def test_minimalloc_source_examples_subset() -> None:
+    source = MinimallocSource(subset="examples")
+    assert source.subset == "examples"
+    variants = source.get_available_variants()
+    assert len(variants) == 1  # Only one example pool
 
 
-def test_minimalloc_source_get_allocations_with_skip(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    allocations = source.get_allocations(skip=2)
-    assert len(allocations) == 3
-    assert allocations[0].id == "2"
-    assert allocations[2].id == "4"
+def test_minimalloc_source_small_subset() -> None:
+    source = MinimallocSource(subset="small")
+    assert source.subset == "small"
+    variants = source.get_available_variants()
+    assert len(variants) > 0
+    assert all(v[0].islower() for v in variants)
 
 
-def test_minimalloc_source_get_allocations_skip_and_count(
-    sample_csv_path: Path,
-) -> None:
-    source = MinimallocSource(sample_csv_path)
-    allocations = source.get_allocations(num_allocations=2, skip=1)
-    assert len(allocations) == 2
-    assert allocations[0].id == "1"
-    assert allocations[1].id == "2"
+def test_minimalloc_source_challenging_subset() -> None:
+    source = MinimallocSource(subset="challenging")
+    variants = source.get_available_variants()
+    assert len(variants) > 0
 
 
-def test_minimalloc_source_get_allocations_skip_past_end(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    allocations = source.get_allocations(skip=10)
+def test_minimalloc_source_subsets_are_disjoint() -> None:
+    examples = set(MinimallocSource(subset="examples").get_available_variants())
+    small = set(MinimallocSource(subset="small").get_available_variants())
+    challenging = set(MinimallocSource(subset="challenging").get_available_variants())
+    assert examples
+    assert small
+    assert challenging
+    assert examples.isdisjoint(small)
+    assert examples.isdisjoint(challenging)
+    assert small.isdisjoint(challenging)
+
+
+def test_minimalloc_source_invalid_subset() -> None:
+    with pytest.raises(ValueError, match="not a valid MinimallocSubset"):
+        MinimallocSource(subset="bogus")  # type: ignore[arg-type]
+
+
+def test_minimalloc_source_get_allocations_skip_past_end() -> None:
+    source = MinimallocSource(subset="examples")
+    allocations = source.get_allocations(skip=10**9)
     assert len(allocations) == 0
 
 
-def test_minimalloc_source_get_pools(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    pools = source.get_pools()
-    assert len(pools) == 1
-    assert len(pools[0].allocations) == 5
-    assert pools[0].id == sample_csv_path.stem
-
-
-def test_minimalloc_source_get_pools_with_skip(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    pools = source.get_pools(skip=1)
+def test_minimalloc_source_get_pools_with_skip_past_end() -> None:
+    source = MinimallocSource(subset="examples")
+    pools = source.get_pools(skip=10)
     assert len(pools) == 0
 
 
-def test_minimalloc_source_get_pools_count_zero(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
+def test_minimalloc_source_get_pools_count_zero() -> None:
+    source = MinimallocSource(subset="examples")
     pools = source.get_pools(num_pools=0)
     assert len(pools) == 0
 
 
-def test_minimalloc_source_get_pool(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
-    pool = source.get_pool()
-    assert len(pool.allocations) == 5
-
-
-def test_minimalloc_source_get_allocation(sample_csv_path: Path) -> None:
-    source = MinimallocSource(sample_csv_path)
+def test_minimalloc_source_get_allocation_workspace_kind() -> None:
+    """All loaded allocations are tagged as WORKSPACE buffers."""
+    source = MinimallocSource(subset="examples")
     allocation = source.get_allocation()
-    assert allocation.id == "0"
-    assert allocation.size == 4
+    assert allocation.kind == BufferKind.WORKSPACE
 
 
-def test_minimalloc_source_file_not_found() -> None:
-    """Test that appropriate error is raised for missing file."""
-    with pytest.raises(FileNotFoundError):
-        MinimallocSource("/nonexistent/path.csv")
+def test_minimalloc_source_get_variant_by_id() -> None:
+    source = MinimallocSource(subset="small")
+    variants = source.get_available_variants()
+    pool = source.get_variant(variants[0])
+    assert pool.id == variants[0]
 
 
-def test_minimalloc_source_str_path(sample_csv_path: Path) -> None:
-    """Test that string paths are accepted."""
-    source = MinimallocSource(str(sample_csv_path))
-    assert source.file_path == sample_csv_path
-    allocations = source.get_allocations()
-    assert len(allocations) == 5
+def test_minimalloc_source_get_variant_by_index() -> None:
+    source = MinimallocSource(subset="small")
+    pool = source.get_variant(0)
+    assert pool.id in source.get_available_variants()
+
+
+def test_minimalloc_source_get_variant_unknown_id() -> None:
+    source = MinimallocSource(subset="examples")
+    with pytest.raises(ValueError, match="not found"):
+        source.get_variant("does-not-exist")

@@ -5,6 +5,7 @@
 import csv
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from omnimalloc.common.directories import EXTERNAL_DIR
@@ -13,6 +14,14 @@ from omnimalloc.primitives import Allocation, BufferKind, IdType, Pool
 from .base import BaseSource
 
 logger = logging.getLogger(__name__)
+
+
+class MinimallocSubset(str, Enum):
+    """Bundled CSV subsets shipped under ``external/minimalloc/<value>``."""
+
+    EXAMPLES = "examples"
+    SMALL = "small"
+    CHALLENGING = "challenging"
 
 
 @dataclass(frozen=True)
@@ -70,28 +79,19 @@ def _from_minimalloc_csv(file_path: str | Path) -> Pool:
     return pool
 
 
-def _get_minimalloc_pools() -> list[Pool]:
-    csv_dir = EXTERNAL_DIR / "minimalloc" / "challenging"
-    csv_files = list(csv_dir.glob("*.csv"))
-    pools = [_from_minimalloc_csv(file) for file in csv_files]
-    return pools
-
-
 class MinimallocSource(BaseSource):
-    """Load allocations from Minimalloc CSV format.
+    """Load allocations from a bundled Minimalloc CSV subset.
 
-    This is a fixed source with predetermined pools from Minimalloc benchmarks.
-    Can be initialized with either a specific CSV file or a directory of CSVs.
+    This is a fixed source with predetermined pools from the Minimalloc
+    benchmarks. Pick a bundled ``subset`` to select which pools to load.
     """
 
-    def __init__(self, file_path: str | Path | None = None) -> None:
-        self.file_path = Path(file_path) if file_path is not None else None
+    def __init__(
+        self,
+        subset: MinimallocSubset | str = MinimallocSubset.CHALLENGING,
+    ) -> None:
+        self.subset = MinimallocSubset(subset)
         self._cached_pools: list[Pool] | None = None
-
-        # Validate path exists if provided
-        if self.file_path is not None and not self.file_path.exists():
-            msg = f"Path does not exist: {self.file_path}"
-            raise FileNotFoundError(msg)
 
         # Load pools to get actual num_allocations
         pools = self._pools
@@ -103,16 +103,10 @@ class MinimallocSource(BaseSource):
     @property
     def _pools(self) -> list[Pool]:
         if self._cached_pools is None:
-            if self.file_path is None:
-                self._cached_pools = _get_minimalloc_pools()
-            elif self.file_path.is_file():
-                self._cached_pools = [_from_minimalloc_csv(self.file_path)]
-            elif self.file_path.is_dir():
-                csv_files = list(self.file_path.glob("*.csv"))
-                self._cached_pools = [_from_minimalloc_csv(f) for f in csv_files]
-            else:
-                msg = f"Path does not exist: {self.file_path}"
-                raise FileNotFoundError(msg)
+            csv_dir = EXTERNAL_DIR / "minimalloc" / self.subset.value
+            self._cached_pools = [
+                _from_minimalloc_csv(f) for f in csv_dir.glob("*.csv")
+            ]
         return self._cached_pools
 
     def _all_allocations(self) -> tuple[Allocation, ...]:
