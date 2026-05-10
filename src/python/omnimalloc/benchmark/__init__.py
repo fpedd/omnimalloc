@@ -13,6 +13,7 @@ from .sources import BaseSource as BaseSource
 from .sources import HighContentionSource as HighContentionSource
 from .sources import HuggingfaceSource as HuggingfaceSource
 from .sources import MinimallocSource as MinimallocSource
+from .sources import MinimallocSubset as MinimallocSubset
 from .sources import PowerOf2Source as PowerOf2Source
 from .sources import RandomSource as RandomSource
 from .sources import SequentialSource as SequentialSource
