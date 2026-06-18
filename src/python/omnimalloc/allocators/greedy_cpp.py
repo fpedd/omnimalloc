@@ -6,6 +6,7 @@ from omnimalloc._cpp import GreedyAllocatorCpp as _GreedyAllocatorCpp
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
+from .greedy import allocate_best_of
 
 
 class GreedyAllocatorCpp(BaseAllocator):
@@ -63,3 +64,17 @@ class GreedyBySizeAllocatorCpp(GreedyAllocatorCpp):
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         sorted_allocs = sorted(allocations, key=lambda a: a.size, reverse=True)
         return super().allocate(tuple(sorted_allocs))
+
+
+class GreedyByAllAllocatorCpp(GreedyAllocatorCpp):
+    """C++ greedy allocator that runs every variant and keeps the best result."""
+
+    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        variants: tuple[BaseAllocator, ...] = (
+            GreedyAllocatorCpp(),
+            GreedyBySizeAllocatorCpp(),
+            GreedyByDurationAllocatorCpp(),
+            GreedyByAreaAllocatorCpp(),
+            GreedyByConflictAllocatorCpp(),
+        )
+        return allocate_best_of(variants, allocations)

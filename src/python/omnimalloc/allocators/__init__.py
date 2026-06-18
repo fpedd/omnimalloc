@@ -5,11 +5,13 @@
 from .base import BaseAllocator as BaseAllocator
 from .genetic import GeneticAllocator as GeneticAllocator
 from .greedy import GreedyAllocator as GreedyAllocator
+from .greedy import GreedyByAllAllocator as GreedyByAllAllocator
 from .greedy import GreedyByAreaAllocator as GreedyByAreaAllocator
 from .greedy import GreedyByConflictAllocator as GreedyByConflictAllocator
 from .greedy import GreedyByDurationAllocator as GreedyByDurationAllocator
 from .greedy import GreedyBySizeAllocator as GreedyBySizeAllocator
 from .greedy_cpp import GreedyAllocatorCpp as GreedyAllocatorCpp
+from .greedy_cpp import GreedyByAllAllocatorCpp as GreedyByAllAllocatorCpp
 from .greedy_cpp import GreedyByAreaAllocatorCpp as GreedyByAreaAllocatorCpp
 from .greedy_cpp import GreedyByConflictAllocatorCpp as GreedyByConflictAllocatorCpp
 from .greedy_cpp import GreedyByDurationAllocatorCpp as GreedyByDurationAllocatorCpp

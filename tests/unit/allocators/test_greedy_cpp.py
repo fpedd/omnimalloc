@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc.allocators.greedy import GreedyAllocator
+from omnimalloc.allocators.greedy import GreedyAllocator, GreedyByAllAllocator
 from omnimalloc.allocators.greedy_cpp import (
     GreedyAllocatorCpp,
+    GreedyByAllAllocatorCpp,
     GreedyByAreaAllocatorCpp,
     GreedyByConflictAllocatorCpp,
     GreedyByDurationAllocatorCpp,
@@ -285,3 +286,60 @@ def test_greedy_cpp_matches_python() -> None:
         for cpp_alloc, py_alloc in zip(cpp_result, py_result, strict=True):
             assert cpp_alloc.offset == py_alloc.offset
             assert cpp_alloc.id == py_alloc.id
+
+
+def test_greedy_cpp_by_all_empty() -> None:
+    allocator = GreedyByAllAllocatorCpp()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_cpp_by_all_preserves_allocations() -> None:
+    allocator = GreedyByAllAllocatorCpp()
+    allocs = (
+        Allocation(id=1, size=100, start=0, end=10),
+        Allocation(id=2, size=50, start=5, end=15),
+    )
+    result = allocator.allocate(allocs)
+    assert len(result) == len(allocs)
+    assert {a.id for a in result} == {1, 2}
+    assert all(a.offset is not None for a in result)
+
+
+def test_greedy_cpp_by_all_deterministic() -> None:
+    allocator = GreedyByAllAllocatorCpp()
+    allocs = tuple(
+        Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=i % 7 + 1)
+        for i in range(20)
+    )
+    result1 = allocator.allocate(allocs)
+    result2 = allocator.allocate(allocs)
+    assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
+
+
+def test_greedy_cpp_by_all_matches_python() -> None:
+    """C++ greedy-by-all should match the Python greedy-by-all result."""
+    cpp_allocator = GreedyByAllAllocatorCpp()
+    py_allocator = GreedyByAllAllocator()
+
+    test_cases = [
+        tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5)),
+        (
+            Allocation(id=1, size=100, start=0, end=5),
+            Allocation(id=2, size=100, start=3, end=8),
+            Allocation(id=3, size=100, start=6, end=10),
+            Allocation(id=4, size=50, start=0, end=10),
+            Allocation(id=5, size=300, start=2, end=4),
+        ),
+        tuple(
+            Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=i % 7 + 1)
+            for i in range(20)
+        ),
+    ]
+
+    for allocs in test_cases:
+        cpp_result = cpp_allocator.allocate(allocs)
+        py_result = py_allocator.allocate(allocs)
+        cpp_peak = max(a.height for a in cpp_result if a.height is not None)
+        py_peak = max(a.height for a in py_result if a.height is not None)
+        assert cpp_peak == py_peak
