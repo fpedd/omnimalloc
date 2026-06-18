@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import sys
+
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -80,3 +82,40 @@ class GreedyBySizeAllocator(GreedyAllocator):
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         sorted_allocs = sorted(allocations, key=lambda a: a.size, reverse=True)
         return super().allocate(tuple(sorted_allocs))
+
+
+def allocate_best_of(
+    variants: tuple[BaseAllocator, ...], allocations: tuple[Allocation, ...]
+) -> tuple[Allocation, ...]:
+    """Run each variant and return the result with the smallest peak memory."""
+    if not allocations:
+        return allocations
+
+    best_allocation: tuple[Allocation, ...] | None = None
+    best_peak_memory = sys.maxsize
+
+    for variant in variants:
+        result = variant.allocate(allocations)
+        heights = [a.height for a in result if a.height is not None]
+        peak_memory = max(heights) if heights else 0
+
+        if peak_memory < best_peak_memory:
+            best_peak_memory = peak_memory
+            best_allocation = result
+
+    assert best_allocation is not None
+    return best_allocation
+
+
+class GreedyByAllAllocator(GreedyAllocator):
+    """Greedy allocator that runs every variant and keeps the best result."""
+
+    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        variants: tuple[BaseAllocator, ...] = (
+            GreedyAllocator(),
+            GreedyBySizeAllocator(),
+            GreedyByDurationAllocator(),
+            GreedyByAreaAllocator(),
+            GreedyByConflictAllocator(),
+        )
+        return allocate_best_of(variants, allocations)

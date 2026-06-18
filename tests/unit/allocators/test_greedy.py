@@ -4,6 +4,7 @@
 
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
+    GreedyByAllAllocator,
     GreedyByAreaAllocator,
     GreedyByConflictAllocator,
     GreedyByDurationAllocator,
@@ -254,3 +255,58 @@ def test_greedy_allocator_fits_in_gap() -> None:
     assert result[0].offset == 0
     assert result[1].offset == 50
     assert result[2].offset == 100
+
+
+def test_greedy_by_all_empty() -> None:
+    allocator = GreedyByAllAllocator()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_by_all_preserves_allocations() -> None:
+    allocator = GreedyByAllAllocator()
+    allocs = (
+        Allocation(id=1, size=100, start=0, end=10),
+        Allocation(id=2, size=50, start=5, end=15),
+    )
+    result = allocator.allocate(allocs)
+    assert len(result) == len(allocs)
+    assert {a.id for a in result} == {1, 2}
+    assert all(a.offset is not None for a in result)
+
+
+def test_greedy_by_all_picks_best_peak() -> None:
+    allocator = GreedyByAllAllocator()
+    allocs = (
+        Allocation(id=1, size=100, start=0, end=5),
+        Allocation(id=2, size=100, start=3, end=8),
+        Allocation(id=3, size=100, start=6, end=10),
+        Allocation(id=4, size=50, start=0, end=10),
+        Allocation(id=5, size=300, start=2, end=4),
+    )
+    result = allocator.allocate(allocs)
+    peak = max(a.height for a in result if a.height is not None)
+
+    variants = (
+        GreedyAllocator(),
+        GreedyBySizeAllocator(),
+        GreedyByDurationAllocator(),
+        GreedyByAreaAllocator(),
+        GreedyByConflictAllocator(),
+    )
+    best_variant_peak = min(
+        max(a.height for a in v.allocate(allocs) if a.height is not None)
+        for v in variants
+    )
+    assert peak == best_variant_peak
+
+
+def test_greedy_by_all_deterministic() -> None:
+    allocator = GreedyByAllAllocator()
+    allocs = tuple(
+        Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=i % 7 + 1)
+        for i in range(20)
+    )
+    result1 = allocator.allocate(allocs)
+    result2 = allocator.allocate(allocs)
+    assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
