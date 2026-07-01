@@ -13,6 +13,7 @@ from omnimalloc.allocators.greedy import (
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
 )
+from omnimalloc.allocators.hillclimb import HillClimbAllocator
 from omnimalloc.benchmark.sources.generator import (
     HighContentionSource,
     PowerOf2Source,
@@ -176,6 +177,30 @@ def test_greedy_deterministic_across_runs() -> None:
     offsets1 = [a.offset for a in result1.allocations]
     offsets2 = [a.offset for a in result2.allocations]
     assert offsets1 == offsets2
+
+
+def test_hill_climb_with_high_contention() -> None:
+    source = HighContentionSource(num_allocations=40, time_window=10, seed=42)
+    allocations = source.get_allocations()
+    pool = Pool(id="test_pool", allocations=allocations)
+
+    allocator = HillClimbAllocator(max_iterations=200)
+    allocated_pool = run_allocation(pool, allocator)
+
+    assert validate_allocation(allocated_pool)
+    assert all(a.offset is not None for a in allocated_pool.allocations)
+
+
+def test_hill_climb_with_random_source() -> None:
+    source = RandomSource(num_allocations=50, seed=42)
+    allocations = source.get_allocations()
+    pool = Pool(id="test_pool", allocations=allocations)
+
+    allocator = HillClimbAllocator()
+    allocated_pool = run_allocation(pool, allocator)
+
+    assert validate_allocation(allocated_pool)
+    assert len(allocated_pool.allocations) == 50
 
 
 def test_greedy_with_sequential_produces_small_footprint() -> None:

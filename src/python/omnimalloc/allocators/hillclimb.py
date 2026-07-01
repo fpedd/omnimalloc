@@ -163,9 +163,10 @@ class HillClimbAllocator(BaseAllocator):
         best_memory = self._calculate_total_memory(result)
         best_result = result
 
-        for iteration in range(self.max_iterations):
-            rollback_pos_map = pos_map.copy()
+        # Track the last swap so a rejected step can be undone
+        last_swap: tuple[int, int] | None = None
 
+        for iteration in range(self.max_iterations):
             result = self._greedy_allocate(alloc_list)
             current_memory = self._calculate_total_memory(result)
 
@@ -173,17 +174,19 @@ class HillClimbAllocator(BaseAllocator):
             if self._should_accept(current_memory, best_memory, iteration, rng):
                 best_result = result
                 best_memory = current_memory
-            elif iteration > 0:
-                # Undo last swap
-                swap_idx1 = next(
-                    i for i, a in enumerate(alloc_list) if pos_map[a.id] != i
-                )
-                swap_idx2 = pos_map[alloc_list[swap_idx1].id]
+            elif last_swap is not None:
+                # Undo last swap and re-run greedy on the reverted ordering
+                swap_idx1, swap_idx2 = last_swap
                 alloc_list[swap_idx1], alloc_list[swap_idx2] = (
                     alloc_list[swap_idx2],
                     alloc_list[swap_idx1],
                 )
-                pos_map = rollback_pos_map
+                pos_map[alloc_list[swap_idx1].id] = swap_idx1
+                pos_map[alloc_list[swap_idx2].id] = swap_idx2
+                result = self._greedy_allocate(alloc_list)
+                current_memory = self._calculate_total_memory(result)
+
+            last_swap = None
 
             # Find allocations at maximum memory and select target
             max_allocs = self._find_max_memory_allocations(result, current_memory)
@@ -211,5 +214,6 @@ class HillClimbAllocator(BaseAllocator):
             )
             pos_map[alloc_list[swap_idx1].id] = swap_idx1
             pos_map[alloc_list[swap_idx2].id] = swap_idx2
+            last_swap = (swap_idx1, swap_idx2)
 
         return best_result
