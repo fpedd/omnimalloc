@@ -47,22 +47,49 @@ class GreedyByDurationAllocator(GreedyAllocator):
         return super().allocate(tuple(sorted_allocs))
 
 
+def compute_conflict_degrees(
+    allocations: tuple[Allocation, ...],
+) -> dict[Allocation, int]:
+    """Count temporally overlapping allocations for each allocation."""
+    return {
+        alloc: sum(
+            1
+            for other in allocations
+            if other != alloc and alloc.overlaps_temporally(other)
+        )
+        for alloc in allocations
+    }
+
+
 class GreedyByConflictAllocator(GreedyAllocator):
     """Greedy allocator sorting by conflict degree (most conflicted first)."""
 
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        conflict_degrees = {}
-        for alloc in allocations:
-            conflicts = sum(
-                1
-                for other in allocations
-                if other != alloc and alloc.overlaps_temporally(other)
-            )
-            conflict_degrees[alloc] = conflicts
-
+        conflict_degrees = compute_conflict_degrees(allocations)
         sorted_allocs = sorted(
             allocations, key=lambda a: (conflict_degrees[a], a.size), reverse=True
         )
+        return super().allocate(tuple(sorted_allocs))
+
+
+class GreedyByConflictSizeAllocator(GreedyAllocator):
+    """Greedy allocator sorting by conflict degree times size (largest first)."""
+
+    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        conflict_degrees = compute_conflict_degrees(allocations)
+        sorted_allocs = sorted(
+            allocations,
+            key=lambda a: (conflict_degrees[a] * a.size, a.size),
+            reverse=True,
+        )
+        return super().allocate(tuple(sorted_allocs))
+
+
+class GreedyByStartAllocator(GreedyAllocator):
+    """Greedy allocator sorting by start time (earliest first, largest ties first)."""
+
+    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        sorted_allocs = sorted(allocations, key=lambda a: (a.start, -a.size))
         return super().allocate(tuple(sorted_allocs))
 
 
@@ -117,5 +144,7 @@ class GreedyByAllAllocator(GreedyAllocator):
             GreedyByDurationAllocator(),
             GreedyByAreaAllocator(),
             GreedyByConflictAllocator(),
+            GreedyByConflictSizeAllocator(),
+            GreedyByStartAllocator(),
         )
         return allocate_best_of(variants, allocations)

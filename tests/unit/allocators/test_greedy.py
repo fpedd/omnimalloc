@@ -7,8 +7,10 @@ from omnimalloc.allocators.greedy import (
     GreedyByAllAllocator,
     GreedyByAreaAllocator,
     GreedyByConflictAllocator,
+    GreedyByConflictSizeAllocator,
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
+    GreedyByStartAllocator,
 )
 from omnimalloc.primitives import Allocation
 
@@ -205,6 +207,66 @@ def test_greedy_by_size_allocates_correctly() -> None:
     assert result[1].offset == 200
 
 
+def test_greedy_by_conflict_size_empty() -> None:
+    allocator = GreedyByConflictSizeAllocator()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_by_conflict_size_sorts_by_product() -> None:
+    allocator = GreedyByConflictSizeAllocator()
+    big_lonely = Allocation(id=1, size=1000, start=0, end=5)
+    busy_large = Allocation(id=2, size=100, start=10, end=20)
+    busy_medium = Allocation(id=3, size=50, start=10, end=20)
+    busy_small = Allocation(id=4, size=20, start=10, end=20)
+    result = allocator.allocate((big_lonely, busy_large, busy_medium, busy_small))
+    assert [a.id for a in result] == [2, 3, 4, 1]
+
+
+def test_greedy_by_conflict_size_uses_size_as_tiebreaker() -> None:
+    allocator = GreedyByConflictSizeAllocator()
+    small = Allocation(id=1, size=50, start=0, end=10)
+    large = Allocation(id=2, size=200, start=20, end=30)
+    result = allocator.allocate((small, large))
+    assert result[0].id == 2
+    assert result[1].id == 1
+
+
+def test_greedy_by_start_empty() -> None:
+    allocator = GreedyByStartAllocator()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_by_start_sorts_by_start() -> None:
+    allocator = GreedyByStartAllocator()
+    late = Allocation(id=1, size=100, start=20, end=30)
+    early = Allocation(id=2, size=100, start=0, end=10)
+    middle = Allocation(id=3, size=100, start=10, end=20)
+    result = allocator.allocate((late, early, middle))
+    assert [a.id for a in result] == [2, 3, 1]
+
+
+def test_greedy_by_start_uses_size_as_tiebreaker() -> None:
+    allocator = GreedyByStartAllocator()
+    small = Allocation(id=1, size=50, start=0, end=10)
+    large = Allocation(id=2, size=200, start=0, end=10)
+    result = allocator.allocate((small, large))
+    assert result[0].id == 2
+    assert result[1].id == 1
+
+
+def test_greedy_by_start_allocates_correctly() -> None:
+    allocator = GreedyByStartAllocator()
+    later = Allocation(id=1, size=50, start=5, end=15)
+    earlier = Allocation(id=2, size=100, start=0, end=10)
+    result = allocator.allocate((later, earlier))
+    assert result[0].id == 2
+    assert result[1].id == 1
+    assert result[0].offset == 0
+    assert result[1].offset == 100
+
+
 def test_greedy_allocator_all_overlap() -> None:
     allocator = GreedyAllocator()
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
@@ -293,6 +355,8 @@ def test_greedy_by_all_picks_best_peak() -> None:
         GreedyByDurationAllocator(),
         GreedyByAreaAllocator(),
         GreedyByConflictAllocator(),
+        GreedyByConflictSizeAllocator(),
+        GreedyByStartAllocator(),
     )
     best_variant_peak = min(
         max(a.height for a in v.allocate(allocs) if a.height is not None)
