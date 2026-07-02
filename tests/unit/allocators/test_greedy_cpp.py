@@ -8,8 +8,10 @@ from omnimalloc.allocators.greedy_cpp import (
     GreedyByAllAllocatorCpp,
     GreedyByAreaAllocatorCpp,
     GreedyByConflictAllocatorCpp,
+    GreedyByConflictSizeAllocatorCpp,
     GreedyByDurationAllocatorCpp,
     GreedyBySizeAllocatorCpp,
+    GreedyByStartAllocatorCpp,
 )
 from omnimalloc.primitives import Allocation
 
@@ -204,6 +206,37 @@ def test_greedy_cpp_by_size_allocates_correctly() -> None:
     assert result[1].id == 1
     assert result[0].offset == 0
     assert result[1].offset == 200
+
+
+def test_greedy_cpp_by_conflict_size_empty() -> None:
+    allocator = GreedyByConflictSizeAllocatorCpp()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_cpp_by_conflict_size_sorts_by_product() -> None:
+    allocator = GreedyByConflictSizeAllocatorCpp()
+    big_lonely = Allocation(id=1, size=1000, start=0, end=5)
+    busy_large = Allocation(id=2, size=100, start=10, end=20)
+    busy_medium = Allocation(id=3, size=50, start=10, end=20)
+    busy_small = Allocation(id=4, size=20, start=10, end=20)
+    result = allocator.allocate((big_lonely, busy_large, busy_medium, busy_small))
+    assert [a.id for a in result] == [2, 3, 4, 1]
+
+
+def test_greedy_cpp_by_start_empty() -> None:
+    allocator = GreedyByStartAllocatorCpp()
+    result = allocator.allocate(())
+    assert len(result) == 0
+
+
+def test_greedy_cpp_by_start_sorts_by_start() -> None:
+    allocator = GreedyByStartAllocatorCpp()
+    late = Allocation(id=1, size=100, start=20, end=30)
+    early = Allocation(id=2, size=100, start=0, end=10)
+    middle = Allocation(id=3, size=100, start=10, end=20)
+    result = allocator.allocate((late, early, middle))
+    assert [a.id for a in result] == [2, 3, 1]
 
 
 def test_greedy_cpp_allocator_all_overlap() -> None:
