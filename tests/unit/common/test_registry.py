@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from abc import abstractmethod
+
 import pytest
 from omnimalloc.allocators import (
     BaseAllocator,
@@ -88,6 +90,20 @@ def test_name_with_numbers() -> None:
         pass
 
     assert Test123Thing.name() == "test123_thing"
+
+
+def test_abstract_intermediate_not_registered() -> None:
+    class AbstractMid(ExampleBase):
+        @abstractmethod
+        def compute(self) -> int: ...
+
+    class ConcreteLeaf(AbstractMid):
+        def compute(self) -> int:
+            return 0
+
+    registry = ExampleBase.registry()
+    assert "abstract_mid" not in registry
+    assert "concrete_leaf" in registry
 
 
 def test_allocator_registry() -> None:
