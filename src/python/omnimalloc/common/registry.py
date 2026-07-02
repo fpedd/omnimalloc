@@ -31,7 +31,10 @@ class Registered(ABC):
             return
 
         # Skip abstract classes from registration
-        if getattr(cls, "__abstractmethods__", None):
+        if any(
+            getattr(getattr(cls, name, None), "__isabstractmethod__", False)
+            for name in dir(cls)
+        ):
             return
 
         # Child class - register in parent's registry
