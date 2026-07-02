@@ -3,6 +3,7 @@
 #
 
 import sys
+from bisect import bisect_left, bisect_right
 
 from omnimalloc.primitives import Allocation
 
@@ -51,12 +52,12 @@ def compute_conflict_degrees(
     allocations: tuple[Allocation, ...],
 ) -> dict[Allocation, int]:
     """Count temporally overlapping allocations for each allocation."""
+    starts = sorted(alloc.start for alloc in allocations)
+    ends = sorted(alloc.end for alloc in allocations)
+    # An allocation overlaps [start, end) iff it starts before `end` and does
+    # not end by `start`; subtract 1 so the allocation does not count itself.
     return {
-        alloc: sum(
-            1
-            for other in allocations
-            if other != alloc and alloc.overlaps_temporally(other)
-        )
+        alloc: bisect_left(starts, alloc.end) - bisect_right(ends, alloc.start) - 1
         for alloc in allocations
     }
 
