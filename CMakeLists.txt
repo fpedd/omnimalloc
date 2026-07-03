@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.18...3.30)
+
+# Version is sourced from setuptools-scm via scikit-build-core (git tags). This
+# fallback only applies for standalone CMake calls, not using the build backend.
+if(NOT DEFINED SKBUILD_PROJECT_VERSION)
+  set(SKBUILD_PROJECT_VERSION "0.0.0")
+endif()
+
 project(
   OmniMalloc
-  VERSION 0.4.0 # Also update pyproject.toml
+  VERSION ${SKBUILD_PROJECT_VERSION}
   LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
