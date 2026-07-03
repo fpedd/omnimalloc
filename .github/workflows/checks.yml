@@ -58,6 +58,9 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    # Force matplotlib's non-interactive backend; runners lack a working Tcl/Tk.
+    env:
+      MPLBACKEND: Agg
     strategy:
       fail-fast: false
       matrix:

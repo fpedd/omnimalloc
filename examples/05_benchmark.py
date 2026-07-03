@@ -4,6 +4,7 @@
 
 from pathlib import Path
 
+from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC
 from omnimalloc.benchmark import (
     plot_benchmark,
     run_benchmark,
@@ -17,8 +18,10 @@ allocators = (
     "greedy_by_size_allocator",
     "greedy_by_size_allocator_cpp",
     "greedy_by_conflict_allocator",
-    "minimalloc_allocator",
 )
+# minimalloc is an optional dependency that only builds on some platforms
+if HAS_MINIMALLOC:
+    allocators += ("minimalloc_allocator",)
 sources = (
     "random_source",
     "minimalloc_source",

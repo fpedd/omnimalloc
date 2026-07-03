@@ -11,6 +11,7 @@ from omnimalloc import (
     run_allocation,
 )
 from omnimalloc.allocators import get_available_allocators, get_default_allocator
+from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC
 
 example_dir = Path("03_example_output")
 
@@ -32,6 +33,10 @@ plot_allocation(pool, example_dir / f"allocation_{default_allocator_name}_defaul
 
 # Run allocation with all available allocators
 for allocator_name in get_available_allocators():
+    # minimalloc is an optional dependency that only builds on some platforms
+    if "minimalloc" in allocator_name and not HAS_MINIMALLOC:
+        print(f"Skipping unavailable allocator: {allocator_name}")
+        continue
     print(f"Running allocation with allocator: {allocator_name}")
     pool = run_allocation(pool, allocator_name, validate=True)
 
