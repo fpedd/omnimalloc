@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "allocators/greedy.hpp"
+#include "allocators/supermalloc/partition.hpp"
 #include "primitives/allocation.hpp"
 #include "primitives/buffer_kind.hpp"
 #include "primitives/id_type.hpp"
@@ -104,4 +105,43 @@ NB_MODULE(_cpp, m) {
            [](const GreedyAllocator&) { return "GreedyAllocator()"; })
       .def("__eq__", &GreedyAllocator::operator==)
       .def("__hash__", std::hash<GreedyAllocator>{});
+
+  // SearchOptions class
+  constexpr SearchOptions kDefaultOptions{};
+  nb::class_<SearchOptions>(m, "SearchOptions")
+      .def(nb::init<bool, bool, bool, bool, bool>(),
+           "canonical"_a = kDefaultOptions.canonical,
+           "dominance"_a = kDefaultOptions.dominance,
+           "floor_inference"_a = kDefaultOptions.floor_inference,
+           "monotonic_floor"_a = kDefaultOptions.monotonic_floor,
+           "decompose"_a = kDefaultOptions.decompose)
+      .def_rw("canonical", &SearchOptions::canonical)
+      .def_rw("dominance", &SearchOptions::dominance)
+      .def_rw("floor_inference", &SearchOptions::floor_inference)
+      .def_rw("monotonic_floor", &SearchOptions::monotonic_floor)
+      .def_rw("decompose", &SearchOptions::decompose);
+
+  // Partition class
+  nb::class_<Partition>(m, "Partition")
+      .def_static("from_allocations", &Partition::from_allocations,
+                  "allocations"_a, nb::rv_policy::move)
+      .def("greedy_pack", &Partition::greedy_pack, "heuristic"_a,
+           nb::rv_policy::move)
+      .def("reorder", &Partition::reorder, "heuristic"_a, nb::rv_policy::move)
+      .def("with_bound", &Partition::with_bound, "bound"_a, nb::rv_policy::move)
+      .def_prop_ro("lower_bound", &Partition::lower_bound);
+
+  // Solution class
+  nb::class_<Solution>(m, "Solution")
+      .def_ro("allocations", &Solution::allocations)
+      .def_ro("offsets", &Solution::offsets)
+      .def_ro("height", &Solution::height);
+
+  m.def("greedy_many", &greedy_many, "partition"_a, "heuristics"_a,
+        "max_seconds"_a, "num_threads"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+
+  m.def("solve_many", &solve_many, "partitions"_a, "node_limit"_a,
+        "max_seconds"_a, "best_bound"_a, "options"_a, "num_threads"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 }
