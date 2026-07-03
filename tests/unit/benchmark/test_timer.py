@@ -101,13 +101,14 @@ def test_is_running_property() -> None:
     assert not timer.is_running
 
 
-def test_elapsed_ns_stopped() -> None:
+def test_elapsed_ns_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test elapsed_ns property on a stopped timer."""
+    ticks = iter([1_000, 2_000_000])
+    monkeypatch.setattr(time, "perf_counter_ns", lambda: next(ticks))
     timer = Timer(auto_start=True)
-    time.sleep(0.001)
     timer.stop()
     elapsed = timer.elapsed_ns
-    assert elapsed > 1_000_000  # At least 1ms in nanoseconds
+    assert elapsed == 1_999_000  # Delta between the two clock reads
     # Reading again should return same value
     assert timer.elapsed_ns == elapsed
 
