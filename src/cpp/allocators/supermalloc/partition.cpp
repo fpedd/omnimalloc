@@ -19,6 +19,9 @@
 #include <utility>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX  // keep <windows.h> from defining min/max macros
+#endif
 #include <process.h>
 #include <windows.h>
 #else
