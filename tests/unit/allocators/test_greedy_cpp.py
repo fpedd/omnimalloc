@@ -376,3 +376,13 @@ def test_greedy_cpp_by_all_matches_python() -> None:
         cpp_peak = max(a.height for a in cpp_result if a.height is not None)
         py_peak = max(a.height for a in py_result if a.height is not None)
         assert cpp_peak == py_peak
+
+
+def test_greedy_cpp_by_all_parallel_matches_serial() -> None:
+    allocs = tuple(
+        Allocation(id=i, size=(i % 5 + 1) * 100, start=i % 6, end=i % 6 + i % 7 + 1)
+        for i in range(25)
+    )
+    serial = GreedyByAllAllocatorCpp(cores=1).allocate(allocs)
+    parallel = GreedyByAllAllocatorCpp(cores=2).allocate(allocs)
+    assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}

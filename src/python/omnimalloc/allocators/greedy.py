@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import sys
+import os
 from bisect import bisect_left, bisect_right
+from concurrent.futures import ProcessPoolExecutor
 
 from omnimalloc.primitives import Allocation
 
@@ -112,31 +113,47 @@ class GreedyBySizeAllocator(GreedyAllocator):
         return super().allocate(tuple(sorted_allocs))
 
 
-def allocate_best_of(
-    variants: tuple[BaseAllocator, ...], allocations: tuple[Allocation, ...]
+def _allocate(name: str, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    """Worker: rebuild the named allocator from the registry and run it."""
+    return BaseAllocator.get(name)().allocate(allocations)
+
+
+def allocate_parallel(
+    variants: tuple[BaseAllocator, ...],
+    allocations: tuple[Allocation, ...],
+    cores: int | None = None,
 ) -> tuple[Allocation, ...]:
-    """Run each variant and return the result with the smallest peak memory."""
+    """Run each variant and return the lowest peak memory results."""
+
     if not allocations:
         return allocations
 
-    best_allocation: tuple[Allocation, ...] | None = None
-    best_peak_memory = sys.maxsize
+    def peak(result: tuple[Allocation, ...]) -> int:
+        return max((a.height for a in result if a.height is not None), default=0)
+
+    workers = cores if cores is not None else min(os.cpu_count() or 1, len(variants))
+    if workers <= 1:
+        return min((v.allocate(allocations) for v in variants), key=peak)
+
+    def config(a: BaseAllocator) -> dict[str, object]:
+        plain = (bool, int, float, str, tuple, type(None))
+        return {k: v for k, v in vars(a).items() if isinstance(v, plain)}
 
     for variant in variants:
-        result = variant.allocate(allocations)
-        heights = [a.height for a in result if a.height is not None]
-        peak_memory = max(heights) if heights else 0
+        if config(variant) != config(type(variant)()):
+            raise ValueError(f"variant '{variant.name()}' must be default-configured")
 
-        if peak_memory < best_peak_memory:
-            best_peak_memory = peak_memory
-            best_allocation = result
-
-    assert best_allocation is not None
-    return best_allocation
+    names = [variant.name() for variant in variants]
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_allocate, name, allocations) for name in names]
+        return min((future.result() for future in futures), key=peak)
 
 
 class GreedyByAllAllocator(GreedyAllocator):
     """Greedy allocator that runs every variant and keeps the best result."""
+
+    def __init__(self, cores: int | None = None) -> None:
+        self._cores = cores
 
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         variants: tuple[BaseAllocator, ...] = (
@@ -148,4 +165,4 @@ class GreedyByAllAllocator(GreedyAllocator):
             GreedyByConflictSizeAllocator(),
             GreedyByStartAllocator(),
         )
-        return allocate_best_of(variants, allocations)
+        return allocate_parallel(variants, allocations, cores=self._cores)

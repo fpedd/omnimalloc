@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import pickle
+
 import pytest
 from omnimalloc.primitives import Allocation, BufferKind
 
@@ -401,3 +403,18 @@ def test_large_values() -> None:
     assert alloc.size == 10**12
     assert alloc.height == 10**15 + 10**12
     assert alloc.area == 10**12 * 10**6
+
+
+def test_pickle_roundtrip() -> None:
+    """Test that pickling preserves all fields, equality, and hash."""
+    allocs = (
+        Allocation(id="x", size=10, start=0, end=5, offset=3, kind=BufferKind.INPUT),
+        Allocation(id=7, size=10, start=0, end=5),
+    )
+    for alloc in allocs:
+        restored = pickle.loads(pickle.dumps(alloc))  # noqa: S301
+        assert restored == alloc
+        assert hash(restored) == hash(alloc)
+        assert restored.id == alloc.id
+        assert restored.offset == alloc.offset
+        assert restored.kind == alloc.kind
