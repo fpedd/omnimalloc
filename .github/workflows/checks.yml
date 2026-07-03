@@ -56,12 +56,25 @@ jobs:
       - run: uv run python examples/04_sources.py
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    # Force matplotlib's non-interactive backend; runners lack a working Tcl/Tk.
+    env:
+      MPLBACKEND: Agg
     strategy:
       fail-fast: false
       matrix:
+        # Full Python matrix on Linux, plus one job per additional platform
+        # the wheels are built for (keep in sync with build.yml).
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-24.04-arm
+            python-version: "3.13"
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -72,7 +85,9 @@ jobs:
             pyproject.toml
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --extra all
+      # minimalloc builds from source; only known to build on Linux runners
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
+        if: runner.os == 'Linux'
       - run: uv run pytest --cov-report=xml --cov-report=term-missing -v
 
   build:
