@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import pytest
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
     GreedyByAllAllocator,
@@ -11,6 +12,7 @@ from omnimalloc.allocators.greedy import (
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
+    allocate_parallel,
     compute_conflict_degrees,
 )
 from omnimalloc.primitives import Allocation
@@ -410,3 +412,88 @@ def test_greedy_by_all_deterministic() -> None:
     result1 = allocator.allocate(allocs)
     result2 = allocator.allocate(allocs)
     assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
+
+
+def test_allocate_parallel_empty() -> None:
+    result = allocate_parallel((GreedyAllocator(),), (), cores=2)
+    assert result == ()
+
+
+def test_allocate_parallel_matches_serial() -> None:
+    variants = (
+        GreedyAllocator(),
+        GreedyBySizeAllocator(),
+        GreedyByDurationAllocator(),
+        GreedyByConflictSizeAllocator(),
+        GreedyByStartAllocator(),
+    )
+    allocs = tuple(
+        Allocation(
+            id=f"alloc_{i}",
+            size=(i % 5 + 1) * 10,
+            start=(i * 3) % 17,
+            end=(i * 3) % 17 + i % 4 + 1,
+        )
+        for i in range(30)
+    )
+    serial = allocate_parallel(variants, allocs, cores=1)
+    parallel = allocate_parallel(variants, allocs, cores=2)
+    assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
+
+
+def test_allocate_parallel_matches_serial_order() -> None:
+    allocs = (
+        Allocation(id="b", size=10, start=0, end=5),
+        Allocation(id="a", size=20, start=3, end=8),
+    )
+    serial = allocate_parallel((GreedyBySizeAllocator(),), allocs, cores=1)
+    parallel = allocate_parallel((GreedyBySizeAllocator(),), allocs, cores=2)
+    assert [a.id for a in parallel] == [a.id for a in serial] == ["a", "b"]
+
+
+def test_allocate_parallel_tie_break_takes_first_variant() -> None:
+    allocs = (
+        Allocation(id="a", size=10, start=0, end=5),
+        Allocation(id="b", size=20, start=0, end=5),
+    )
+    variants = (GreedyAllocator(), GreedyBySizeAllocator())
+    for result in (
+        allocate_parallel(variants, allocs, cores=1),
+        allocate_parallel(variants, allocs, cores=2),
+    ):
+        assert {a.id: a.offset for a in result} == {"a": 0, "b": 10}
+    flipped = allocate_parallel(variants[::-1], allocs, cores=2)
+    assert {a.id: a.offset for a in flipped} == {"a": 20, "b": 0}
+
+
+def test_allocate_parallel_rejects_configured_variant() -> None:
+    allocs = (Allocation(id=1, size=10, start=0, end=5),)
+    with pytest.raises(ValueError, match="default-configured"):
+        allocate_parallel((GreedyByAllAllocator(cores=2),), allocs, cores=2)
+
+
+def test_greedy_by_all_default_matches_single_core() -> None:
+    allocs = tuple(
+        Allocation(id=i, size=(i % 4 + 1) * 50, start=i % 5, end=i % 5 + i % 3 + 1)
+        for i in range(20)
+    )
+    default = GreedyByAllAllocator().allocate(allocs)
+    single = GreedyByAllAllocator(cores=1).allocate(allocs)
+    assert {a.id: a.offset for a in default} == {a.id: a.offset for a in single}
+
+
+def test_allocate_parallel_serial_when_single_core() -> None:
+    allocs = (Allocation(id="a", size=10, start=0, end=5),)
+    variants = (GreedyAllocator(), GreedyBySizeAllocator())
+    result = allocate_parallel(variants, allocs, cores=1)
+    assert {a.id: a.offset for a in result} == {"a": 0}
+
+
+def test_greedy_by_all_parallel_matches_serial() -> None:
+    allocs = tuple(
+        Allocation(id=i, size=(i % 5 + 1) * 100, start=i % 6, end=i % 6 + i % 7 + 1)
+        for i in range(25)
+    )
+    serial = GreedyByAllAllocator(cores=1).allocate(allocs)
+    parallel = GreedyByAllAllocator(cores=2).allocate(allocs)
+    assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}

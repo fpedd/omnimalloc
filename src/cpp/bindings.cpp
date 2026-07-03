@@ -5,6 +5,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
 
@@ -76,7 +77,21 @@ NB_MODULE(_cpp, m) {
              return ss.str();
            })
       .def("__eq__", &Allocation::operator==)
-      .def("__hash__", std::hash<Allocation>{});
+      .def("__hash__", std::hash<Allocation>{})
+      .def("__getstate__",
+           [](const Allocation& a) {
+             return std::make_tuple(a.id(), a.size(), a.start(), a.end(),
+                                    a.offset(), a.kind());
+           })
+      .def("__setstate__",
+           [](Allocation& a,
+              const std::tuple<IdType, int64_t, int64_t, int64_t,
+                               std::optional<int64_t>,
+                               std::optional<BufferKind>>& state) {
+             new (&a) Allocation(std::get<0>(state), std::get<1>(state),
+                                 std::get<2>(state), std::get<3>(state),
+                                 std::get<4>(state), std::get<5>(state));
+           });
 
   // GreedyAllocator class
   nb::class_<GreedyAllocator>(m, "GreedyAllocatorCpp")
