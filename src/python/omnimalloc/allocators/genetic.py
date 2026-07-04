@@ -3,45 +3,34 @@
 #
 
 import random
+from typing import Any, cast
 
-import numpy as np
-
+from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation
 
+from .base import require_unique_ids
 from .greedy import GreedyAllocator
+from .greedy_base import (
+    order_by_area,
+    order_by_conflict,
+    order_by_conflict_size,
+    order_by_duration,
+    order_by_size,
+    order_by_start,
+)
 
 try:
     from deap import algorithms, base, creator, tools
 
     HAS_DEAP = True
-
 except ImportError:
-    from types import SimpleNamespace
-    from typing import Any
-
     HAS_DEAP = False
-
-    algorithms: Any = SimpleNamespace(
-        eaSimple=None,
-    )
-    base: Any = SimpleNamespace(
-        Fitness=None,
-        Toolbox=None,
-    )
-    creator: Any = SimpleNamespace(
-        create=None,
-    )
-    tools: Any = SimpleNamespace(
-        initIterate=None,
-        selTournament=None,
-        cxOrdered=None,
-        mutShuffleIndexes=None,
-    )
+    algorithms = base = creator = tools = cast("Any", None)
 
 
 class GeneticAllocator(GreedyAllocator):
-    """Genetic algorithm allocator that evolves permutation orders."""
+    """Genetic algorithm allocator that evolves greedy placement orders."""
 
     def __init__(
         self,
@@ -52,9 +41,21 @@ class GeneticAllocator(GreedyAllocator):
         mutation_prob: float = 0.2,
         tournament_size: int = 3,
     ) -> None:
-        """Initialize the genetic allocator."""
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
+        if population_size <= 0:
+            raise ValueError(f"population_size must be positive, got {population_size}")
+        if num_generations < 0:
+            raise ValueError(
+                f"num_generations must be non-negative, got {num_generations}"
+            )
+        if not 0.0 <= crossover_prob <= 1.0 or not 0.0 <= mutation_prob <= 1.0:
+            raise ValueError(
+                f"crossover_prob and mutation_prob must be in [0, 1], "
+                f"got {crossover_prob} and {mutation_prob}"
+            )
+        if tournament_size <= 0:
+            raise ValueError(f"tournament_size must be positive, got {tournament_size}")
 
         self.seed = seed
         self.population_size = population_size
@@ -63,7 +64,7 @@ class GeneticAllocator(GreedyAllocator):
         self.mutation_prob = mutation_prob
         self.tournament_size = tournament_size
 
-        # Setup DEAP creators (only once per class)
+        # Setup DEAP creators (only once per process, they live in a global namespace)
         if not hasattr(creator, "FitnessMin"):
             creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
         if not hasattr(creator, "Individual"):
@@ -71,59 +72,43 @@ class GeneticAllocator(GreedyAllocator):
             creator.create("Individual", list, fitness=creator.FitnessMin)  # type: ignore[possibly-missing-attribute]
 
     def _evaluate_permutation(
-        self, permutation: list[int], allocations: tuple[Allocation, ...]
+        self, permutation: list[int], placer: FirstFitPlacer
     ) -> tuple[float]:
-        """Evaluate a permutation by computing peak memory usage."""
+        """Evaluate a permutation by computing its greedy peak memory usage."""
+        return (float(placer.evaluate(permutation)),)
 
-        # Apply permutation
-        permuted_allocs = tuple(allocations[i] for i in permutation)
-
-        # Run greedy allocation
-        result = super().allocate(permuted_allocs)
-
-        # Calculate peak memory usage
-        if not result:
-            return (0.0,)
-
-        peak_memory = max(alloc.height for alloc in result if alloc.height is not None)
-        return (float(peak_memory),)
-
-    def _create_heuristic_permutations(
+    def _heuristic_permutations(
         self, allocations: tuple[Allocation, ...]
     ) -> list[list[int]]:
-        """Create permutations based on greedy heuristics."""
-
-        permutations = []
-
-        # Create index mapping for original order
-        indexed_allocs = list(enumerate(allocations))
-
-        # 1. Greedy by size (largest first)
-        sorted_by_size = sorted(indexed_allocs, key=lambda x: x[1].size, reverse=True)
-        permutations.append([idx for idx, _ in sorted_by_size])
-
-        return permutations
+        """Create seed permutations mirroring the greedy sort heuristics."""
+        orders = (
+            order_by_size,
+            order_by_duration,
+            order_by_area,
+            order_by_conflict,
+            order_by_conflict_size,
+            order_by_start,
+        )
+        positions = {alloc.id: i for i, alloc in enumerate(allocations)}
+        permutations = [
+            [positions[alloc.id] for alloc in order(allocations)] for order in orders
+        ]
+        return permutations[: self.population_size]
 
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        """Evolve permutations using genetic algorithm to find best allocation."""
-
-        # Set random seeds for deterministic behavior
-        random.seed(self.seed)
-        np.random.default_rng(self.seed)
-
-        if not allocations:
-            return allocations
-
-        if len(allocations) == 1:
+        """Evolve permutations using a genetic algorithm to find best allocation."""
+        if len(allocations) < 2:
             return super().allocate(allocations)
 
-        n = len(allocations)
+        require_unique_ids(allocations)
 
-        # Setup toolbox
+        # DEAP operators draw from the global random module
+        random.seed(self.seed)
+
+        placer = FirstFitPlacer(list(allocations))
         toolbox = base.Toolbox()
-
-        # Register individual and population generators
-        toolbox.register("indices", random.sample, range(n), n)  # Random permutation
+        n = len(allocations)
+        toolbox.register("indices", random.sample, range(n), n)
         # Individual and indices are dynamically created by DEAP
         toolbox.register(
             "individual",
@@ -131,57 +116,35 @@ class GeneticAllocator(GreedyAllocator):
             creator.Individual,  # type: ignore[possibly-missing-attribute]
             toolbox.indices,  # type: ignore[possibly-missing-attribute]
         )
-
-        # Register genetic operators
-        toolbox.register(
-            "evaluate", self._evaluate_permutation, allocations=allocations
-        )
+        toolbox.register("evaluate", self._evaluate_permutation, placer=placer)
         toolbox.register("mate", tools.cxOrdered)
         toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
         # TODO(fpedd): Try larger tournsize and selNSGA2
         toolbox.register("select", tools.selTournament, tournsize=self.tournament_size)
 
-        # Create initial population with heuristic seeding
-        population = []
+        # Seed the population with heuristic orders, fill up with random ones
+        # Individual and individual() are dynamically created by DEAP
+        population = [
+            creator.Individual(permutation)  # type: ignore[possibly-missing-attribute]
+            for permutation in self._heuristic_permutations(allocations)
+        ]
+        population += [
+            toolbox.individual()  # type: ignore[possibly-missing-attribute]
+            for _ in range(self.population_size - len(population))
+        ]
 
-        # Add heuristic-based individuals (5 heuristics)
-        heuristic_perms = self._create_heuristic_permutations(allocations)
-        for perm in heuristic_perms:
-            # Individual is dynamically created by DEAP
-            individual = creator.Individual(perm)  # type: ignore[possibly-missing-attribute]
-            population.append(individual)
-
-        # Fill rest with random individuals
-        for _ in range(self.population_size - len(heuristic_perms)):
-            # individual() is dynamically registered on toolbox
-            individual = toolbox.individual()  # type: ignore[possibly-missing-attribute]
-            population.append(individual)
-
-        # Track best individual
         hall_of_fame = tools.HallOfFame(maxsize=1)
 
-        # Setup statistics
-        stats = tools.Statistics(key=lambda ind: ind.fitness.values)
-        stats.register("min", np.min)
-        stats.register("avg", np.mean)
-
-        # Run genetic algorithm
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        population, _ = algorithms.eaSimple(
+        algorithms.eaSimple(
             population=population,
             toolbox=toolbox,
             cxpb=self.crossover_prob,
             mutpb=self.mutation_prob,
             ngen=self.num_generations,
-            stats=stats,
             halloffame=hall_of_fame,
             verbose=False,
         )
 
-        # Get best permutation
-        best_individual = hall_of_fame[0]
-        best_permutation = list(best_individual)
-
-        # Apply best permutation and allocate
-        permuted_allocs = tuple(allocations[i] for i in best_permutation)
-        return super().allocate(permuted_allocs)
+        best_permutation = list(hall_of_fame[0])
+        return tuple(placer.place(best_permutation))

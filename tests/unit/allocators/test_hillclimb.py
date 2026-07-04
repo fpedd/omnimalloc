@@ -3,6 +3,7 @@
 #
 
 import pytest
+from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.hillclimb import HillClimbAllocator
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
@@ -76,7 +77,7 @@ def test_hillclimb_all_overlap_stacks_sequentially() -> None:
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
     result = allocator.allocate(allocs)
     assert _is_valid(result)
-    assert max(a.height for a in result if a.height is not None) == 500
+    assert peak_memory(result) == 500
 
 
 def test_hillclimb_survives_rejected_step_undo() -> None:

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from omnimalloc._cpp import compute_temporal_overlaps, first_fit_place
 from omnimalloc.allocators.greedy import GreedyAllocator, GreedyByAllAllocator
+from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.greedy_cpp import (
     GreedyAllocatorCpp,
     GreedyByAllAllocatorCpp,
@@ -373,9 +375,7 @@ def test_greedy_cpp_by_all_matches_python() -> None:
     for allocs in test_cases:
         cpp_result = cpp_allocator.allocate(allocs)
         py_result = py_allocator.allocate(allocs)
-        cpp_peak = max(a.height for a in cpp_result if a.height is not None)
-        py_peak = max(a.height for a in py_result if a.height is not None)
-        assert cpp_peak == py_peak
+        assert peak_memory(cpp_result) == peak_memory(py_result)
 
 
 def test_greedy_cpp_by_all_parallel_matches_serial() -> None:
@@ -386,3 +386,17 @@ def test_greedy_cpp_by_all_parallel_matches_serial() -> None:
     serial = GreedyByAllAllocatorCpp(cores=1).allocate(allocs)
     parallel = GreedyByAllAllocatorCpp(cores=2).allocate(allocs)
     assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
+
+
+def test_cpp_first_fit_place_reuses_overlaps_across_orders() -> None:
+    allocs = tuple(
+        Allocation(id=i, size=(i % 4 + 1) * 10, start=i % 5, end=i % 5 + i % 3 + 1)
+        for i in range(30)
+    )
+    overlaps = compute_temporal_overlaps(allocs)
+    for order in (allocs, tuple(reversed(allocs))):
+        result = first_fit_place(order, overlaps)
+        expected = GreedyAllocator().allocate(order)
+        assert [(a.id, a.offset) for a in result] == [
+            (a.id, a.offset) for a in expected
+        ]

@@ -30,15 +30,7 @@ def run_allocation(
 
     if allocator is None:
         allocator = get_default_allocator()
-
-    if isinstance(allocator, str):
-        allocator = BaseAllocator.get(allocator)
-
-    if isinstance(allocator, type):
-        allocator = allocator()
-
-    # At this point, allocator is guaranteed to be a BaseAllocator instance
-    assert isinstance(allocator, BaseAllocator)
+    allocator = BaseAllocator.resolve(allocator)
 
     # ty doesn't understand that TypeVar T (System|Memory|Pool) all have allocate method
     allocated = entity.allocate(allocator)  # type: ignore[invalid-argument-type]

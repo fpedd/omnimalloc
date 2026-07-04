@@ -15,9 +15,7 @@ class NaiveAllocator(BaseAllocator):
         current_offset = 0
 
         for current_alloc in allocations:
-            new_alloc = current_alloc.with_offset(current_offset)
-            placed_allocations.append(new_alloc)
-            assert new_alloc.offset is not None
-            current_offset += new_alloc.size
+            placed_allocations.append(current_alloc.with_offset(current_offset))
+            current_offset += current_alloc.size
 
         return tuple(placed_allocations)

@@ -29,24 +29,6 @@ except ImportError:
         return iterable
 
 
-def _resolve_allocator(
-    allocator: BaseAllocator | type[BaseAllocator] | str,
-) -> BaseAllocator:
-    if isinstance(allocator, str):
-        return BaseAllocator.get(allocator)()
-    if isinstance(allocator, type):
-        return allocator()
-    return allocator
-
-
-def _resolve_source(source: BaseSource | type[BaseSource] | str) -> BaseSource:
-    if isinstance(source, str):
-        return BaseSource.get(source)()
-    if isinstance(source, type):
-        return source()
-    return source
-
-
 def _resolve_parameterizable_variants(
     variants: int | tuple[IdType, ...] | None,
 ) -> tuple[int, ...]:
@@ -201,7 +183,7 @@ def run_benchmark(
         position=0,
         leave=False,
     ):
-        source_inst = _resolve_source(source)
+        source_inst = BaseSource.resolve(source)
 
         for allocator in tqdm(
             allocators,
@@ -209,7 +191,7 @@ def run_benchmark(
             position=1,
             leave=False,
         ):
-            allocator_inst = _resolve_allocator(allocator)
+            allocator_inst = BaseAllocator.resolve(allocator)
             variant_ids = _get_variant_ids(source_inst, variants)
 
             for variant_id in tqdm(

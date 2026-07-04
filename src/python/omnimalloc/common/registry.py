@@ -68,6 +68,15 @@ class Registered(ABC):
             f"'{name}' not in {cls.__name__} registry. Available: {available}"
         )
 
+    @classmethod
+    def resolve(cls, value: "Self | type[Self] | str") -> Self:
+        """Normalize a registry name, class, or instance into an instance."""
+        if isinstance(value, str):
+            value = cls.get(value)
+        if isinstance(value, type):
+            return value()
+        return value
+
 
 def _camel_to_snake(name: str) -> str:
     """Convert CamelCase to snake_case."""
