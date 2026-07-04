@@ -2,21 +2,31 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import math
 import random
 
+from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.primitives import Allocation
 
-from .base import BaseAllocator
+from .greedy import GreedyAllocator
+from .greedy_base import compute_conflicts, peak_memory
 
 
-class HillClimbAllocator(BaseAllocator):
-    """Allocator using hill climbing with simulated annealing."""
+class HillClimbAllocator(GreedyAllocator):
+    """Local search over greedy placement orders with simulated annealing.
+
+    Starts from a conflict-weighted greedy order and repeatedly swaps two
+    temporal neighbors of a peak allocation, keeping the swap if the greedy
+    peak improves (or occasionally when it worsens, per the annealing
+    schedule). `acceptance_temperature` is the percent worsening accepted
+    with probability 1/e at the start; it cools linearly to zero.
+    """
 
     def __init__(
         self,
         max_iterations: int = 100,
         seed: int = 42,
-        acceptance_temperature: float = 50.0,
+        acceptance_temperature: float = 2.0,
     ) -> None:
         if max_iterations <= 0:
             raise ValueError(f"max_iterations must be positive, got {max_iterations}")
@@ -26,194 +36,122 @@ class HillClimbAllocator(BaseAllocator):
                 f"got {acceptance_temperature}"
             )
 
-        self.max_iterations = max_iterations
-        self.seed = seed
-        self.acceptance_temperature = acceptance_temperature
-
-    def _compute_allocation_score(self, alloc: Allocation, conflicts: int) -> float:
-        return float(alloc.size) * float(conflicts * conflicts)
-
-    def _greedy_allocate(self, allocations: list[Allocation]) -> tuple[Allocation, ...]:
-        """Place allocations greedily by finding first available offset."""
-        placed: list[Allocation] = []
-
-        for alloc in allocations:
-            overlapping = [p for p in placed if alloc.overlaps_temporally(p)]
-            overlapping.sort(key=lambda a: a.offset or 0)
-
-            offset = 0
-            for placed_alloc in overlapping:
-                assert placed_alloc.offset is not None
-                if placed_alloc.offset - offset >= alloc.size:
-                    break
-                offset = max(offset, placed_alloc.offset + placed_alloc.size)
-
-            placed.append(alloc.with_offset(offset))
-
-        return tuple(placed)
-
-    def _calculate_total_memory(self, allocations: tuple[Allocation, ...]) -> int:
-        if not allocations:
-            return 0
-        offsets_with_sizes = [
-            a.offset + a.size for a in allocations if a.offset is not None
-        ]
-        return max(offsets_with_sizes) if offsets_with_sizes else 0
-
-    def _count_conflicts(
-        self, allocations: tuple[Allocation, ...]
-    ) -> dict[str | int, int]:
-        """Count temporal overlaps for each allocation."""
-        counts = {}
-        for alloc in allocations:
-            conflicts = sum(
-                1
-                for other in allocations
-                if other.id != alloc.id and alloc.overlaps_temporally(other)
-            )
-            counts[alloc.id] = conflicts
-        return counts
+        self._max_iterations = max_iterations
+        self._seed = seed
+        self._acceptance_temperature = acceptance_temperature
 
     def _collect_neighbors(
-        self, idx: int, allocations: list[Allocation]
+        self,
+        idx: int,
+        order: list[int],
+        allocations: tuple[Allocation, ...],
+        adjacency: dict[int | str, set[int | str]],
     ) -> tuple[list[int], list[int]]:
-        """Collect first and second level temporal neighbors."""
-        first_level = set()
-        second_level = set()
-        alloc = allocations[idx]
+        """Collect first and second level temporal neighbors placed before idx."""
+        first_level: set[int] = set()
+        second_level: set[int] = set()
+        adjacent = adjacency.get(allocations[order[idx]].id, frozenset())
 
-        for other_idx in range(idx):
-            other = allocations[other_idx]
-            if alloc.overlaps_temporally(other):
-                first_level.add(other_idx)
+        for other_pos in range(idx):
+            other = allocations[order[other_pos]]
+            if other.id in adjacent:
+                first_level.add(other_pos)
 
-                for candidate_idx in range(other_idx):
-                    if other.overlaps_temporally(allocations[candidate_idx]):
-                        second_level.add(candidate_idx)
+                other_adjacent = adjacency.get(other.id, frozenset())
+                for candidate_pos in range(other_pos):
+                    if allocations[order[candidate_pos]].id in other_adjacent:
+                        second_level.add(candidate_pos)
 
         return sorted(first_level), sorted(second_level)
 
+    def _propose_swap(
+        self,
+        order: list[int],
+        placed: tuple[Allocation, ...],
+        peak: int,
+        rng: random.Random,
+        allocations: tuple[Allocation, ...],
+        adjacency: dict[int | str, set[int | str]],
+    ) -> tuple[int, int] | None:
+        """Pick two earlier temporal neighbors of a peak allocation to swap."""
+        peak_indices = [
+            idx
+            for idx, alloc in enumerate(placed)
+            if alloc.offset is not None and alloc.offset + alloc.size == peak
+        ]
+        if not peak_indices:
+            return None
+
+        target_idx = rng.choice(peak_indices)
+        first_level, second_level = self._collect_neighbors(
+            target_idx, order, allocations, adjacency
+        )
+        if not first_level:
+            return None
+
+        idx1 = rng.choice(first_level)
+        # Favor reaching further back to escape local rearrangements
+        use_second = bool(second_level) and rng.random() < 0.75
+        idx2 = rng.choice(second_level if use_second else first_level)
+        return (idx1, idx2) if idx1 != idx2 else None
+
     def _should_accept(
-        self, current: int, best: int, iteration: int, rng: random.Random
+        self, candidate: int, current: int, iteration: int, rng: random.Random
     ) -> bool:
-        """Determine if allocation should be accepted using simulated annealing."""
-        if iteration == 0 or current <= best:
+        """Accept improvements always, worsenings per the annealing schedule."""
+        if candidate <= current:
             return True
 
-        delta = current - best
-        probability = int(
-            self.acceptance_temperature * delta / current / (iteration + 1)
-        )
-        return rng.randint(0, 99) < probability
+        cooling = 1.0 - iteration / self._max_iterations
+        temperature = self._acceptance_temperature * cooling
+        if temperature <= 0.0:
+            return False
 
-    def _find_max_memory_allocations(
-        self, allocations: tuple[Allocation, ...], total_memory: int
-    ) -> list[Allocation]:
-        """Find allocations that end at the maximum memory position."""
-        return [
-            a
-            for a in allocations
-            if a.offset is not None and a.offset + a.size == total_memory
-        ]
-
-    def _select_swap_candidates(
-        self, first_level: list[int], second_level: list[int], rng: random.Random
-    ) -> tuple[int, int]:
-        """Select two indices to swap from neighbor lists."""
-        idx1 = rng.choice(first_level)
-        idx2 = idx1
-
-        # Try to find different index
-        for _ in range(10):
-            if second_level and (not first_level or rng.randint(0, 99) > 25):
-                idx2 = rng.choice(second_level)
-            else:
-                idx2 = rng.choice(first_level)
-
-            if idx2 != idx1:
-                break
-
-            if len(second_level) < 2 and len(first_level) < 2:
-                break
-
-        return idx1, idx2
+        worsening_percent = 100.0 * (candidate - current) / current
+        return rng.random() < math.exp(-worsening_percent / temperature)
 
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         if not allocations:
             return allocations
 
-        rng = random.Random(self.seed)
-        conflict_counts = self._count_conflicts(allocations)
+        rng = random.Random(self._seed)
+        conflicts = compute_conflicts(allocations)
+        placer = FirstFitPlacer(list(allocations))
+        adjacency = placer.overlaps
 
-        # Sort by score, size, then id for deterministic ordering
-        alloc_list = sorted(
-            allocations,
-            key=lambda a: (
-                self._compute_allocation_score(a, conflict_counts[a.id]),
-                a.size,
-                str(a.id),
+        # Start from size * conflicts^2, size, then id for deterministic ordering
+        order = sorted(
+            range(len(allocations)),
+            key=lambda i: (
+                allocations[i].size * conflicts[allocations[i]] ** 2,
+                allocations[i].size,
+                str(allocations[i].id),
             ),
             reverse=True,
         )
 
-        pos_map = {alloc.id: idx for idx, alloc in enumerate(alloc_list)}
+        # Greedy placement preserves order, so placed[i] corresponds to order[i]
+        current = tuple(placer.place(order))
+        current_peak = peak_memory(current)
+        best, best_peak = current, current_peak
 
-        # Initial greedy allocation
-        result = self._greedy_allocate(alloc_list)
-        best_memory = self._calculate_total_memory(result)
-        best_result = result
-
-        # Track the last swap so a rejected step can be undone
-        last_swap: tuple[int, int] | None = None
-
-        for iteration in range(self.max_iterations):
-            result = self._greedy_allocate(alloc_list)
-            current_memory = self._calculate_total_memory(result)
-
-            # Accept or reject based on simulated annealing
-            if self._should_accept(current_memory, best_memory, iteration, rng):
-                best_result = result
-                best_memory = current_memory
-            elif last_swap is not None:
-                # Undo last swap and re-run greedy on the reverted ordering
-                swap_idx1, swap_idx2 = last_swap
-                alloc_list[swap_idx1], alloc_list[swap_idx2] = (
-                    alloc_list[swap_idx2],
-                    alloc_list[swap_idx1],
-                )
-                pos_map[alloc_list[swap_idx1].id] = swap_idx1
-                pos_map[alloc_list[swap_idx2].id] = swap_idx2
-                result = self._greedy_allocate(alloc_list)
-                current_memory = self._calculate_total_memory(result)
-
-            last_swap = None
-
-            # Find allocations at maximum memory and select target
-            max_allocs = self._find_max_memory_allocations(result, current_memory)
-            if not max_allocs:
-                continue
-
-            target = rng.choice(max_allocs)
-            target_idx = pos_map[target.id]
-
-            # Collect neighbors and select swap candidates
-            first_level, second_level = self._collect_neighbors(target_idx, alloc_list)
-            if not first_level:
-                continue
-
-            swap_idx1, swap_idx2 = self._select_swap_candidates(
-                first_level, second_level, rng
+        for iteration in range(self._max_iterations):
+            swap = self._propose_swap(
+                order, current, current_peak, rng, allocations, adjacency
             )
-            if swap_idx1 == swap_idx2:
+            if swap is None:
                 continue
 
-            # Perform swap
-            alloc_list[swap_idx1], alloc_list[swap_idx2] = (
-                alloc_list[swap_idx2],
-                alloc_list[swap_idx1],
-            )
-            pos_map[alloc_list[swap_idx1].id] = swap_idx1
-            pos_map[alloc_list[swap_idx2].id] = swap_idx2
-            last_swap = (swap_idx1, swap_idx2)
+            idx1, idx2 = swap
+            order[idx1], order[idx2] = order[idx2], order[idx1]
+            candidate = tuple(placer.place(order))
+            candidate_peak = peak_memory(candidate)
 
-        return best_result
+            if self._should_accept(candidate_peak, current_peak, iteration, rng):
+                current, current_peak = candidate, candidate_peak
+                if candidate_peak < best_peak:
+                    best, best_peak = candidate, candidate_peak
+            else:
+                order[idx1], order[idx2] = order[idx2], order[idx1]
+
+        return best

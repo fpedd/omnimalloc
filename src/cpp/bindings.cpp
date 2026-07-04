@@ -6,12 +6,15 @@
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/stl/unordered_map.h>
+#include <nanobind/stl/unordered_set.h>
 #include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
 
 #include <sstream>
 
 #include "allocators/greedy.hpp"
+#include "allocators/greedy_base.hpp"
 #include "allocators/supermalloc/partition.hpp"
 #include "primitives/allocation.hpp"
 #include "primitives/buffer_kind.hpp"
@@ -93,6 +96,18 @@ NB_MODULE(_cpp, m) {
                                  std::get<2>(state), std::get<3>(state),
                                  std::get<4>(state), std::get<5>(state));
            });
+
+  m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
+        "allocations"_a, nb::rv_policy::move);
+  m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
+        nb::rv_policy::move);
+
+  // FirstFitPlacer class: resident placer for the order-search allocators
+  nb::class_<FirstFitPlacer>(m, "FirstFitPlacer")
+      .def(nb::init<std::vector<Allocation>>(), "allocations"_a)
+      .def("evaluate", &FirstFitPlacer::evaluate, "order"_a)
+      .def("place", &FirstFitPlacer::place, "order"_a, nb::rv_policy::move)
+      .def_prop_ro("overlaps", &FirstFitPlacer::overlaps, nb::rv_policy::copy);
 
   // GreedyAllocator class
   nb::class_<GreedyAllocator>(m, "GreedyAllocatorCpp")

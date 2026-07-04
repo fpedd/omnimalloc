@@ -5,6 +5,7 @@
 from typing import cast
 
 import pytest
+from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.supermalloc import (
     Heuristic,
     SortKey,
@@ -17,10 +18,6 @@ from omnimalloc.validate import validate_allocation
 
 def _assert_valid(result: tuple[Allocation, ...]) -> None:
     assert validate_allocation(Pool(id="pool", allocations=result))
-
-
-def _height(result: tuple[Allocation, ...]) -> int:
-    return max(a.height for a in result if a.height is not None)
 
 
 def test_empty() -> None:
@@ -54,7 +51,7 @@ def test_overlapping_reach_lower_bound() -> None:
         )
     )
     _assert_valid(result)
-    assert _height(result) == 175
+    assert peak_memory(result) == 175
 
 
 def test_preserves_ids_and_sizes() -> None:
@@ -130,7 +127,7 @@ def test_perfect_tiling_stack() -> None:
     )
     result = SupermallocAllocator().allocate(allocations)
     _assert_valid(result)
-    assert _height(result) == 256
+    assert peak_memory(result) == 256
 
 
 def test_interleaved_lifetimes() -> None:
@@ -143,4 +140,4 @@ def test_interleaved_lifetimes() -> None:
     )
     result = SupermallocAllocator().allocate(allocations)
     _assert_valid(result)
-    assert _height(result) == 300
+    assert peak_memory(result) == 300

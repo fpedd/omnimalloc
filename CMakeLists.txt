@@ -37,9 +37,13 @@ execute_process(
 find_package(nanobind CONFIG REQUIRED)
 
 nanobind_add_module(
-  _cpp NB_STATIC src/cpp/allocators/greedy.cpp
+  _cpp
+  NB_STATIC
+  src/cpp/allocators/greedy.cpp
+  src/cpp/allocators/greedy_base.cpp
   src/cpp/allocators/supermalloc/partition.cpp
-  src/cpp/primitives/allocation.cpp src/cpp/bindings.cpp)
+  src/cpp/primitives/allocation.cpp
+  src/cpp/bindings.cpp)
 
 target_include_directories(_cpp PRIVATE src/cpp)
 target_link_libraries(_cpp PRIVATE Threads::Threads)

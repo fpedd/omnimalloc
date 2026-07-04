@@ -12,8 +12,11 @@ from omnimalloc.allocators.greedy import (
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
+)
+from omnimalloc.allocators.greedy_base import (
     allocate_parallel,
-    compute_conflict_degrees,
+    compute_conflicts,
+    peak_memory,
 )
 from omnimalloc.primitives import Allocation
 
@@ -121,34 +124,34 @@ def test_greedy_by_duration_allocates_correctly() -> None:
     assert result[1].offset == 100
 
 
-def test_compute_conflict_degrees_empty() -> None:
-    assert compute_conflict_degrees(()) == {}
+def test_compute_conflicts_empty() -> None:
+    assert compute_conflicts(()) == {}
 
 
-def test_compute_conflict_degrees_counts_overlaps() -> None:
+def test_compute_conflicts_counts_overlaps() -> None:
     alone = Allocation(id=1, size=10, start=0, end=5)
     pair_a = Allocation(id=2, size=10, start=10, end=20)
     pair_b = Allocation(id=3, size=10, start=15, end=25)
-    degrees = compute_conflict_degrees((alone, pair_a, pair_b))
+    degrees = compute_conflicts((alone, pair_a, pair_b))
     assert degrees[alone] == 0
     assert degrees[pair_a] == 1
     assert degrees[pair_b] == 1
 
 
-def test_compute_conflict_degrees_touching_intervals_do_not_conflict() -> None:
+def test_compute_conflicts_touching_intervals_do_not_conflict() -> None:
     first = Allocation(id=1, size=10, start=0, end=10)
     second = Allocation(id=2, size=10, start=10, end=20)
-    degrees = compute_conflict_degrees((first, second))
+    degrees = compute_conflicts((first, second))
     assert degrees[first] == 0
     assert degrees[second] == 0
 
 
-def test_compute_conflict_degrees_matches_bruteforce() -> None:
+def test_compute_conflicts_matches_bruteforce() -> None:
     allocs = tuple(
         Allocation(id=i, size=i + 1, start=(i * 7) % 23, end=(i * 7) % 23 + i % 6 + 1)
         for i in range(50)
     )
-    degrees = compute_conflict_degrees(allocs)
+    degrees = compute_conflicts(allocs)
     for alloc in allocs:
         expected = sum(
             1 for other in allocs if other != alloc and alloc.overlaps_temporally(other)
@@ -385,7 +388,7 @@ def test_greedy_by_all_picks_best_peak() -> None:
         Allocation(id=5, size=300, start=2, end=4),
     )
     result = allocator.allocate(allocs)
-    peak = max(a.height for a in result if a.height is not None)
+    peak = peak_memory(result)
 
     variants = (
         GreedyAllocator(),
@@ -396,10 +399,7 @@ def test_greedy_by_all_picks_best_peak() -> None:
         GreedyByConflictSizeAllocator(),
         GreedyByStartAllocator(),
     )
-    best_variant_peak = min(
-        max(a.height for a in v.allocate(allocs) if a.height is not None)
-        for v in variants
-    )
+    best_variant_peak = min(peak_memory(v.allocate(allocs)) for v in variants)
     assert peak == best_variant_peak
 
 
