@@ -6,6 +6,8 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        # matplotlib-generated README figures contain trailing whitespace
+        exclude: '^assets/.*\.svg$'
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: check-yaml

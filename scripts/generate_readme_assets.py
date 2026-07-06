@@ -25,15 +25,14 @@ writes PNG previews.
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import random
 import shutil
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import mean
 from typing import TYPE_CHECKING, Any
 
 import matplotlib as mpl
@@ -43,8 +42,10 @@ from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 from omnimalloc import run_allocation, validate_allocation
 from omnimalloc.allocators import BaseAllocator
+from omnimalloc.allocators.minimalloc import MinimallocAllocator
 from omnimalloc.allocators.supermalloc import SupermallocAllocator, SupermallocConfig
 from omnimalloc.benchmark.sources import BaseSource
+from omnimalloc.benchmark.timer import Timer
 from omnimalloc.common.units import MB
 
 if TYPE_CHECKING:
@@ -58,35 +59,82 @@ SCALING_TIMEOUT = 3.0
 MINIMALLOC_URL = "git+https://github.com/google/minimalloc.git"
 SCALING_SIZES = (10, 32, 100, 316, 1000, 3162, 10000)
 SCALING_SIZES_SLOW = SCALING_SIZES[:-1]  # hill climbing needs minutes at 10k
+ALLOCATION_PROBLEM = "mm-G"
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
-# Hero points: allocator -> (display label, palette role).
-HERO_ALLOCATORS: dict[str, tuple[str, str]] = {
+# Allocator display metadata: registry name -> (label, palette role).
+ALLOCATORS: dict[str, tuple[str, str]] = {
+    "naive_allocator": ("naive", "baseline"),
     "random_allocator": ("random search", "baseline"),
     "greedy_by_area_allocator_cpp": ("greedy (area)", "greedy"),
     "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy"),
     "greedy_by_all_allocator_cpp": ("greedy (all)", "greedy"),
     "hill_climb_allocator": ("hill climbing", "search"),
     "genetic_allocator": ("genetic", "search"),
-    "minimalloc": ("minimalloc", "minimalloc"),
-    "supermalloc": ("supermalloc", "exact"),
+    "minimalloc_allocator": ("minimalloc", "minimalloc"),
+    "supermalloc_allocator": ("supermalloc", "exact"),
 }
 
+HERO_ALLOCATORS = (
+    "random_allocator",
+    "greedy_by_area_allocator_cpp",
+    "greedy_by_size_allocator_cpp",
+    "greedy_by_all_allocator_cpp",
+    "hill_climb_allocator",
+    "genetic_allocator",
+    "minimalloc_allocator",
+    "supermalloc_allocator",
+)
 QUALITY_ALLOCATORS = (
     "greedy_by_size_allocator_cpp",
     "greedy_by_all_allocator_cpp",
-    "minimalloc",
-    "supermalloc",
+    "minimalloc_allocator",
+    "supermalloc_allocator",
 )
-QUALITY_PROBLEMS = ("mm-A", "mm-C", "mm-H", "mm-K", "pinwheel", "tiling", "random")
+SCALING_ALLOCATORS = (
+    "naive_allocator",
+    "greedy_by_size_allocator_cpp",
+    "hill_climb_allocator",
+    "minimalloc_allocator",
+    "supermalloc_allocator",
+)
 
-SCALING_ALLOCATORS: dict[str, tuple[str, str]] = {
-    "naive_allocator": ("naive", "baseline"),
-    "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy"),
-    "hill_climb_allocator": ("hill climbing", "search"),
-    "minimalloc": ("minimalloc", "minimalloc"),
-    "supermalloc": ("supermalloc", "exact"),
+# Quality re-colors greedy (size) so the two greedy variants stay distinguishable.
+QUALITY_ROLES = {"greedy_by_size_allocator_cpp": "greedy_alt"}
+
+QUALITY_PROBLEMS = ("mm-A", "mm-C", "mm-H", "mm-K", "pinwheel", "tiling", "random")
+PROBLEM_LABELS = {
+    "mm-A": "minimalloc A",
+    "mm-C": "minimalloc C",
+    "mm-G": "minimalloc G",
+    "mm-H": "minimalloc H",
+    "mm-K": "minimalloc K",
+    "pinwheel": "pinwheel",
+    "tiling": "tiling",
+    "random": "random (easy)",
+}
+
+# Direct-label offsets in points, tuned per hero point: (dx, dy, ha).
+HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
+    "random_allocator": (0, -11, "center"),
+    "greedy_by_area_allocator_cpp": (0, 8, "center"),
+    "greedy_by_size_allocator_cpp": (-8, 0, "right"),
+    "greedy_by_all_allocator_cpp": (0, -11, "center"),
+    "hill_climb_allocator": (0, 8, "center"),
+    "genetic_allocator": (0, -11, "center"),
+    "minimalloc_allocator": (0, 8, "center"),
+    "supermalloc_allocator": (-10, 0, "right"),
+}
+
+# Direct-label offsets in points: (dx, dy, ha). minimalloc's line ends early
+# (no 10k point), so its label anchors left, away from the 10k label cluster.
+SCALING_LABEL_OFFSETS = {
+    "naive_allocator": (4, -2, "left"),
+    "greedy_by_size_allocator_cpp": (4, -4, "left"),
+    "hill_climb_allocator": (4, 2, "left"),
+    "minimalloc_allocator": (0, 9, "center"),
+    "supermalloc_allocator": (4, 4, "left"),
 }
 
 
@@ -147,37 +195,31 @@ def _pip_install(spec: str) -> None:
 
 
 def _ensure_minimalloc() -> None:
-    """Install Google's minimalloc on demand (no PyPI wheel) and refresh the wrapper."""
+    """Install Google's minimalloc on demand (no PyPI wheel)."""
     try:
         import minimalloc  # type: ignore  # noqa: F401
     except ImportError:
-        pass
-    else:
-        return
-    print(f"minimalloc not installed — installing from {MINIMALLOC_URL} ...")
-    _pip_install(MINIMALLOC_URL)
-    importlib.invalidate_caches()
-    # The wrapper decides availability at import time; reload it post-install.
-    importlib.reload(importlib.import_module("omnimalloc.allocators.minimalloc"))
+        print(f"minimalloc not installed — installing from {MINIMALLOC_URL} ...")
+        _pip_install(MINIMALLOC_URL)
 
 
 def _allocator(name: str, timeout: float = SUPERMALLOC_TIMEOUT) -> BaseAllocator:
-    if name == "supermalloc":
+    if name == "supermalloc_allocator":
         return SupermallocAllocator(config=SupermallocConfig(timeout=timeout))
-    if name == "minimalloc":
-        from omnimalloc.allocators.minimalloc import MinimallocAllocator
-
+    if name == "minimalloc_allocator":
         return MinimallocAllocator(timeout=int(timeout))
-    return BaseAllocator.get(name)()
+    return BaseAllocator.resolve(name)
 
 
-def _solve(pool: Pool, allocator: BaseAllocator) -> tuple[float, float, Pool]:
+def _solve(
+    pool: Pool, allocator: BaseAllocator, *, validate: bool = True
+) -> tuple[float, float, Pool]:
     """Time the solve alone; validation is quadratic and would skew timings."""
-    start = time.perf_counter()
-    solved = run_allocation(pool, allocator=allocator)
-    seconds = time.perf_counter() - start
-    validate_allocation(solved)
-    return seconds, solved.efficiency, solved
+    with Timer() as timer:
+        solved = run_allocation(pool, allocator=allocator)
+    if validate:
+        validate_allocation(solved)
+    return timer.elapsed_s, solved.efficiency, solved
 
 
 def _hard_suite() -> dict[str, Pool]:
@@ -196,51 +238,56 @@ def collect_data() -> dict[str, Any]:
     _ensure_minimalloc()
     random.seed(SEED)
     suite = _hard_suite()
-    hard = {k: v for k, v in suite.items() if k != "random"}
+    hard = [k for k in suite if k != "random"]
 
-    # Hero + quality: every allocator over every problem.
+    # Hero + quality: every problem, but "random" only where quality needs it.
     runs: dict[str, dict[str, tuple[float, float]]] = {}
+    supermalloc_pools: dict[str, Pool] = {}
     names = set(HERO_ALLOCATORS) | set(QUALITY_ALLOCATORS)
     for name in sorted(names):
         allocator = _allocator(name)
+        problems = tuple(suite) if name in QUALITY_ALLOCATORS else hard
         runs[name] = {}
-        for problem, pool in suite.items():
-            seconds, efficiency, _ = _solve(pool, allocator)
+        for problem in problems:
+            seconds, efficiency, solved = _solve(suite[problem], allocator)
+            if name == "supermalloc_allocator":
+                supermalloc_pools[problem] = solved
             runs[name][problem] = (seconds, efficiency)
             print(f"{name:38s} {problem:10s} {seconds:8.3f}s  {efficiency:7.2%}")
 
     hero = {
         name: {
-            "seconds": sum(runs[name][p][0] for p in hard) / len(hard),
-            "efficiency": sum(runs[name][p][1] for p in hard) / len(hard) * 100,
+            "seconds": mean(runs[name][p][0] for p in hard),
+            "efficiency": mean(runs[name][p][1] for p in hard),
         }
         for name in HERO_ALLOCATORS
     }
     quality = {
-        name: {p: runs[name][p][1] * 100 for p in QUALITY_PROBLEMS}
+        name: {p: runs[name][p][1] for p in QUALITY_PROBLEMS}
         for name in QUALITY_ALLOCATORS
     }
 
-    # Scaling: solve time vs. problem size on the random source.
+    # Scaling: solve time vs. problem size on the random source. Skip validation
+    # here: it is quadratic in pure Python and would dwarf the fast solves at 10k.
     source = BaseSource.get("random_source")()
-    scaling: dict[str, dict[str, float]] = {}
+    scaling: dict[str, list[list[float]]] = {}
     for name in SCALING_ALLOCATORS:
         allocator = _allocator(name, SCALING_TIMEOUT)
         # Hill climbing needs minutes at 10k; minimalloc can't solve 10k in budget.
-        capped = name in ("hill_climb_allocator", "minimalloc")
+        capped = name in ("hill_climb_allocator", "minimalloc_allocator")
         sizes = SCALING_SIZES_SLOW if capped else SCALING_SIZES
-        scaling[name] = {}
+        scaling[name] = []
         for size in sizes:
-            seconds, _, _ = _solve(source.get_variant(size), allocator)
-            scaling[name][str(size)] = seconds
+            seconds, _, _ = _solve(source.get_variant(size), allocator, validate=False)
+            scaling[name].append([size, seconds])
             print(f"{name:38s} n={size:<6d} {seconds:8.3f}s")
 
-    # Allocation rendering: one real problem solved to proven optimality.
-    problem = "mm-G"
-    _, efficiency, solved = _solve(suite[problem], _allocator("supermalloc"))
+    # Allocation rendering: a real problem solved to proven optimality. The loop
+    # above already solved it with the same budget, so reuse that pool.
+    solved = supermalloc_pools[ALLOCATION_PROBLEM]
     allocation = {
-        "problem": QUALITY_ROW_LABELS.get(problem, problem),
-        "efficiency": efficiency,
+        "problem": PROBLEM_LABELS.get(ALLOCATION_PROBLEM, ALLOCATION_PROBLEM),
+        "efficiency": runs["supermalloc_allocator"][ALLOCATION_PROBLEM][1],
         "size": solved.size,
         "rects": [[a.start, a.duration, a.offset, a.size] for a in solved.allocations],
     }
@@ -262,22 +309,28 @@ def _style(theme: Theme) -> dict[str, Any]:
         "axes.facecolor": "none",
         "savefig.facecolor": "none",
         "savefig.transparent": True,
-        "axes.edgecolor": theme.grid,
+        "axes.spines.left": False,
+        "axes.spines.right": False,
+        "axes.spines.top": False,
+        "axes.spines.bottom": False,
         "axes.labelcolor": theme.muted,
-        "axes.linewidth": 0.8,
-        "xtick.color": theme.grid,
-        "ytick.color": theme.grid,
+        "axes.labelsize": 8.5,
+        "grid.color": theme.grid,
+        "grid.linewidth": 0.5,
+        "grid.alpha": 0.45,
         "xtick.labelcolor": theme.muted,
         "ytick.labelcolor": theme.muted,
         "xtick.labelsize": 8.0,
         "ytick.labelsize": 8.0,
-        "axes.labelsize": 8.5,
+        "xtick.major.size": 0,
+        "ytick.major.size": 0,
+        "xtick.minor.size": 0,
+        "ytick.minor.size": 0,
     }
 
 
-def _despine(ax: Axes, keep: tuple[str, ...] = ("left", "bottom")) -> None:
-    for side, spine in ax.spines.items():
-        spine.set_visible(side in keep)
+def _quality_role(name: str) -> str:
+    return QUALITY_ROLES.get(name, ALLOCATORS[name][1])
 
 
 def _title(fig: Figure, theme: Theme, title: str, subtitle: str) -> None:
@@ -304,6 +357,27 @@ def _series_line(fig: Figure, series: list[tuple[str, str]], y: float) -> None:
         x += 0.033 + len(label) * 0.0148
 
 
+def _optimal_line(
+    ax: Axes,
+    theme: Theme,
+    value: float,
+    axis: str = "y",
+    linewidth: float = 0.8,
+    alpha: float = 0.8,
+    zorder: int = 1,
+) -> None:
+    """Dashed reference line marking the proven-optimal value."""
+    line = ax.axhline if axis == "y" else ax.axvline
+    line(
+        value,
+        color=theme.optimal,
+        linewidth=linewidth,
+        linestyle=(0, (4, 4)),
+        alpha=alpha,
+        zorder=zorder,
+    )
+
+
 def _format_seconds(value: float) -> str:
     if value < 1e-3:
         return f"{value * 1e6:.0f} µs"
@@ -322,12 +396,8 @@ def _format_steps(value: float, _pos: int) -> str:
 
 def _save(fig: Figure, name: str, theme: Theme, preview: Path | None) -> None:
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    svg = ASSETS_DIR / f"{name}_{theme.name}.svg"
-    fig.savefig(svg, bbox_inches="tight", pad_inches=0.02)
-    # matplotlib emits trailing whitespace on some lines; strip it so the
-    # committed assets stay clean under the trailing-whitespace pre-commit hook.
-    svg.write_text(
-        "\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n"
+    fig.savefig(
+        ASSETS_DIR / f"{name}_{theme.name}.svg", bbox_inches="tight", pad_inches=0.02
     )
     if preview is not None:
         preview.mkdir(parents=True, exist_ok=True)
@@ -342,35 +412,15 @@ def _save(fig: Figure, name: str, theme: Theme, preview: Path | None) -> None:
     plt.close(fig)
 
 
-# Direct-label offsets in points, tuned per hero point: (dx, dy, ha).
-HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
-    "random search": (0, -11, "center"),
-    "greedy (area)": (0, 8, "center"),
-    "greedy (size)": (-8, 0, "right"),
-    "greedy (all)": (0, -11, "center"),
-    "hill climbing": (0, 8, "center"),
-    "genetic": (0, -11, "center"),
-    "minimalloc": (0, 8, "center"),
-    "supermalloc": (-10, 0, "right"),
-}
-
-
 def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> None:
     fig, ax = plt.subplots(figsize=(7.4, 3.5))
 
     points = {
-        label: (data[name]["seconds"], data[name]["efficiency"], role)
-        for name, (label, role) in HERO_ALLOCATORS.items()
+        name: (data[name]["seconds"], data[name]["efficiency"] * 100)
+        for name in HERO_ALLOCATORS
     }
 
-    ax.axhline(
-        100,
-        color=theme.optimal,
-        linewidth=0.8,
-        linestyle=(0, (4, 4)),
-        alpha=0.8,
-        zorder=1,
-    )
+    _optimal_line(ax, theme, 100)
     ax.annotate(
         "optimal",
         xy=(1.0, 100),
@@ -385,7 +435,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
     # Pareto frontier: lower time and higher efficiency dominate.
     ordered = sorted(points.values(), key=lambda p: (p[0], -p[1]))
     front, best = [], float("-inf")
-    for seconds, efficiency, _ in ordered:
+    for seconds, efficiency in ordered:
         if efficiency > best:
             front.append((seconds, efficiency))
             best = efficiency
@@ -397,9 +447,10 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
         zorder=2,
     )
 
-    for label, (seconds, efficiency, role) in points.items():
+    for name, (seconds, efficiency) in points.items():
+        label, role = ALLOCATORS[name]
         color = theme.role[role]
-        emphasis = label == "supermalloc"
+        emphasis = name == "supermalloc_allocator"
         ax.scatter(
             seconds,
             efficiency,
@@ -409,7 +460,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
             edgecolors=theme.ink if emphasis else "none",
             zorder=4,
         )
-        dx, dy, ha = HERO_LABEL_OFFSETS[label]
+        dx, dy, ha = HERO_LABEL_OFFSETS[name]
         ax.annotate(
             label,
             (seconds, efficiency),
@@ -429,10 +480,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
     ticks = (1e-3, 1e-2, 1e-1, 1, 10)
     ax.set_xticks(ticks)
     ax.set_xticklabels([_format_seconds(t) for t in ticks])
-    ax.grid(visible=True, axis="both", color=theme.grid, linewidth=0.5, alpha=0.45)
-    _despine(ax, keep=())
-    ax.tick_params(length=0, which="both")
-    ax.minorticks_off()
+    ax.grid(visible=True, axis="both")
     ax.set_xlabel("mean solve time (log scale)")
     ax.set_ylabel("mean packing efficiency (%)")
 
@@ -447,41 +495,16 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
     _save(fig, "hero", theme, preview)
 
 
-QUALITY_LABELS = {
-    "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy_alt"),
-    "greedy_by_all_allocator_cpp": ("greedy (all)", "greedy"),
-    "minimalloc": ("minimalloc", "minimalloc"),
-    "supermalloc": ("supermalloc", "exact"),
-}
-QUALITY_ROW_LABELS = {
-    "mm-A": "minimalloc A",
-    "mm-C": "minimalloc C",
-    "mm-G": "minimalloc G",
-    "mm-H": "minimalloc H",
-    "mm-K": "minimalloc K",
-    "pinwheel": "pinwheel",
-    "tiling": "tiling",
-    "random": "random (easy)",
-}
-
-
 def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> None:
     fig, ax = plt.subplots(figsize=(3.8, 3.35))
 
     rows = list(QUALITY_PROBLEMS)
     ys = range(len(rows), 0, -1)
 
-    ax.axvline(
-        100,
-        color=theme.optimal,
-        linewidth=0.8,
-        linestyle=(0, (4, 4)),
-        alpha=0.8,
-        zorder=1,
-    )
+    _optimal_line(ax, theme, 100, axis="x")
 
     for row, y in zip(rows, ys, strict=True):
-        values = [data[name][row] for name in QUALITY_ALLOCATORS]
+        values = [data[name][row] * 100 for name in QUALITY_ALLOCATORS]
         ax.plot(
             [min(values), max(values)],
             [y, y],
@@ -491,55 +514,43 @@ def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
             solid_capstyle="round",
         )
         for name, value in zip(QUALITY_ALLOCATORS, values, strict=True):
-            _, role = QUALITY_LABELS[name]
-            emphasis = name == "supermalloc"
+            emphasis = name == "supermalloc_allocator"
             ax.scatter(
                 value,
                 y,
                 s=52 if emphasis else 34,
-                color=theme.role[role],
+                color=theme.role[_quality_role(name)],
                 zorder=4,
                 linewidths=1.2 if emphasis else 0,
                 edgecolors=theme.ink if emphasis else "none",
             )
 
     ax.set_yticks(list(ys))
-    ax.set_yticklabels([QUALITY_ROW_LABELS[r] for r in rows], fontsize=8.5)
+    ax.set_yticklabels([PROBLEM_LABELS[r] for r in rows], fontsize=8.5)
     ax.set_ylim(0.4, len(rows) + 0.6)
     ax.set_xlim(60, 103)
     ax.set_xticks((60, 70, 80, 90, 100))
-    ax.grid(visible=True, axis="x", color=theme.grid, linewidth=0.5, alpha=0.45)
-    _despine(ax, keep=())
-    ax.tick_params(length=0)
+    ax.grid(visible=True, axis="x")
     ax.set_xlabel("packing efficiency (%)")
 
     _title(fig, theme, "Quality per problem", "100% = proven lower bound")
-    series = [(label, theme.role[role]) for label, role in QUALITY_LABELS.values()]
+    series = [
+        (ALLOCATORS[name][0], theme.role[_quality_role(name)])
+        for name in QUALITY_ALLOCATORS
+    ]
     _series_line(fig, series, y=0.842)
     fig.subplots_adjust(top=0.775, bottom=0.125, left=0.265, right=0.97)
     _save(fig, "quality", theme, preview)
 
 
-# Direct-label offsets in points: (dx, dy, ha). minimalloc's line ends early
-# (no 10k point), so its label anchors left, away from the 10k label cluster.
-SCALING_LABEL_OFFSETS = {
-    "naive": (4, -2, "left"),
-    "greedy (size)": (4, -4, "left"),
-    "hill climbing": (4, 2, "left"),
-    "minimalloc": (0, 9, "center"),
-    "supermalloc": (4, 4, "left"),
-}
-
-
 def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> None:
     fig, ax = plt.subplots(figsize=(3.8, 3.35))
 
-    for name, (label, role) in SCALING_ALLOCATORS.items():
-        series = data[name]
-        sizes = sorted(int(k) for k in series)
-        seconds = [series[str(n)] for n in sizes]
+    for name in SCALING_ALLOCATORS:
+        label, role = ALLOCATORS[name]
+        sizes, seconds = zip(*data[name], strict=True)
         color = theme.role[role]
-        emphasis = name == "supermalloc"
+        emphasis = name == "supermalloc_allocator"
         ax.plot(
             sizes,
             seconds,
@@ -550,7 +561,7 @@ def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
             markeredgewidth=0,
             zorder=4,
         )
-        dx, dy, ha = SCALING_LABEL_OFFSETS[label]
+        dx, dy, ha = SCALING_LABEL_OFFSETS[name]
         ax.annotate(
             label,
             (sizes[-1], seconds[-1]),
@@ -572,10 +583,7 @@ def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
     ax.set_ylim(3e-6, 400)
     ax.set_yticks(yticks)
     ax.set_yticklabels([_format_seconds(t) for t in yticks])
-    ax.grid(visible=True, axis="both", color=theme.grid, linewidth=0.5, alpha=0.45)
-    _despine(ax, keep=())
-    ax.tick_params(length=0, which="both")
-    ax.minorticks_off()
+    ax.grid(visible=True, axis="both")
     ax.set_xlabel("number of allocations")
     ax.set_ylabel("solve time")
 
@@ -615,9 +623,7 @@ def render_allocation(data: dict[str, Any], theme: Theme, preview: Path | None) 
             )
         )
 
-    ax.axhline(
-        size, color=theme.optimal, linewidth=0.9, linestyle=(0, (4, 4)), zorder=5
-    )
+    _optimal_line(ax, theme, size, linewidth=0.9, alpha=1.0, zorder=5)
     ax.annotate(
         f"peak {size / MB:.2f} MB = lower bound (proven optimal)",
         xy=(0.995, size),
@@ -635,9 +641,7 @@ def render_allocation(data: dict[str, Any], theme: Theme, preview: Path | None) 
     ax.yaxis.set_major_locator(MultipleLocator(0.25 * MB))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / MB:g}"))
     ax.xaxis.set_major_formatter(FuncFormatter(_format_steps))
-    ax.grid(visible=True, axis="y", color=theme.grid, linewidth=0.5, alpha=0.45)
-    _despine(ax, keep=())
-    ax.tick_params(length=0)
+    ax.grid(visible=True, axis="y")
     ax.set_xlabel("time step")
     ax.set_ylabel("offset (MB)")
 
