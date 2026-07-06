@@ -12,11 +12,26 @@ from .base import BaseAllocator, require_unique_ids
 
 try:
     import minimalloc as mm  # type: ignore
-
-    HAS_MINIMALLOC = True
 except ImportError:
-    HAS_MINIMALLOC = False
     mm = cast("Any", None)
+
+HAS_MINIMALLOC = mm is not None
+
+
+def _require_minimalloc() -> None:
+    """Re-check availability at use time so installs after package import work."""
+    global mm, HAS_MINIMALLOC
+    if mm is not None:
+        return
+    try:
+        import minimalloc  # type: ignore
+    except ImportError:
+        # TODO(fpedd): Make minimalloc more easily installable via PyPI
+        raise OptionalDependencyError(
+            "The MinimallocAllocator feature requires 'minimalloc' which is not "
+            "installed.\nInstall manually: pip install git+https://github.com/google/minimalloc.git"
+        ) from None
+    mm, HAS_MINIMALLOC = minimalloc, True
 
 
 def _to_buffer(allocation: Allocation) -> "mm.Buffer":
@@ -31,13 +46,7 @@ class MinimallocAllocator(BaseAllocator):
     """Wrapper for Google's minimalloc constraint-based allocator."""
 
     def __init__(self, timeout: int = 10, max_capacity: int = 1 * TB) -> None:
-        if not HAS_MINIMALLOC:
-            # TODO(fpedd): Make minimalloc more easily installable via PyPI
-            raise OptionalDependencyError(
-                "The MinimallocAllocator feature requires 'minimalloc' which is not "
-                "installed.\nInstall manually: pip install git+https://github.com/google/minimalloc.git"
-            )
-
+        _require_minimalloc()
         self._timeout = timeout
         self._max_capacity = max_capacity
 

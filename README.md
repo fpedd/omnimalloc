@@ -10,19 +10,21 @@
   <a href="https://github.com/fpedd/omnimalloc/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/omnimalloc" alt="License"></a>
 </p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_dark.svg">
-  <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_light.svg" alt="Solution quality vs. solve time across allocators">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_dark.svg">
+    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_light.svg" alt="Solution quality vs. solve time across allocators">
+  </picture>
+</p>
 
-OmniMalloc is a Python library for **static memory allocation**: given buffers
-with known sizes and lifetimes, assign offsets so that **peak memory is minimized**.
-This is the memory-planning step at the heart of **ML compilers**, embedded
+OmniMalloc is a Python library for static memory allocation: given buffers
+with known sizes and lifetimes, assign offsets so that peak memory is minimized.
+This is the memory-planning step at the heart of ML compilers, embedded
 runtimes, and accelerator toolchains.
 
 It ships a collection of allocators and allocation algorithms behind one API,
-implemented with an efficient C++ backend. This includes **SuperMalloc**, a new
-allocator that **outperforms the best open-source alternatives** (see benchmarks
+implemented with an efficient C++ backend. This includes SuperMalloc, a new
+allocator that outperforms the best open-source alternatives (see benchmarks
 below). OmniMalloc also provides a rich benchmark harness and visualization
 tools to develop and evaluate new allocation strategies.
 
@@ -50,12 +52,14 @@ print([alloc.offset for alloc in pool.allocations])  # [0, 0, 64]
 ```
 
 On a real problem, the result looks like this: 308 buffers of an ML workload
-packed with zero wasted memory.
+packed with no wasted memory.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/allocation_dark.svg">
-  <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/allocation_light.svg" alt="A solved allocation problem rendered as offset/time rectangles">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/allocation_dark.svg">
+    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/allocation_light.svg" alt="A solved allocation problem rendered as offset/time rectangles">
+  </picture>
+</p>
 
 See [examples](examples/) for allocator selection, visualization, custom
 allocation sources, and benchmarking.
