@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Final
 
 from omnimalloc.common.optional import require_optional
-from omnimalloc.common.units import MB
 from omnimalloc.primitives import Allocation, BufferKind, IdType, Memory, Pool, System
 
 try:
@@ -38,6 +37,27 @@ except ImportError:
     MultipleLocator = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
+
+_BYTE_UNITS: Final[tuple[tuple[int, str], ...]] = (
+    (1024**3, "GB"),
+    (1024**2, "MB"),
+    (1024, "KB"),
+)
+
+
+def _byte_unit(value: float) -> tuple[int, str]:
+    """Largest byte unit that keeps `value` at least 1 in that unit."""
+    for divisor, suffix in _BYTE_UNITS:
+        if value >= divisor:
+            return divisor, suffix
+    return 1, "B"
+
+
+def _format_bytes(value: float) -> str:
+    """Human-readable byte count, auto-scaled so small values don't read as 0.0 MB."""
+    divisor, suffix = _byte_unit(value)
+    return f"{value / divisor:.1f}{suffix}"
+
 
 KIND_COLOR_MAP: Final[dict[BufferKind, str]] = {
     BufferKind.WORKSPACE: "C0",
@@ -155,7 +175,7 @@ def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
     for name, value in limits.items():
         ax.axhline(value, color="black", linestyle="--", linewidth=1, alpha=0.8)
         ax.annotate(
-            f"{value / MB:.2f} MB\n{name}",
+            f"{_format_bytes(value)}\n{name}",
             xy=(x_max, value),
             xytext=(x_max * 1.02, value * 1.01),
             ha="left",
@@ -176,22 +196,21 @@ def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
 def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
     """Configure axis ticks and formatters."""
     tick_size = y_limit / num_ticks
+    divisor, unit = _byte_unit(y_limit)
     ax.yaxis.set_major_locator(MultipleLocator(tick_size))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x / MB:.1f}"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x / divisor:.1f}"))
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x):,}"))
     ax.grid(visible=True, alpha=0.5)
+    ax.set_ylabel(f"Memory ({unit})")
 
 
 def _set_axes_labels(
     ax: Axes, memory: Memory, memory_size: int | None, num_pools: int
 ) -> None:
-    size_str = (
-        f"{memory_size / MB:.1f}MB" if memory_size is not None else "Unknown Size"
-    )
+    size_str = _format_bytes(memory_size) if memory_size is not None else "Unknown Size"
     ax.set_title(f"{memory.id} ({size_str}, {num_pools} pools)")
     ax.set_xlabel("Time (Step)")
-    ax.set_ylabel("Memory (MB)")
 
 
 def _set_axes_limits(
@@ -288,7 +307,7 @@ def _visualize_system(
     if file_path is not None:
         file_path = Path(file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(file_path, bbox_inches="tight", format="pdf")
+        fig.savefig(file_path, bbox_inches="tight")
 
     plt.close(fig)
 

@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 from omnimalloc.primitives import Allocation, BufferKind, Memory, Pool, System
-from omnimalloc.visualize import HAS_MATPLOTLIB, _canonicalize, plot_allocation
+from omnimalloc.visualize import (
+    HAS_MATPLOTLIB,
+    _byte_unit,
+    _canonicalize,
+    _format_bytes,
+    plot_allocation,
+)
 
 pytestmark = pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
 
@@ -269,3 +275,37 @@ def test_visualize_with_memory_limits(artifacts_dir: Path) -> None:
     assert result == output_path
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_visualize_saves_png_when_path_has_png_extension(artifacts_dir: Path) -> None:
+    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    pool = Pool(id=1, allocations=(alloc,), offset=0)
+
+    output_path = artifacts_dir / "test_extension.png"
+    result = plot_allocation(pool, file_path=output_path)
+    assert result == output_path
+    with output_path.open("rb") as f:
+        assert f.read(8) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_visualize_still_saves_pdf_by_default(artifacts_dir: Path) -> None:
+    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    pool = Pool(id=1, allocations=(alloc,), offset=0)
+
+    output_path = artifacts_dir / "test_extension.pdf"
+    result = plot_allocation(pool, file_path=output_path)
+    assert result == output_path
+    with output_path.open("rb") as f:
+        assert f.read(5) == b"%PDF-"
+
+
+def test_byte_unit_picks_largest_unit_that_keeps_value_above_one() -> None:
+    assert _byte_unit(500) == (1, "B")
+    assert _byte_unit(1024) == (1024, "KB")
+    assert _byte_unit(1024**2) == (1024**2, "MB")
+    assert _byte_unit(1024**3) == (1024**3, "GB")
+
+
+def test_format_bytes_does_not_collapse_small_values_to_zero() -> None:
+    assert _format_bytes(3000) == "2.9KB"
+    assert _format_bytes(200) == "200.0B"
