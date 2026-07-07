@@ -16,9 +16,9 @@ Regenerate the committed assets with:
 
     uv run python scripts/generate_readme_assets.py
 
-The benchmark portion takes a few minutes (genetic search and branch-and-bound
-timeouts dominate). Use ``--dump data.json`` once and ``--data data.json`` to
-iterate on rendering without re-running it. ``--preview DIR`` additionally
+The benchmark portion takes a few minutes (every search allocator runs at the
+library-wide 3 s budget). Use ``--dump data.json`` once and ``--data data.json``
+to iterate on rendering without re-running it. ``--preview DIR`` additionally
 writes PNG previews.
 """
 
@@ -41,9 +41,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.allocators import BaseAllocator
-from omnimalloc.allocators.minimalloc import MinimallocAllocator
-from omnimalloc.allocators.supermalloc import SupermallocAllocator, SupermallocConfig
+from omnimalloc.allocators import DEFAULT_MAX_SECONDS, BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.timer import Timer
 from omnimalloc.common.units import MB
@@ -54,11 +52,9 @@ if TYPE_CHECKING:
     from omnimalloc.primitives import Pool
 
 SEED = 0
-SUPERMALLOC_TIMEOUT = 10.0
-SCALING_TIMEOUT = 3.0
 MINIMALLOC_URL = "git+https://github.com/google/minimalloc.git"
 SCALING_SIZES = (10, 32, 100, 316, 1000, 3162, 10000)
-SCALING_SIZES_SLOW = SCALING_SIZES[:-1]  # hill climbing needs minutes at 10k
+SCALING_SIZES_SLOW = SCALING_SIZES[:-1]  # minimalloc cannot solve 10k in budget
 ALLOCATION_PROBLEM = "mm-G"
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
@@ -67,41 +63,48 @@ ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 ALLOCATORS: dict[str, tuple[str, str]] = {
     "naive_allocator": ("naive", "baseline"),
     "random_allocator": ("random search", "baseline"),
-    "greedy_by_area_allocator_cpp": ("greedy (area)", "greedy"),
     "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy"),
     "greedy_by_all_allocator_cpp": ("greedy (all)", "greedy"),
-    "hill_climb_allocator": ("hill climbing", "search"),
-    "genetic_allocator": ("genetic", "search"),
+    "best_fit_allocator": ("best-fit", "greedy_alt"),
+    "hill_climb_allocator": ("hill climbing", "search_alt"),
+    "genetic_allocator": ("genetic", "search_alt"),
+    "simulated_annealing_allocator": ("simulated annealing", "search"),
+    "tabu_search_allocator": ("tabu search", "search"),
+    "telamalloc_allocator": ("telamalloc", "telamalloc"),
     "minimalloc_allocator": ("minimalloc", "minimalloc"),
     "supermalloc_allocator": ("supermalloc", "exact"),
 }
 
 HERO_ALLOCATORS = (
     "random_allocator",
-    "greedy_by_area_allocator_cpp",
     "greedy_by_size_allocator_cpp",
     "greedy_by_all_allocator_cpp",
+    "best_fit_allocator",
     "hill_climb_allocator",
     "genetic_allocator",
+    "simulated_annealing_allocator",
+    "tabu_search_allocator",
+    "telamalloc_allocator",
     "minimalloc_allocator",
     "supermalloc_allocator",
 )
 QUALITY_ALLOCATORS = (
     "greedy_by_size_allocator_cpp",
-    "greedy_by_all_allocator_cpp",
+    "best_fit_allocator",
+    "tabu_search_allocator",
+    "telamalloc_allocator",
     "minimalloc_allocator",
     "supermalloc_allocator",
 )
+# best-fit is omitted: its curve coincides with greedy (size) at every size.
 SCALING_ALLOCATORS = (
     "naive_allocator",
     "greedy_by_size_allocator_cpp",
     "hill_climb_allocator",
+    "telamalloc_allocator",
     "minimalloc_allocator",
     "supermalloc_allocator",
 )
-
-# Quality re-colors greedy (size) so the two greedy variants stay distinguishable.
-QUALITY_ROLES = {"greedy_by_size_allocator_cpp": "greedy_alt"}
 
 QUALITY_PROBLEMS = ("mm-A", "mm-C", "mm-H", "mm-K", "pinwheel", "tiling", "random")
 PROBLEM_LABELS = {
@@ -118,23 +121,28 @@ PROBLEM_LABELS = {
 # Direct-label offsets in points, tuned per hero point: (dx, dy, ha).
 HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
     "random_allocator": (0, -11, "center"),
-    "greedy_by_area_allocator_cpp": (0, 8, "center"),
     "greedy_by_size_allocator_cpp": (-8, 0, "right"),
     "greedy_by_all_allocator_cpp": (0, -11, "center"),
-    "hill_climb_allocator": (0, 8, "center"),
-    "genetic_allocator": (0, -11, "center"),
+    "best_fit_allocator": (0, 8, "center"),
+    "hill_climb_allocator": (0, -11, "center"),
+    "genetic_allocator": (8, -6, "left"),
+    "simulated_annealing_allocator": (-8, 3, "right"),
+    "tabu_search_allocator": (0, 10, "center"),
+    "telamalloc_allocator": (-8, 0, "right"),
     "minimalloc_allocator": (0, 8, "center"),
     "supermalloc_allocator": (-10, 0, "right"),
 }
 
 # Direct-label offsets in points: (dx, dy, ha). minimalloc's line ends early
-# (no 10k point), so its label anchors left, away from the 10k label cluster.
+# (no 10k point), so its label anchors left, away from the 10k label cluster;
+# the four lines that converge on the 3 s budget at 10k get staggered dy.
 SCALING_LABEL_OFFSETS = {
     "naive_allocator": (4, -2, "left"),
     "greedy_by_size_allocator_cpp": (4, -4, "left"),
-    "hill_climb_allocator": (4, 2, "left"),
+    "hill_climb_allocator": (4, 3, "left"),
+    "telamalloc_allocator": (4, -11, "left"),
     "minimalloc_allocator": (0, 9, "center"),
-    "supermalloc_allocator": (4, 4, "left"),
+    "supermalloc_allocator": (4, 10, "left"),
 }
 
 
@@ -161,6 +169,8 @@ LIGHT = Theme(
         "greedy": "#0969da",
         "greedy_alt": "#54aeff",
         "search": "#bc4c00",
+        "search_alt": "#9a6700",
+        "telamalloc": "#1b7c83",
         "minimalloc": "#bf3989",
         "exact": "#8250df",
     },
@@ -177,6 +187,8 @@ DARK = Theme(
         "greedy": "#4493f8",
         "greedy_alt": "#79c0ff",
         "search": "#f0883e",
+        "search_alt": "#d29922",
+        "telamalloc": "#39c5cf",
         "minimalloc": "#db61a2",
         "exact": "#ab7df8",
     },
@@ -201,14 +213,6 @@ def _ensure_minimalloc() -> None:
     except ImportError:
         print(f"minimalloc not installed — installing from {MINIMALLOC_URL} ...")
         _pip_install(MINIMALLOC_URL)
-
-
-def _allocator(name: str, timeout: float = SUPERMALLOC_TIMEOUT) -> BaseAllocator:
-    if name == "supermalloc_allocator":
-        return SupermallocAllocator(config=SupermallocConfig(timeout=timeout))
-    if name == "minimalloc_allocator":
-        return MinimallocAllocator(timeout=int(timeout))
-    return BaseAllocator.resolve(name)
 
 
 def _solve(
@@ -245,7 +249,7 @@ def collect_data() -> dict[str, Any]:
     supermalloc_pools: dict[str, Pool] = {}
     names = set(HERO_ALLOCATORS) | set(QUALITY_ALLOCATORS)
     for name in sorted(names):
-        allocator = _allocator(name)
+        allocator = BaseAllocator.resolve(name)
         problems = tuple(suite) if name in QUALITY_ALLOCATORS else hard
         runs[name] = {}
         for problem in problems:
@@ -272,9 +276,9 @@ def collect_data() -> dict[str, Any]:
     source = BaseSource.get("random_source")()
     scaling: dict[str, list[list[float]]] = {}
     for name in SCALING_ALLOCATORS:
-        allocator = _allocator(name, SCALING_TIMEOUT)
-        # Hill climbing needs minutes at 10k; minimalloc can't solve 10k in budget.
-        capped = name in ("hill_climb_allocator", "minimalloc_allocator")
+        allocator = BaseAllocator.resolve(name)
+        # minimalloc can't solve 10k within the budget and would error out.
+        capped = name == "minimalloc_allocator"
         sizes = SCALING_SIZES_SLOW if capped else SCALING_SIZES
         scaling[name] = []
         for size in sizes:
@@ -327,10 +331,6 @@ def _style(theme: Theme) -> dict[str, Any]:
         "xtick.minor.size": 0,
         "ytick.minor.size": 0,
     }
-
-
-def _quality_role(name: str) -> str:
-    return QUALITY_ROLES.get(name, ALLOCATORS[name][1])
 
 
 def _title(fig: Figure, theme: Theme, title: str, subtitle: str) -> None:
@@ -519,7 +519,7 @@ def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
                 value,
                 y,
                 s=52 if emphasis else 34,
-                color=theme.role[_quality_role(name)],
+                color=theme.role[ALLOCATORS[name][1]],
                 zorder=4,
                 linewidths=1.2 if emphasis else 0,
                 edgecolors=theme.ink if emphasis else "none",
@@ -535,7 +535,7 @@ def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
 
     _title(fig, theme, "Quality per problem", "100% = proven lower bound")
     series = [
-        (ALLOCATORS[name][0], theme.role[_quality_role(name)])
+        (ALLOCATORS[name][0], theme.role[ALLOCATORS[name][1]])
         for name in QUALITY_ALLOCATORS
     ]
     _series_line(fig, series, y=0.842)
@@ -591,7 +591,7 @@ def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
         fig,
         theme,
         "Scaling",
-        f"random problems · supermalloc budget {SCALING_TIMEOUT:.0f} s",
+        f"random problems · search budget {DEFAULT_MAX_SECONDS:.0f} s",
     )
     fig.subplots_adjust(top=0.845, bottom=0.125, left=0.16, right=0.97)
     _save(fig, "scaling", theme, preview)

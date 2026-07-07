@@ -20,6 +20,8 @@ def main() -> None:
         "greedy_by_size_allocator",
         "greedy_by_size_allocator_cpp",
         "greedy_by_all_allocator_cpp",
+        "best_fit_allocator",
+        "telamalloc_allocator",
     )
     # minimalloc is an optional dependency that only builds on some platforms
     if HAS_MINIMALLOC:

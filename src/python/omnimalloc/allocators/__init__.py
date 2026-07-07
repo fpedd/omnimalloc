@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from .base import DEFAULT_MAX_SECONDS as DEFAULT_MAX_SECONDS
 from .base import BaseAllocator as BaseAllocator
 from .best_fit import BestFitAllocator as BestFitAllocator
 from .genetic import GeneticAllocator as GeneticAllocator

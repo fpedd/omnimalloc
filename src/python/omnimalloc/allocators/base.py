@@ -3,12 +3,15 @@
 #
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from omnimalloc.common.registry import Registered
 
 if TYPE_CHECKING:
     from omnimalloc.primitives import Allocation
+
+# Shared wall-clock budget for every time-bounded allocator (seconds).
+DEFAULT_MAX_SECONDS: Final[float] = 3.0
 
 
 def require_unique_ids(allocations: tuple["Allocation", ...]) -> None:

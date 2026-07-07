@@ -10,7 +10,7 @@ from omnimalloc._cpp import (
 from omnimalloc._cpp import SimulatedAnnealingConfig as _SimulatedAnnealingConfig
 from omnimalloc.primitives import Allocation
 
-from .base import BaseAllocator
+from .base import DEFAULT_MAX_SECONDS, BaseAllocator
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class SimulatedAnnealingConfig:
     max_iterations: int = 3000
     initial_temperature: float = 3.0
     cooling_rate: float = 0.998
-    max_seconds: float = 2.0
+    max_seconds: float = DEFAULT_MAX_SECONDS
 
     def __post_init__(self) -> None:
         if self.max_iterations <= 0:
@@ -59,7 +59,7 @@ class SimulatedAnnealingAllocator(BaseAllocator):
     (including every candidate placement) runs natively, it evaluates far more
     candidates per second than an equivalent Python-orchestrated local search
     such as `HillClimbAllocator`. Each iteration re-evaluates a full placement
-    of every allocation, so `max_seconds` (default 2s) bounds wall-clock time
+    of every allocation, so `max_seconds` (default 3s) bounds wall-clock time
     as the input grows, independent of `max_iterations`.
     """
 

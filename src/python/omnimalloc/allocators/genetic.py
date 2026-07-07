@@ -3,13 +3,14 @@
 #
 
 import random
+import time
 from typing import Any, cast
 
 from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation
 
-from .base import require_unique_ids
+from .base import DEFAULT_MAX_SECONDS, require_unique_ids
 from .greedy import GreedyAllocator
 from .greedy_base import (
     order_by_area,
@@ -30,7 +31,11 @@ except ImportError:
 
 
 class GeneticAllocator(GreedyAllocator):
-    """Genetic algorithm allocator that evolves greedy placement orders."""
+    """Genetic algorithm allocator that evolves greedy placement orders.
+
+    `max_seconds` (default 3s) bounds wall-clock time between generations,
+    independent of `num_generations`; set it to 0 to disable the deadline.
+    """
 
     def __init__(
         self,
@@ -40,6 +45,7 @@ class GeneticAllocator(GreedyAllocator):
         crossover_prob: float = 0.7,
         mutation_prob: float = 0.2,
         tournament_size: int = 3,
+        max_seconds: float = DEFAULT_MAX_SECONDS,
     ) -> None:
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
@@ -56,6 +62,8 @@ class GeneticAllocator(GreedyAllocator):
             )
         if tournament_size <= 0:
             raise ValueError(f"tournament_size must be positive, got {tournament_size}")
+        if max_seconds < 0:
+            raise ValueError(f"max_seconds must be non-negative, got {max_seconds}")
 
         self.seed = seed
         self.population_size = population_size
@@ -63,6 +71,7 @@ class GeneticAllocator(GreedyAllocator):
         self.crossover_prob = crossover_prob
         self.mutation_prob = mutation_prob
         self.tournament_size = tournament_size
+        self.max_seconds = max_seconds
 
         # Setup DEAP creators (only once per process, they live in a global namespace)
         if not hasattr(creator, "FitnessMin"):
@@ -135,16 +144,27 @@ class GeneticAllocator(GreedyAllocator):
 
         hall_of_fame = tools.HallOfFame(maxsize=1)
 
+        def evaluate_invalid(individuals: list[Any]) -> None:
+            for individual in individuals:
+                if not individual.fitness.valid:
+                    individual.fitness.values = toolbox.evaluate(individual)  # type: ignore[unresolved-attribute]
+
+        # DEAP's eaSimple, unrolled so a wall-clock deadline can stop between
+        # generations; varAnd keeps the RNG stream identical to eaSimple.
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        algorithms.eaSimple(
-            population=population,
-            toolbox=toolbox,
-            cxpb=self.crossover_prob,
-            mutpb=self.mutation_prob,
-            ngen=self.num_generations,
-            halloffame=hall_of_fame,
-            verbose=False,
-        )
+        deadline = time.monotonic() + self.max_seconds if self.max_seconds else None
+        evaluate_invalid(population)
+        hall_of_fame.update(population)
+        for _ in range(self.num_generations):
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            offspring = toolbox.select(population, len(population))  # type: ignore[unresolved-attribute]
+            offspring = algorithms.varAnd(
+                offspring, toolbox, self.crossover_prob, self.mutation_prob
+            )
+            evaluate_invalid(offspring)
+            hall_of_fame.update(offspring)
+            population[:] = offspring
 
         best_permutation = list(hall_of_fame[0])
         return tuple(placer.place(best_permutation))
