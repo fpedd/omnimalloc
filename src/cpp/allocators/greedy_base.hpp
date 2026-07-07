@@ -29,6 +29,27 @@ using TemporalOverlaps =
     const std::vector<Allocation>& allocations,
     const TemporalOverlaps& overlaps);
 
+// Peak memory (highest end offset) across the placed allocations
+[[nodiscard]] int64_t peak_of(const std::vector<Allocation>& placed);
+
+// Already-placed allocations that temporally overlap `alloc`, sorted by
+// offset so callers can scan the free gaps left-to-right
+[[nodiscard]] std::vector<const Allocation*> placed_overlapping(
+    const Allocation& alloc, const std::vector<Allocation>& placed,
+    const TemporalOverlaps& overlaps);
+
+// Indices into `allocations`, sorted largest-size-first: a decent, cheap
+// starting order for the order-search allocators.
+[[nodiscard]] std::vector<size_t> initial_order(
+    const std::vector<Allocation>& allocations);
+
+// Positions before `target_pos` in `order` whose allocation temporally
+// overlaps the one at `target_pos`, or every earlier position if none do.
+[[nodiscard]] std::vector<size_t> earlier_neighbors(
+    const std::vector<size_t>& order, size_t target_pos,
+    const std::vector<Allocation>& allocations,
+    const TemporalOverlaps& overlaps);
+
 // Resident first-fit placer for the order-search allocators (genetic, random,
 // hill-climb): owns the allocations and their overlap map (computed once) so
 // that placing many candidate orderings only passes an index permutation across
