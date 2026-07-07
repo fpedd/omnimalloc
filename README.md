@@ -10,13 +10,6 @@
   <a href="https://github.com/fpedd/omnimalloc/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/omnimalloc" alt="License"></a>
 </p>
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_dark.svg">
-    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_light.svg" alt="Solution quality vs. solve time across allocators">
-  </picture>
-</p>
-
 OmniMalloc is a Python library for static memory allocation: given buffers
 with known sizes and lifetimes, assign offsets so that peak memory is minimized.
 This is the memory-planning step at the heart of ML compilers, embedded
@@ -30,8 +23,16 @@ tools to develop and evaluate new allocation strategies.
 
 ## Installation
 
+Install the latest release from PyPI:
+
 ```bash
 pip install omnimalloc
+```
+
+Or install the development version directly from GitHub:
+
+```bash
+pip install git+https://github.com/fpedd/omnimalloc.git
 ```
 
 ## Usage
@@ -68,16 +69,12 @@ allocation sources, and benchmarking.
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/quality_dark.svg">
-    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/quality_light.svg" alt="Packing efficiency per problem" width="49%">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/scaling_dark.svg">
-    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/scaling_light.svg" alt="Solve time vs. problem size" width="49%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_dark.svg">
+    <img src="https://raw.githubusercontent.com/fpedd/omnimalloc/main/assets/hero_light.svg" alt="Solution quality vs. solve time across allocators">
   </picture>
 </p>
 
-Every figure on this page is generated from a deterministic benchmark run by
+All figures on this page are generated from a deterministic benchmark run by
 [`scripts/generate_readme_assets.py`](scripts/generate_readme_assets.py).
 Run your own campaigns with the [benchmark harness](examples/05_benchmark.py).
 
