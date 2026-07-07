@@ -16,7 +16,7 @@ from omnimalloc._cpp import (
     greedy_many,
     solve_many,
 )
-from omnimalloc.allocators.base import BaseAllocator
+from omnimalloc.allocators.base import DEFAULT_MAX_SECONDS, BaseAllocator
 from omnimalloc.primitives.allocation import Allocation
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ GREEDY_HEURISTICS: tuple[Heuristic, ...] = (
 class SupermallocConfig:
     """Configuration for the SupermallocAllocator."""
 
-    timeout: float = 10.0
+    timeout: float = DEFAULT_MAX_SECONDS
     heuristics: tuple[Heuristic, ...] = DEFAULT_HEURISTICS
     cores: int | None = None
     canonical: bool = True

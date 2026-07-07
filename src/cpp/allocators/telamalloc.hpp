@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "allocators/defaults.hpp"
 #include "primitives/allocation.hpp"
 
 namespace omnimalloc {
@@ -21,7 +22,7 @@ struct TelamallocConfig {
   int max_backtracks = 10000;
   // Wall-clock budget for the whole allocate(); 0 disables it, leaving the
   // per-attempt `max_backtracks` as the only bound.
-  double max_seconds = 2.0;
+  double max_seconds = kDefaultMaxSeconds;
 };
 
 // TelaMalloc-style allocator after Maas et al., ASPLOS 2023 ("TelaMalloc:

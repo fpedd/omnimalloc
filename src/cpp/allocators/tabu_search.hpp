@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "allocators/defaults.hpp"
 #include "primitives/allocation.hpp"
 
 namespace omnimalloc {
@@ -22,7 +23,7 @@ struct TabuSearchConfig {
   // iteration evaluates `neighborhood_size` full O(n) placements, so
   // `max_iterations` alone does not bound runtime as `allocations` grows -
   // this does.
-  double max_seconds = 2.0;
+  double max_seconds = kDefaultMaxSeconds;
 };
 
 // Tabu search over first-fit placement orders. Each iteration samples

@@ -8,7 +8,7 @@ from omnimalloc._cpp import TelamallocAllocatorCpp as _TelamallocAllocatorCpp
 from omnimalloc._cpp import TelamallocConfig as _TelamallocConfig
 from omnimalloc.primitives import Allocation
 
-from .base import BaseAllocator
+from .base import DEFAULT_MAX_SECONDS, BaseAllocator
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class TelamallocConfig:
 
     seed: int = 42
     max_backtracks: int = 10000
-    max_seconds: float = 2.0
+    max_seconds: float = DEFAULT_MAX_SECONDS
 
     def __post_init__(self) -> None:
         if self.max_backtracks < 0:
@@ -52,7 +52,7 @@ class TelamallocAllocator(BaseAllocator):
     capacity from a first-fit incumbent down toward its load lower bound. An
     occasional seeded random-walk repair breaks min-conflict cycles; results
     are deterministic for a fixed `seed`, and setting `max_seconds` (default
-    2s) to 0 makes them reproducible across machines via `max_backtracks`
+    3s) to 0 makes them reproducible across machines via `max_backtracks`
     alone.
     """
 

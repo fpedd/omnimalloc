@@ -38,6 +38,11 @@ def test_hillclimb_rejects_negative_temperature() -> None:
         HillClimbAllocator(acceptance_temperature=-1.0)
 
 
+def test_hillclimb_rejects_negative_max_seconds() -> None:
+    with pytest.raises(ValueError, match="max_seconds must be non-negative"):
+        HillClimbAllocator(max_seconds=-1.0)
+
+
 def test_hillclimb_preserves_allocations() -> None:
     allocator = HillClimbAllocator()
     allocs = (

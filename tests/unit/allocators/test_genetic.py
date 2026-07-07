@@ -57,6 +57,11 @@ def test_genetic_rejects_invalid_tournament_size() -> None:
         GeneticAllocator(tournament_size=0)
 
 
+def test_genetic_rejects_negative_max_seconds() -> None:
+    with pytest.raises(ValueError, match="max_seconds must be non-negative"):
+        GeneticAllocator(max_seconds=-1.0)
+
+
 def test_genetic_rejects_duplicate_ids() -> None:
     alloc = Allocation(id=1, size=100, start=0, end=10)
     with pytest.raises(ValueError, match="allocation ids must be unique"):
