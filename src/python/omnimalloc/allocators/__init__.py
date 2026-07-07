@@ -3,6 +3,7 @@
 #
 
 from .base import BaseAllocator as BaseAllocator
+from .best_fit import BestFitAllocator as BestFitAllocator
 from .genetic import GeneticAllocator as GeneticAllocator
 from .greedy import GreedyAllocator as GreedyAllocator
 from .greedy import GreedyByAllAllocator as GreedyByAllAllocator
@@ -26,8 +27,16 @@ from .hillclimb import HillClimbAllocator as HillClimbAllocator
 from .minimalloc import MinimallocAllocator as MinimallocAllocator
 from .naive import NaiveAllocator as NaiveAllocator
 from .random import RandomAllocator as RandomAllocator
+from .simulated_annealing import (
+    SimulatedAnnealingAllocator as SimulatedAnnealingAllocator,
+)
+from .simulated_annealing import SimulatedAnnealingConfig as SimulatedAnnealingConfig
 from .supermalloc import SupermallocAllocator as SupermallocAllocator
 from .supermalloc import SupermallocConfig as SupermallocConfig
+from .tabu_search import TabuSearchAllocator as TabuSearchAllocator
+from .tabu_search import TabuSearchConfig as TabuSearchConfig
+from .telamalloc import TelamallocAllocator as TelamallocAllocator
+from .telamalloc import TelamallocConfig as TelamallocConfig
 from .utils import AVAILABLE_ALLOCATORS as AVAILABLE_ALLOCATORS
 from .utils import DEFAULT_ALLOCATOR as DEFAULT_ALLOCATOR
 from .utils import get_allocator_by_name as get_allocator_by_name

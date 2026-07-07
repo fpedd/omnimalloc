@@ -13,9 +13,13 @@
 
 #include <sstream>
 
+#include "allocators/best_fit.hpp"
 #include "allocators/greedy.hpp"
 #include "allocators/greedy_base.hpp"
+#include "allocators/simulated_annealing.hpp"
 #include "allocators/supermalloc/partition.hpp"
+#include "allocators/tabu_search.hpp"
+#include "allocators/telamalloc.hpp"
 #include "primitives/allocation.hpp"
 #include "primitives/buffer_kind.hpp"
 #include "primitives/id_type.hpp"
@@ -120,6 +124,75 @@ NB_MODULE(_cpp, m) {
            [](const GreedyAllocator&) { return "GreedyAllocator()"; })
       .def("__eq__", &GreedyAllocator::operator==)
       .def("__hash__", std::hash<GreedyAllocator>{});
+
+  // BestFitAllocator class
+  nb::class_<BestFitAllocator>(m, "BestFitAllocatorCpp")
+      .def(nb::init<>())
+      .def("allocate", &BestFitAllocator::allocate, "allocations"_a,
+           nb::rv_policy::move)
+      .def("__str__",
+           [](const BestFitAllocator&) { return "BestFitAllocator()"; })
+      .def("__repr__",
+           [](const BestFitAllocator&) { return "BestFitAllocator()"; })
+      .def("__eq__", &BestFitAllocator::operator==)
+      .def("__hash__", std::hash<BestFitAllocator>{});
+
+  // SimulatedAnnealingConfig / SimulatedAnnealingAllocator classes
+  constexpr SimulatedAnnealingConfig kDefaultSaConfig{};
+  nb::class_<SimulatedAnnealingConfig>(m, "SimulatedAnnealingConfig")
+      .def(nb::init<uint64_t, int, double, double, double>(),
+           "seed"_a = kDefaultSaConfig.seed,
+           "max_iterations"_a = kDefaultSaConfig.max_iterations,
+           "initial_temperature"_a = kDefaultSaConfig.initial_temperature,
+           "cooling_rate"_a = kDefaultSaConfig.cooling_rate,
+           "max_seconds"_a = kDefaultSaConfig.max_seconds)
+      .def_rw("seed", &SimulatedAnnealingConfig::seed)
+      .def_rw("max_iterations", &SimulatedAnnealingConfig::max_iterations)
+      .def_rw("initial_temperature",
+              &SimulatedAnnealingConfig::initial_temperature)
+      .def_rw("cooling_rate", &SimulatedAnnealingConfig::cooling_rate)
+      .def_rw("max_seconds", &SimulatedAnnealingConfig::max_seconds);
+
+  nb::class_<SimulatedAnnealingAllocator>(m, "SimulatedAnnealingAllocatorCpp")
+      .def(nb::init<SimulatedAnnealingConfig>(), "config"_a = kDefaultSaConfig)
+      .def("allocate", &SimulatedAnnealingAllocator::allocate, "allocations"_a,
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+
+  // TabuSearchConfig / TabuSearchAllocator classes
+  constexpr TabuSearchConfig kDefaultTabuConfig{};
+  nb::class_<TabuSearchConfig>(m, "TabuSearchConfig")
+      .def(nb::init<uint64_t, int, int, int, double>(),
+           "seed"_a = kDefaultTabuConfig.seed,
+           "max_iterations"_a = kDefaultTabuConfig.max_iterations,
+           "neighborhood_size"_a = kDefaultTabuConfig.neighborhood_size,
+           "tabu_tenure"_a = kDefaultTabuConfig.tabu_tenure,
+           "max_seconds"_a = kDefaultTabuConfig.max_seconds)
+      .def_rw("seed", &TabuSearchConfig::seed)
+      .def_rw("max_iterations", &TabuSearchConfig::max_iterations)
+      .def_rw("neighborhood_size", &TabuSearchConfig::neighborhood_size)
+      .def_rw("tabu_tenure", &TabuSearchConfig::tabu_tenure)
+      .def_rw("max_seconds", &TabuSearchConfig::max_seconds);
+
+  nb::class_<TabuSearchAllocator>(m, "TabuSearchAllocatorCpp")
+      .def(nb::init<TabuSearchConfig>(), "config"_a = kDefaultTabuConfig)
+      .def("allocate", &TabuSearchAllocator::allocate, "allocations"_a,
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+
+  // TelamallocConfig / TelamallocAllocator classes
+  constexpr TelamallocConfig kDefaultTelaConfig{};
+  nb::class_<TelamallocConfig>(m, "TelamallocConfig")
+      .def(nb::init<uint64_t, int, double>(),
+           "seed"_a = kDefaultTelaConfig.seed,
+           "max_backtracks"_a = kDefaultTelaConfig.max_backtracks,
+           "max_seconds"_a = kDefaultTelaConfig.max_seconds)
+      .def_rw("seed", &TelamallocConfig::seed)
+      .def_rw("max_backtracks", &TelamallocConfig::max_backtracks)
+      .def_rw("max_seconds", &TelamallocConfig::max_seconds);
+
+  nb::class_<TelamallocAllocator>(m, "TelamallocAllocatorCpp")
+      .def(nb::init<TelamallocConfig>(), "config"_a = kDefaultTelaConfig)
+      .def("allocate", &TelamallocAllocator::allocate, "allocations"_a,
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // SearchOptions class
   constexpr SearchOptions kDefaultOptions{};

@@ -39,9 +39,13 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(
   _cpp
   NB_STATIC
+  src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/greedy.cpp
   src/cpp/allocators/greedy_base.cpp
+  src/cpp/allocators/simulated_annealing.cpp
   src/cpp/allocators/supermalloc/partition.cpp
+  src/cpp/allocators/tabu_search.cpp
+  src/cpp/allocators/telamalloc.cpp
   src/cpp/primitives/allocation.cpp
   src/cpp/bindings.cpp)
 

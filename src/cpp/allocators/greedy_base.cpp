@@ -5,6 +5,7 @@
 #include "greedy_base.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <tuple>
 #include <utility>
 
@@ -40,32 +41,78 @@ TemporalOverlaps compute_temporal_overlaps(
   return overlaps;
 }
 
-namespace {
+int64_t peak_of(const std::vector<Allocation>& placed) {
+  int64_t peak = 0;
+  for (const auto& alloc : placed) {
+    if (const auto height = alloc.height()) {
+      peak = std::max(peak, *height);
+    }
+  }
+  return peak;
+}
 
-int64_t find_best_offset(const Allocation& current_alloc,
-                         const std::vector<Allocation>& placed_allocations,
-                         const TemporalOverlaps& overlaps) {
+std::vector<const Allocation*> placed_overlapping(
+    const Allocation& alloc, const std::vector<Allocation>& placed,
+    const TemporalOverlaps& overlaps) {
   // Collect overlapping allocations that have been placed
   std::vector<const Allocation*> overlapping;
-  auto it = overlaps.find(current_alloc.id());
+  auto it = overlaps.find(alloc.id());
   if (it != overlaps.end()) {
     overlapping.reserve(it->second.size());
-    for (const auto& placed : placed_allocations) {
-      if (it->second.count(placed.id())) {
-        overlapping.push_back(&placed);
+    for (const auto& candidate : placed) {
+      if (it->second.count(candidate.id())) {
+        overlapping.push_back(&candidate);
       }
     }
   }
 
-  // Sort by offset to enable first-fit algorithm
+  // Sort by offset so callers can scan the free gaps left-to-right
   std::sort(overlapping.begin(), overlapping.end(),
             [](const Allocation* a, const Allocation* b) {
               return a->offset().value() < b->offset().value();
             });
 
+  return overlapping;
+}
+
+std::vector<size_t> initial_order(const std::vector<Allocation>& allocations) {
+  std::vector<size_t> order(allocations.size());
+  std::iota(order.begin(), order.end(), size_t{0});
+  std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+    return allocations[a].size() > allocations[b].size();
+  });
+  return order;
+}
+
+std::vector<size_t> earlier_neighbors(
+    const std::vector<size_t>& order, size_t target_pos,
+    const std::vector<Allocation>& allocations,
+    const TemporalOverlaps& overlaps) {
+  std::vector<size_t> neighbors;
+  auto it = overlaps.find(allocations[order[target_pos]].id());
+  if (it != overlaps.end()) {
+    for (size_t pos = 0; pos < target_pos; ++pos) {
+      if (it->second.count(allocations[order[pos]].id())) {
+        neighbors.push_back(pos);
+      }
+    }
+  }
+  if (neighbors.empty()) {
+    neighbors.resize(target_pos);
+    std::iota(neighbors.begin(), neighbors.end(), size_t{0});
+  }
+  return neighbors;
+}
+
+namespace {
+
+int64_t find_best_offset(const Allocation& current_alloc,
+                         const std::vector<Allocation>& placed_allocations,
+                         const TemporalOverlaps& overlaps) {
   // Find best offset using first-fit: scan for first gap that fits
   int64_t best_offset = 0;
-  for (const auto* placed : overlapping) {
+  for (const auto* placed :
+       placed_overlapping(current_alloc, placed_allocations, overlaps)) {
     int64_t gap = placed->offset().value() - best_offset;
     if (gap >= current_alloc.size()) {
       break;  // Found a fitting gap
@@ -107,13 +154,7 @@ std::vector<Allocation> FirstFitPlacer::place(
 }
 
 int64_t FirstFitPlacer::evaluate(const std::vector<size_t>& order) const {
-  int64_t peak = 0;
-  for (const auto& alloc : place(order)) {
-    if (const auto height = alloc.height()) {
-      peak = std::max(peak, *height);
-    }
-  }
-  return peak;
+  return peak_of(place(order));
 }
 
 }  // namespace omnimalloc
