@@ -38,6 +38,8 @@ from .tabu_search import TabuSearchAllocator as TabuSearchAllocator
 from .tabu_search import TabuSearchConfig as TabuSearchConfig
 from .telamalloc import TelamallocAllocator as TelamallocAllocator
 from .telamalloc import TelamallocConfig as TelamallocConfig
+from .tiered import TieredAllocator as TieredAllocator
+from .tiered import TieredConfig as TieredConfig
 from .utils import AVAILABLE_ALLOCATORS as AVAILABLE_ALLOCATORS
 from .utils import DEFAULT_ALLOCATOR as DEFAULT_ALLOCATOR
 from .utils import get_allocator_by_name as get_allocator_by_name
