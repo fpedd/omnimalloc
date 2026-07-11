@@ -34,6 +34,14 @@ from .simulated_annealing import (
 from .simulated_annealing import SimulatedAnnealingConfig as SimulatedAnnealingConfig
 from .supermalloc import SupermallocAllocator as SupermallocAllocator
 from .supermalloc import SupermallocConfig as SupermallocConfig
+from .sweep import HybridSweepAllocator as HybridSweepAllocator
+from .sweep import HybridSweepByAreaAllocator as HybridSweepByAreaAllocator
+from .sweep import HybridSweepByDurationAllocator as HybridSweepByDurationAllocator
+from .sweep import HybridSweepBySizeAllocator as HybridSweepBySizeAllocator
+from .sweep import SweepAllocator as SweepAllocator
+from .sweep import SweepBestFitAllocator as SweepBestFitAllocator
+from .sweep import SweepByAllAllocator as SweepByAllAllocator
+from .sweep import SweepTwoEndedAllocator as SweepTwoEndedAllocator
 from .tabu_search import TabuSearchAllocator as TabuSearchAllocator
 from .tabu_search import TabuSearchConfig as TabuSearchConfig
 from .telamalloc import TelamallocAllocator as TelamallocAllocator

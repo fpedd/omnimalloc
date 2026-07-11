@@ -18,6 +18,7 @@
 #include "allocators/greedy_base.hpp"
 #include "allocators/simulated_annealing.hpp"
 #include "allocators/supermalloc/partition.hpp"
+#include "allocators/sweep.hpp"
 #include "allocators/tabu_search.hpp"
 #include "allocators/telamalloc.hpp"
 #include "primitives/allocation.hpp"
@@ -104,6 +105,19 @@ NB_MODULE(_cpp, m) {
   m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
         "allocations"_a, nb::rv_policy::move);
   m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
+        nb::rv_policy::move);
+
+  // Sweep placement: chronological free-list allocators
+  nb::enum_<SweepFit>(m, "SweepFit")
+      .value("FIRST", SweepFit::kFirst)
+      .value("BEST", SweepFit::kBest)
+      .value("TWO_ENDED", SweepFit::kTwoEnded);
+
+  m.def("sweep_place", &sweep_place, "allocations"_a,
+        "fit"_a = SweepFit::kFirst, nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
+  m.def("hybrid_sweep_place", &hybrid_sweep_place, "allocations"_a,
+        "num_obstacles"_a, nb::call_guard<nb::gil_scoped_release>(),
         nb::rv_policy::move);
 
   // FirstFitPlacer class: resident placer for the order-search allocators

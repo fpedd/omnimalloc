@@ -61,6 +61,7 @@ Thumbs.db
 *.log
 .env
 *.pdf
+*.pkl
 CLAUDE.md
 .claude
 *.json

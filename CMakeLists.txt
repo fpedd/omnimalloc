@@ -44,6 +44,7 @@ nanobind_add_module(
   src/cpp/allocators/greedy_base.cpp
   src/cpp/allocators/simulated_annealing.cpp
   src/cpp/allocators/supermalloc/partition.cpp
+  src/cpp/allocators/sweep.cpp
   src/cpp/allocators/tabu_search.cpp
   src/cpp/allocators/telamalloc.cpp
   src/cpp/primitives/allocation.cpp
