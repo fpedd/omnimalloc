@@ -79,6 +79,17 @@ def compute_temporal_overlaps(allocations: Sequence[Allocation]) -> dict[int | s
 
 def first_fit_place(allocations: Sequence[Allocation], overlaps: Mapping[int | str, Set[int | str]]) -> list[Allocation]: ...
 
+class SweepFit(enum.Enum):
+    FIRST = 0
+
+    BEST = 1
+
+    TWO_ENDED = 2
+
+def sweep_place(allocations: Sequence[Allocation], fit: SweepFit = SweepFit.FIRST) -> list[Allocation]: ...
+
+def hybrid_sweep_place(allocations: Sequence[Allocation], num_obstacles: int) -> list[Allocation]: ...
+
 class FirstFitPlacer:
     def __init__(self, allocations: Sequence[Allocation]) -> None: ...
 
