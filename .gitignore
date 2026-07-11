@@ -41,6 +41,9 @@ env*/
 *.swp
 *~
 
+# Neural allocator training runs (bundled weights live in the package)
+training/checkpoints/
+
 # Testing
 .coverage
 .ruff_cache/
