@@ -35,11 +35,10 @@ std::vector<Allocation> SimulatedAnnealingAllocator::allocate(
   double temperature = config_.initial_temperature;
 
   const auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::duration<double>(config_.max_seconds);
+                        std::chrono::duration<double>(config_.timeout);
 
   for (int iteration = 0; iteration < config_.max_iterations; ++iteration) {
-    if (config_.max_seconds > 0.0 &&
-        std::chrono::steady_clock::now() >= deadline) {
+    if (config_.timeout > 0.0 && std::chrono::steady_clock::now() >= deadline) {
       break;
     }
 

@@ -7,13 +7,12 @@ from typing import Final
 from .base import BaseSource
 from .generator import RandomSource
 
-AVAILABLE_SOURCES: Final[tuple[str, ...]] = tuple(BaseSource.registry().keys())
 DEFAULT_SOURCE: Final[str] = RandomSource.name()
 
 
 def get_available_sources() -> tuple[str, ...]:
-    """Return a tuple of available source names."""
-    return AVAILABLE_SOURCES
+    """Return a tuple of available source names (including user-registered)."""
+    return tuple(BaseSource.registry().keys())
 
 
 def get_default_source() -> str:

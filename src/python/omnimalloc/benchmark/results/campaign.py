@@ -40,7 +40,7 @@ class BenchmarkCampaign:
 
     @property
     def num_allocations(self) -> int:
-        return sum(r.num_allocations for r in self.reports)
+        return sum(r.total_num_allocations for r in self.reports)
 
     @property
     def num_allocations_per_report(self) -> float:

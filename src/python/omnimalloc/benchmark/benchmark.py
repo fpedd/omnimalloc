@@ -3,7 +3,6 @@
 #
 
 import logging
-from typing import Any
 
 from omnimalloc import run_allocation, validate_allocation
 from omnimalloc.allocators import BaseAllocator, get_available_allocators
@@ -13,20 +12,9 @@ from .results import BenchmarkCampaign, BenchmarkReport, BenchmarkResult
 from .results.utils import get_date_time_snake_case
 from .sources import BaseSource, get_default_source
 from .timer import Timer
+from .utils import tqdm
 
 logger = logging.getLogger(__name__)
-
-try:
-    from tqdm.auto import tqdm
-
-    HAS_TQDM = True
-except ImportError:
-    HAS_TQDM = False
-
-    # Fallback: tqdm without progress bars (just returns iterable)
-    def tqdm(iterable: Any, **kwargs: Any) -> Any:  # noqa: ARG001, ANN401
-        """No-op tqdm fallback when tqdm is not installed."""
-        return iterable
 
 
 def _resolve_parameterizable_variants(
@@ -61,21 +49,26 @@ def _resolve_fixed_variants(
     if isinstance(variants, int):
         return available[:variants]
     resolved_variants = []
-    for i, v in enumerate(variants):
+    for v in variants:
         if isinstance(v, str) and v in available:
             resolved_variants.append(v)
-        # TODO(fpedd): Might want to treat int variants as indices?
-        elif isinstance(v, int):
-            resolved_variants.append(available[i])
+        # Int variants index into the available variants
+        elif isinstance(v, int) and 0 <= v < len(available):
+            resolved_variants.append(available[v])
         else:
             logger.warning(f"Skipping unknown variant {v!r} for source {source.name()}")
     return tuple(resolved_variants)
 
 
+VariantSpec = int | tuple[IdType, ...] | None
+
+
 def _get_variant_ids(
     source_inst: BaseSource,
-    variants: int | tuple[IdType, ...] | None,
+    variants: VariantSpec | dict[str, VariantSpec],
 ) -> tuple[IdType, ...]:
+    if isinstance(variants, dict):
+        variants = variants.get(source_inst.name())
     if source_inst.is_parameterizable():
         return _resolve_parameterizable_variants(variants)
     return _resolve_fixed_variants(source_inst, variants)
@@ -140,7 +133,7 @@ def _benchmark_report(
 def run_benchmark(
     allocators: tuple[BaseAllocator | type[BaseAllocator] | str, ...] | None = None,
     sources: tuple[BaseSource | type[BaseSource] | str, ...] | None = None,
-    variants: int | tuple[IdType, ...] | None = None,
+    variants: VariantSpec | dict[str, VariantSpec] = None,
     campaign_id: IdType | None = None,
     iterations: int = 1,
     validate: bool = False,
@@ -152,12 +145,15 @@ def run_benchmark(
         sources: Sources to benchmark (defaults to default source).
         variants: For parameterizable sources, specifies allocation counts
                  (int or tuple of ints). For fixed sources, specifies which
-                 models/pools to test (tuple of names, or int for "first N",
-                 or None for all). Examples:
+                 models/pools to test (tuple of names or indices, or int for
+                 "first N", or None for all). A dict keyed by source name
+                 selects variants per source. Examples:
                  - 100: Test with 100 allocations (parameterizable only)
                  - (10, 100, 1000): Test with multiple sizes (parameterizable)
                  - ("model1", "model2"): Test specific models (fixed sources)
                  - 5: Test first 5 models (fixed sources)
+                 - {"random_source": (10, 100), "minimalloc_source": 5}:
+                   per-source variants (sources without an entry use defaults)
                  - None: Use defaults (all models for fixed, 100 for parameterizable)
         campaign_id: Unique identifier for this campaign.
         iterations: Number of iterations per variant (for statistical averaging).
@@ -184,6 +180,11 @@ def run_benchmark(
         leave=False,
     ):
         source_inst = BaseSource.resolve(source)
+        if getattr(source_inst, "seed", 0) is None:
+            logger.warning(
+                f"Source {source_inst.name()} has seed=None; each allocator "
+                f"gets a different random problem, so results are not comparable"
+            )
 
         for allocator in tqdm(
             allocators,
@@ -222,6 +223,3 @@ def run_benchmark(
     )
     campaign = campaign.finalize_metadata()
     return campaign
-
-
-benchmark_campaign = run_benchmark

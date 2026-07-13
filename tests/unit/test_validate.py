@@ -244,3 +244,20 @@ def test_validate_complex_hierarchy_with_error() -> None:
 
     system = System(id=1, memories=(memory1, memory2))
     assert validate_allocation(system, raise_on_error=False) is False
+
+
+def test_validate_memory_over_capacity_fails() -> None:
+    pool = Pool(
+        id="p", allocations=(Allocation(id=1, size=100, start=0, end=5, offset=0),)
+    )
+    memory = Memory(id="m", size=50, pools=(pool,))
+    with pytest.raises(ValueError, match="exceeds memory size"):
+        validate_allocation(memory)
+
+
+def test_validate_memory_within_capacity_passes() -> None:
+    pool = Pool(
+        id="p", allocations=(Allocation(id=1, size=100, start=0, end=5, offset=0),)
+    )
+    memory = Memory(id="m", size=100, pools=(pool,))
+    assert validate_allocation(memory) is True

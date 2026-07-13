@@ -23,7 +23,7 @@ struct TabuSearchConfig {
   // iteration evaluates `neighborhood_size` full O(n) placements, so
   // `max_iterations` alone does not bound runtime as `allocations` grows -
   // this does.
-  double max_seconds = kDefaultMaxSeconds;
+  double timeout = kDefaultTimeout;
 };
 
 // Tabu search over first-fit placement orders. Each iteration samples

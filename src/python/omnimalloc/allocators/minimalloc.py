@@ -8,7 +8,7 @@ from omnimalloc.common.optional import OptionalDependencyError
 from omnimalloc.common.units import TB
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_MAX_SECONDS, BaseAllocator, require_unique_ids
+from .base import DEFAULT_TIMEOUT, BaseAllocator, require_unique_ids
 
 try:
     import minimalloc as mm  # type: ignore
@@ -46,9 +46,13 @@ class MinimallocAllocator(BaseAllocator):
     """Wrapper for Google's minimalloc constraint-based allocator."""
 
     def __init__(
-        self, timeout: int = int(DEFAULT_MAX_SECONDS), max_capacity: int = 1 * TB
+        self, timeout: int = int(DEFAULT_TIMEOUT), max_capacity: int = 1 * TB
     ) -> None:
         _require_minimalloc()
+        if timeout < 0:
+            raise ValueError(f"timeout must be non-negative, got {timeout}")
+        if max_capacity <= 0:
+            raise ValueError(f"max_capacity must be positive, got {max_capacity}")
         self._timeout = timeout
         self._max_capacity = max_capacity
 
@@ -68,13 +72,8 @@ class MinimallocAllocator(BaseAllocator):
         solution = mm.Solver(params).solve(problem)
         if solution is None:
             raise RuntimeError("Minimalloc failed to find a solution")
-        if len(solution.offsets) != len(allocations):
-            raise ValueError(
-                f"Num offsets {len(solution.offsets)} != "
-                f"num allocations {len(allocations)}"
-            )
 
         return tuple(
             allocation.with_offset(offset)
-            for allocation, offset in zip(allocations, solution.offsets, strict=False)
+            for allocation, offset in zip(allocations, solution.offsets, strict=True)
         )

@@ -320,15 +320,19 @@ TelamallocAllocator::TelamallocAllocator(TelamallocConfig config)
 
 std::vector<Allocation> TelamallocAllocator::allocate(
     const std::vector<Allocation>& allocations) const {
+  // Bound by kUnbounded so the unbounded-capacity pack_phase incumbents in
+  // solve_phase can never fail and the cursor arithmetic cannot overflow.
+  check_total_size(allocations, kUnbounded);
   if (allocations.size() < 2) {
-    return first_fit_place(allocations, compute_temporal_overlaps(allocations));
+    return first_fit_place_indexed(allocations,
+                                   compute_overlap_indices(allocations));
   }
 
   Deadline deadline;
-  if (config_.max_seconds > 0.0) {
+  if (config_.timeout > 0.0) {
     deadline =
         Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                           std::chrono::duration<double>(config_.max_seconds));
+                           std::chrono::duration<double>(config_.timeout));
   }
 
   const auto neighbors = build_neighbors(allocations);

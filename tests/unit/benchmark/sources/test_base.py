@@ -240,3 +240,15 @@ def test_base_source_hierarchical_structure() -> None:
     assert len(system.memories) == 2
     assert len(system.memories[0].pools) == 2
     assert len(system.memories[0].pools[0].allocations) == 3
+
+
+def test_get_memories_with_skip_returns_requested_count() -> None:
+    source = RandomSource(num_allocations=5)
+    memories = source.get_memories(num_memories=2, skip=1)
+    assert len(memories) == 2
+
+
+def test_get_systems_with_skip_returns_requested_count() -> None:
+    source = RandomSource(num_allocations=5)
+    systems = source.get_systems(num_systems=1, skip=1)
+    assert len(systems) == 1

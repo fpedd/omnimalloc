@@ -77,8 +77,8 @@ def _compute_buffer_lifetimes(
                 buffer_to_first_index[buffer] = idx
             buffer_to_last_index[buffer] = idx
 
-    # Apply infinite lifetime constraints
-    max_index = len(model.ops) - 1
+    # Apply infinite lifetime constraints (at least one step for op-less models)
+    max_index = max(len(model.ops) - 1, 0)
     for buffer in model.buffers.values():
         if (buffer.kind == BufferKind.CONSTANT and const_inf_lifetime) or (
             buffer.kind.is_io and io_inf_lifetime
@@ -109,6 +109,8 @@ def _create_allocations(
         if (
             (include_const or buffer.kind != BufferKind.CONSTANT)
             and (include_io or not buffer.kind.is_io)
+            # Buffers referenced by no op have no lifetime and need no memory
+            and buffer in buffer_to_first_index
         )
     ]
 

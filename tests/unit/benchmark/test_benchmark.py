@@ -4,7 +4,7 @@
 
 
 from omnimalloc.allocators import GreedyAllocator, NaiveAllocator
-from omnimalloc.benchmark.benchmark import benchmark_campaign, run_benchmark
+from omnimalloc.benchmark.benchmark import run_benchmark
 from omnimalloc.benchmark.sources.generator import RandomSource
 
 
@@ -71,6 +71,16 @@ def test_run_benchmark_metadata() -> None:
     assert "num_reports" in campaign.metadata
 
 
-def test_benchmark_campaign_alias() -> None:
-    """Test that benchmark_campaign is an alias for run_benchmark."""
-    assert benchmark_campaign is run_benchmark
+def test_run_benchmark_per_source_variants() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    allocator = GreedyAllocator()
+
+    campaign = run_benchmark(
+        allocators=(allocator,),
+        sources=(source,),
+        iterations=1,
+        variants={"random_source": (5, 10)},
+    )
+
+    assert campaign.num_reports == 2
+    assert {r.variant_id for r in campaign.reports} == {5, 10}

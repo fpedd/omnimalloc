@@ -8,7 +8,7 @@ from omnimalloc._cpp import TelamallocAllocatorCpp as _TelamallocAllocatorCpp
 from omnimalloc._cpp import TelamallocConfig as _TelamallocConfig
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_MAX_SECONDS, BaseAllocator
+from .base import DEFAULT_TIMEOUT, BaseAllocator
 
 
 @dataclass(frozen=True)
@@ -17,23 +17,21 @@ class TelamallocConfig:
 
     seed: int = 42
     max_backtracks: int = 10000
-    max_seconds: float = DEFAULT_MAX_SECONDS
+    timeout: float = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:
         if self.max_backtracks < 0:
             raise ValueError(
                 f"max_backtracks must be non-negative, got {self.max_backtracks}"
             )
-        if self.max_seconds < 0:
-            raise ValueError(
-                f"max_seconds must be non-negative, got {self.max_seconds}"
-            )
+        if self.timeout < 0:
+            raise ValueError(f"timeout must be non-negative, got {self.timeout}")
 
     def to_cpp_config(self) -> _TelamallocConfig:
         return _TelamallocConfig(
             seed=self.seed,
             max_backtracks=self.max_backtracks,
-            max_seconds=self.max_seconds,
+            timeout=self.timeout,
         )
 
 
@@ -51,7 +49,7 @@ class TelamallocAllocator(BaseAllocator):
     restarts as major backtracking, while a binary search drives each phase's
     capacity from a first-fit incumbent down toward its load lower bound. An
     occasional seeded random-walk repair breaks min-conflict cycles; results
-    are deterministic for a fixed `seed`, and setting `max_seconds` (default
+    are deterministic for a fixed `seed`, and setting `timeout` (default
     3s) to 0 makes them reproducible across machines via `max_backtracks`
     alone.
     """

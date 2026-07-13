@@ -7,10 +7,11 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from omnimalloc.common.directories import PROJECT_DIR
 
+from ..utils import tqdm  # noqa: TID252
 from .campaign import BenchmarkCampaign
 from .report import BenchmarkReport
 from .result import BenchmarkResult
@@ -23,32 +24,6 @@ class ProgressBar(Protocol):
     def update(self, n: int = 1) -> None:
         """Update the progress bar."""
         ...
-
-
-try:
-    from tqdm.auto import tqdm
-
-    HAS_TQDM = True
-except ImportError:
-    HAS_TQDM = False
-
-    # Fallback: tqdm without progress bars (just returns iterable)
-    def tqdm(iterable: Any = None, **kwargs: Any) -> Any:  # noqa: ARG001, ANN401
-        """No-op tqdm fallback when tqdm is not installed."""
-        if iterable is None:
-            # When called with total= instead of an iterable
-            class DummyProgressBar:
-                def __enter__(self) -> "DummyProgressBar":
-                    return self
-
-                def __exit__(self, *args: object) -> None:
-                    pass
-
-                def update(self, n: int = 1) -> None:
-                    pass
-
-            return DummyProgressBar()
-        return iterable
 
 
 logger = logging.getLogger(__name__)

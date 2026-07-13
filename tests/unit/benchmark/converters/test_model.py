@@ -869,3 +869,46 @@ def test_model_to_system_empty_model() -> None:
     system = model_to_system(model)
     assert len(system.memories) == 1
     assert len(system.memories[0].pools) == 0
+
+
+def test_model_to_pools_skips_unreferenced_buffers() -> None:
+    used = Buffer(
+        id="used", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+    )
+    unused = Buffer(
+        id="unused", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+    )
+    op = Op(id=0, outputs={used})
+    model = Model(id=0, ops={0: op}, buffers={"used": used, "unused": unused})
+
+    pools = model_to_pools(model)
+
+    allocation_ids = {a.id for pool in pools for a in pool.allocations}
+    assert allocation_ids == {"used"}
+
+
+def test_model_to_allocations_skips_unreferenced_buffers() -> None:
+    used = Buffer(
+        id="used", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+    )
+    unused = Buffer(
+        id="unused", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+    )
+    op = Op(id=0, outputs={used})
+    model = Model(id=0, ops={0: op}, buffers={"used": used, "unused": unused})
+
+    allocations = model_to_allocations(model, const_inf_lifetime=False)
+
+    assert [a.id for a in allocations] == ["used"]
+
+
+def test_model_to_allocations_handles_model_without_ops() -> None:
+    buf = Buffer(
+        id="io", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+    )
+    model = Model(id=0, buffers={"io": buf})
+
+    allocations = model_to_allocations(model, include_io=True, io_inf_lifetime=True)
+
+    assert len(allocations) == 1
+    assert (allocations[0].start, allocations[0].end) == (0, 1)

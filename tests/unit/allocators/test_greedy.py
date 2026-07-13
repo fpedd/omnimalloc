@@ -497,3 +497,15 @@ def test_greedy_by_all_parallel_matches_serial() -> None:
     serial = GreedyByAllAllocator(cores=1).allocate(allocs)
     parallel = GreedyByAllAllocator(cores=2).allocate(allocs)
     assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
+
+
+def test_allocate_parallel_rejects_configured_dataclass_variant() -> None:
+    from omnimalloc.allocators.simulated_annealing import (
+        SimulatedAnnealingAllocator,
+        SimulatedAnnealingConfig,
+    )
+
+    allocs = (Allocation(id=1, size=10, start=0, end=5),)
+    variant = SimulatedAnnealingAllocator(SimulatedAnnealingConfig(seed=123))
+    with pytest.raises(ValueError, match="default-configured"):
+        allocate_parallel((variant, variant), allocs, cores=2)

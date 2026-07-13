@@ -7,13 +7,12 @@ from typing import Final
 from .base import BaseAllocator
 from .greedy import GreedyBySizeAllocator
 
-AVAILABLE_ALLOCATORS: Final[tuple[str, ...]] = tuple(BaseAllocator.registry().keys())
 DEFAULT_ALLOCATOR: Final[str] = GreedyBySizeAllocator.name()
 
 
 def get_available_allocators() -> tuple[str, ...]:
-    """Return a tuple of available allocator names."""
-    return AVAILABLE_ALLOCATORS
+    """Return a tuple of available allocator names (including user-registered)."""
+    return tuple(BaseAllocator.registry().keys())
 
 
 def get_default_allocator() -> str:

@@ -3,7 +3,7 @@
 #
 
 from dataclasses import dataclass
-from functools import cache, cached_property
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from .allocation import IdType
@@ -51,7 +51,6 @@ class Memory:
         """True if all pools have been allocated."""
         return all(pool.is_allocated for pool in self.pools)
 
-    @cache
     def with_pools(self, pools: tuple[Pool, ...]) -> "Memory":
         """Return new Memory with specified pools."""
         return Memory(id=self.id, size=self.size, pools=pools)

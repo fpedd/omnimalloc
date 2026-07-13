@@ -10,7 +10,8 @@ namespace omnimalloc {
 
 std::vector<Allocation> GreedyAllocator::allocate(
     const std::vector<Allocation>& allocations) const {
-  return first_fit_place(allocations, compute_temporal_overlaps(allocations));
+  return first_fit_place_indexed(allocations,
+                                 compute_overlap_indices(allocations));
 }
 
 }  // namespace omnimalloc

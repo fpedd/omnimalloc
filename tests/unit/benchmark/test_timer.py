@@ -8,7 +8,7 @@ import time
 from contextlib import redirect_stdout
 
 import pytest
-from omnimalloc.benchmark.timer import Timer, measure, time_block
+from omnimalloc.benchmark.timer import Timer, _format_time, measure, time_block
 
 
 def test_init_default() -> None:
@@ -309,3 +309,9 @@ def test_nested_context_managers() -> None:
 
     assert inner_elapsed > 0
     assert outer_elapsed > inner_elapsed
+
+
+def test_format_time_minutes_and_hours() -> None:
+    assert _format_time(90 * 10**9) == "1.50 min"
+    assert _format_time(30 * 60 * 10**9) == "30.00 min"
+    assert _format_time(2 * 3600 * 10**9) == "2.00 h"

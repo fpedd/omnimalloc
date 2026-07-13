@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import dataclasses
 import os
 from bisect import bisect_left, bisect_right
 from concurrent.futures import ProcessPoolExecutor
@@ -86,8 +87,14 @@ def allocate_parallel(
         return min((v.allocate(allocations) for v in variants), key=peak_memory)
 
     def config(a: BaseAllocator) -> dict[str, object]:
+        # Frozen config dataclasses compare by value, so include them alongside
+        # plain types; anything else (caches, C++ handles) is not config.
         plain = (bool, int, float, str, tuple, type(None))
-        return {k: v for k, v in vars(a).items() if isinstance(v, plain)}
+        return {
+            k: v
+            for k, v in vars(a).items()
+            if isinstance(v, plain) or dataclasses.is_dataclass(v)
+        }
 
     for variant in variants:
         if config(variant) != config(type(variant)()):

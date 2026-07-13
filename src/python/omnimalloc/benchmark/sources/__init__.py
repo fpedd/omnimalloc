@@ -13,7 +13,6 @@ from .minimalloc import MinimallocSource as MinimallocSource
 from .minimalloc import MinimallocSubset as MinimallocSubset
 from .pinwheel import PinwheelSource as PinwheelSource
 from .tiling import TilingSource as TilingSource
-from .utils import AVAILABLE_SOURCES as AVAILABLE_SOURCES
 from .utils import DEFAULT_SOURCE as DEFAULT_SOURCE
 from .utils import get_available_sources as get_available_sources
 from .utils import get_default_source as get_default_source

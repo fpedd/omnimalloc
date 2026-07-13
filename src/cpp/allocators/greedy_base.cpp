@@ -6,12 +6,36 @@
 
 #include <algorithm>
 #include <numeric>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 
 namespace omnimalloc {
 
+void check_total_size(const std::vector<Allocation>& allocations,
+                      int64_t limit) {
+  int64_t total_size = 0;
+  for (const Allocation& a : allocations) {
+    if (a.size() > limit - total_size) {
+      throw std::overflow_error("Total allocation size exceeds int64 range");
+    }
+    total_size += a.size();
+  }
+}
+
 TemporalOverlaps compute_temporal_overlaps(
+    const std::vector<Allocation>& allocations) {
+  TemporalOverlaps overlaps;
+  const OverlapIndices indices = compute_overlap_indices(allocations);
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    for (size_t j : indices[i]) {
+      overlaps[allocations[i].id()].insert(allocations[j].id());
+    }
+  }
+  return overlaps;
+}
+
+OverlapIndices compute_overlap_indices(
     const std::vector<Allocation>& allocations) {
   std::vector<std::tuple<int64_t, bool, size_t>> events;
   events.reserve(allocations.size() * 2);
@@ -20,25 +44,26 @@ TemporalOverlaps compute_temporal_overlaps(
     events.emplace_back(allocations[i].end(), false, i);
   }
 
-  // Sort events by time
+  // Sort events by time; ends sort before starts at equal times, matching the
+  // half-open interval semantics of Allocation::overlaps_temporally
   std::sort(events.begin(), events.end());
 
-  TemporalOverlaps overlaps;
-  std::unordered_set<size_t> active;
+  OverlapIndices indices(allocations.size());
+  std::vector<size_t> active;
   for (const auto& [time, is_start, idx] : events) {
     if (is_start) {
       // Current allocation overlaps with all currently active allocations
       for (size_t active_idx : active) {
-        overlaps[allocations[idx].id()].insert(allocations[active_idx].id());
-        overlaps[allocations[active_idx].id()].insert(allocations[idx].id());
+        indices[idx].push_back(active_idx);
+        indices[active_idx].push_back(idx);
       }
-      active.insert(idx);
+      active.push_back(idx);
     } else {
-      active.erase(idx);
+      active.erase(std::find(active.begin(), active.end(), idx));
     }
   }
 
-  return overlaps;
+  return indices;
 }
 
 int64_t peak_of(const std::vector<Allocation>& placed) {
@@ -49,30 +74,6 @@ int64_t peak_of(const std::vector<Allocation>& placed) {
     }
   }
   return peak;
-}
-
-std::vector<const Allocation*> placed_overlapping(
-    const Allocation& alloc, const std::vector<Allocation>& placed,
-    const TemporalOverlaps& overlaps) {
-  // Collect overlapping allocations that have been placed
-  std::vector<const Allocation*> overlapping;
-  auto it = overlaps.find(alloc.id());
-  if (it != overlaps.end()) {
-    overlapping.reserve(it->second.size());
-    for (const auto& candidate : placed) {
-      if (it->second.count(candidate.id())) {
-        overlapping.push_back(&candidate);
-      }
-    }
-  }
-
-  // Sort by offset so callers can scan the free gaps left-to-right
-  std::sort(overlapping.begin(), overlapping.end(),
-            [](const Allocation* a, const Allocation* b) {
-              return a->offset().value() < b->offset().value();
-            });
-
-  return overlapping;
 }
 
 std::vector<size_t> initial_order(const std::vector<Allocation>& allocations) {
@@ -106,55 +107,120 @@ std::vector<size_t> earlier_neighbors(
 
 namespace {
 
-int64_t find_best_offset(const Allocation& current_alloc,
-                         const std::vector<Allocation>& placed_allocations,
-                         const TemporalOverlaps& overlaps) {
-  // Find best offset using first-fit: scan for first gap that fits
+// Occupied (offset, end) spans of the already-placed neighbors of one
+// allocation, sorted by offset so the gap scans can go left-to-right
+void gather_spans(const std::vector<size_t>& neighbors,
+                  const std::vector<std::optional<int64_t>>& offsets,
+                  const std::vector<Allocation>& allocations,
+                  std::vector<std::pair<int64_t, int64_t>>& spans) {
+  spans.clear();
+  for (size_t j : neighbors) {
+    if (offsets[j].has_value()) {
+      spans.emplace_back(*offsets[j], *offsets[j] + allocations[j].size());
+    }
+  }
+  std::sort(spans.begin(), spans.end());
+}
+
+// First-fit: lowest offset where `size` fits between the sorted spans
+int64_t first_fit_offset(
+    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans) {
   int64_t best_offset = 0;
-  for (const auto* placed :
-       placed_overlapping(current_alloc, placed_allocations, overlaps)) {
-    int64_t gap = placed->offset().value() - best_offset;
-    if (gap >= current_alloc.size()) {
+  for (const auto& [offset, end] : spans) {
+    if (offset - best_offset >= size) {
       break;  // Found a fitting gap
     }
-    best_offset =
-        std::max(best_offset, placed->offset().value() + placed->size());
+    best_offset = std::max(best_offset, end);
   }
-
   return best_offset;
 }
 
 }  // namespace
 
+std::vector<Allocation> first_fit_place_indexed(
+    const std::vector<Allocation>& allocations, const OverlapIndices& indices) {
+  check_total_size(allocations);
+  std::vector<std::optional<int64_t>> offsets(allocations.size());
+  std::vector<std::pair<int64_t, int64_t>> spans;
+  std::vector<Allocation> placed;
+  placed.reserve(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    gather_spans(indices[i], offsets, allocations, spans);
+    offsets[i] = first_fit_offset(allocations[i].size(), spans);
+    placed.push_back(allocations[i].with_offset(*offsets[i]));
+  }
+  return placed;
+}
+
 std::vector<Allocation> first_fit_place(
     const std::vector<Allocation>& allocations,
     const TemporalOverlaps& overlaps) {
-  std::vector<Allocation> placed_allocations;
-  placed_allocations.reserve(allocations.size());
-  for (const auto& alloc : allocations) {
-    int64_t best_offset = find_best_offset(alloc, placed_allocations, overlaps);
-    placed_allocations.push_back(alloc.with_offset(best_offset));
+  // Translate the id-keyed map into index adjacency once, so placement only
+  // visits each allocation's neighbors instead of everything placed so far
+  std::unordered_map<IdType, std::vector<size_t>, IdTypeHash> by_id;
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    by_id[allocations[i].id()].push_back(i);
   }
 
-  return placed_allocations;
+  OverlapIndices indices(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    auto it = overlaps.find(allocations[i].id());
+    if (it == overlaps.end()) {
+      continue;
+    }
+    for (const IdType& other_id : it->second) {
+      auto jt = by_id.find(other_id);
+      if (jt == by_id.end()) {
+        continue;
+      }
+      for (size_t j : jt->second) {
+        if (j != i) {
+          indices[i].push_back(j);
+        }
+      }
+    }
+  }
+
+  return first_fit_place_indexed(allocations, indices);
 }
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)
     : allocations_(std::move(allocations)),
-      overlaps_(compute_temporal_overlaps(allocations_)) {}
+      overlaps_(compute_temporal_overlaps(allocations_)),
+      indices_(compute_overlap_indices(allocations_)) {
+  check_total_size(allocations_);
+}
+
+std::vector<std::optional<int64_t>> FirstFitPlacer::place_offsets(
+    const std::vector<size_t>& order) const {
+  std::vector<std::optional<int64_t>> offsets(allocations_.size());
+  std::vector<std::pair<int64_t, int64_t>> spans;
+  for (size_t idx : order) {
+    const Allocation& alloc = allocations_.at(idx);
+    gather_spans(indices_[idx], offsets, allocations_, spans);
+    offsets[idx] = first_fit_offset(alloc.size(), spans);
+  }
+  return offsets;
+}
 
 std::vector<Allocation> FirstFitPlacer::place(
     const std::vector<size_t>& order) const {
-  std::vector<Allocation> ordered;
-  ordered.reserve(order.size());
+  const auto offsets = place_offsets(order);
+  std::vector<Allocation> placed;
+  placed.reserve(order.size());
   for (size_t idx : order) {
-    ordered.push_back(allocations_.at(idx));
+    placed.push_back(allocations_[idx].with_offset(*offsets[idx]));
   }
-  return first_fit_place(ordered, overlaps_);
+  return placed;
 }
 
 int64_t FirstFitPlacer::evaluate(const std::vector<size_t>& order) const {
-  return peak_of(place(order));
+  const auto offsets = place_offsets(order);
+  int64_t peak = 0;
+  for (size_t idx : order) {
+    peak = std::max(peak, *offsets[idx] + allocations_[idx].size());
+  }
+  return peak;
 }
 
 }  // namespace omnimalloc

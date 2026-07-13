@@ -84,7 +84,9 @@ NB_MODULE(_cpp, m) {
              ss << a;
              return ss.str();
            })
-      .def("__eq__", &Allocation::operator==)
+      // is_operator: return NotImplemented for non-Allocation operands
+      // instead of raising TypeError, per the Python equality protocol
+      .def("__eq__", &Allocation::operator==, nb::is_operator())
       .def("__hash__", std::hash<Allocation>{})
       .def("__getstate__",
            [](const Allocation& a) {
@@ -102,39 +104,42 @@ NB_MODULE(_cpp, m) {
            });
 
   m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
-        "allocations"_a, nb::rv_policy::move);
-  m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
+        "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
         nb::rv_policy::move);
+  m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // FirstFitPlacer class: resident placer for the order-search allocators
   nb::class_<FirstFitPlacer>(m, "FirstFitPlacer")
       .def(nb::init<std::vector<Allocation>>(), "allocations"_a)
-      .def("evaluate", &FirstFitPlacer::evaluate, "order"_a)
-      .def("place", &FirstFitPlacer::place, "order"_a, nb::rv_policy::move)
+      .def("evaluate", &FirstFitPlacer::evaluate, "order"_a,
+           nb::call_guard<nb::gil_scoped_release>())
+      .def("place", &FirstFitPlacer::place, "order"_a,
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
       .def_prop_ro("overlaps", &FirstFitPlacer::overlaps, nb::rv_policy::copy);
 
   // GreedyAllocator class
   nb::class_<GreedyAllocator>(m, "GreedyAllocatorCpp")
       .def(nb::init<>())
       .def("allocate", &GreedyAllocator::allocate, "allocations"_a,
-           nb::rv_policy::move)
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
       .def("__str__",
            [](const GreedyAllocator&) { return "GreedyAllocator()"; })
       .def("__repr__",
            [](const GreedyAllocator&) { return "GreedyAllocator()"; })
-      .def("__eq__", &GreedyAllocator::operator==)
+      .def("__eq__", &GreedyAllocator::operator==, nb::is_operator())
       .def("__hash__", std::hash<GreedyAllocator>{});
 
   // BestFitAllocator class
   nb::class_<BestFitAllocator>(m, "BestFitAllocatorCpp")
       .def(nb::init<>())
       .def("allocate", &BestFitAllocator::allocate, "allocations"_a,
-           nb::rv_policy::move)
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
       .def("__str__",
            [](const BestFitAllocator&) { return "BestFitAllocator()"; })
       .def("__repr__",
            [](const BestFitAllocator&) { return "BestFitAllocator()"; })
-      .def("__eq__", &BestFitAllocator::operator==)
+      .def("__eq__", &BestFitAllocator::operator==, nb::is_operator())
       .def("__hash__", std::hash<BestFitAllocator>{});
 
   // SimulatedAnnealingConfig / SimulatedAnnealingAllocator classes
@@ -145,13 +150,13 @@ NB_MODULE(_cpp, m) {
            "max_iterations"_a = kDefaultSaConfig.max_iterations,
            "initial_temperature"_a = kDefaultSaConfig.initial_temperature,
            "cooling_rate"_a = kDefaultSaConfig.cooling_rate,
-           "max_seconds"_a = kDefaultSaConfig.max_seconds)
+           "timeout"_a = kDefaultSaConfig.timeout)
       .def_rw("seed", &SimulatedAnnealingConfig::seed)
       .def_rw("max_iterations", &SimulatedAnnealingConfig::max_iterations)
       .def_rw("initial_temperature",
               &SimulatedAnnealingConfig::initial_temperature)
       .def_rw("cooling_rate", &SimulatedAnnealingConfig::cooling_rate)
-      .def_rw("max_seconds", &SimulatedAnnealingConfig::max_seconds);
+      .def_rw("timeout", &SimulatedAnnealingConfig::timeout);
 
   nb::class_<SimulatedAnnealingAllocator>(m, "SimulatedAnnealingAllocatorCpp")
       .def(nb::init<SimulatedAnnealingConfig>(), "config"_a = kDefaultSaConfig)
@@ -166,12 +171,12 @@ NB_MODULE(_cpp, m) {
            "max_iterations"_a = kDefaultTabuConfig.max_iterations,
            "neighborhood_size"_a = kDefaultTabuConfig.neighborhood_size,
            "tabu_tenure"_a = kDefaultTabuConfig.tabu_tenure,
-           "max_seconds"_a = kDefaultTabuConfig.max_seconds)
+           "timeout"_a = kDefaultTabuConfig.timeout)
       .def_rw("seed", &TabuSearchConfig::seed)
       .def_rw("max_iterations", &TabuSearchConfig::max_iterations)
       .def_rw("neighborhood_size", &TabuSearchConfig::neighborhood_size)
       .def_rw("tabu_tenure", &TabuSearchConfig::tabu_tenure)
-      .def_rw("max_seconds", &TabuSearchConfig::max_seconds);
+      .def_rw("timeout", &TabuSearchConfig::timeout);
 
   nb::class_<TabuSearchAllocator>(m, "TabuSearchAllocatorCpp")
       .def(nb::init<TabuSearchConfig>(), "config"_a = kDefaultTabuConfig)
@@ -184,10 +189,10 @@ NB_MODULE(_cpp, m) {
       .def(nb::init<uint64_t, int, double>(),
            "seed"_a = kDefaultTelaConfig.seed,
            "max_backtracks"_a = kDefaultTelaConfig.max_backtracks,
-           "max_seconds"_a = kDefaultTelaConfig.max_seconds)
+           "timeout"_a = kDefaultTelaConfig.timeout)
       .def_rw("seed", &TelamallocConfig::seed)
       .def_rw("max_backtracks", &TelamallocConfig::max_backtracks)
-      .def_rw("max_seconds", &TelamallocConfig::max_seconds);
+      .def_rw("timeout", &TelamallocConfig::timeout);
 
   nb::class_<TelamallocAllocator>(m, "TelamallocAllocatorCpp")
       .def(nb::init<TelamallocConfig>(), "config"_a = kDefaultTelaConfig)
@@ -225,11 +230,11 @@ NB_MODULE(_cpp, m) {
       .def_ro("offsets", &Solution::offsets)
       .def_ro("height", &Solution::height);
 
-  m.def("greedy_many", &greedy_many, "partition"_a, "heuristics"_a,
-        "max_seconds"_a, "num_threads"_a,
-        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+  m.def("greedy_many", &greedy_many, "partition"_a, "heuristics"_a, "timeout"_a,
+        "num_threads"_a, nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
 
-  m.def("solve_many", &solve_many, "partitions"_a, "node_limit"_a,
-        "max_seconds"_a, "best_bound"_a, "options"_a, "num_threads"_a,
+  m.def("solve_many", &solve_many, "partitions"_a, "node_limit"_a, "timeout"_a,
+        "best_bound"_a, "options"_a, "num_threads"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 }

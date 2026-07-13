@@ -8,7 +8,7 @@ from omnimalloc._cpp import TabuSearchAllocatorCpp as _TabuSearchAllocatorCpp
 from omnimalloc._cpp import TabuSearchConfig as _TabuSearchConfig
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_MAX_SECONDS, BaseAllocator
+from .base import DEFAULT_TIMEOUT, BaseAllocator
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class TabuSearchConfig:
     max_iterations: int = 500
     neighborhood_size: int = 20
     tabu_tenure: int = 15
-    max_seconds: float = DEFAULT_MAX_SECONDS
+    timeout: float = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:
         if self.max_iterations <= 0:
@@ -32,10 +32,8 @@ class TabuSearchConfig:
             )
         if self.tabu_tenure <= 0:
             raise ValueError(f"tabu_tenure must be positive, got {self.tabu_tenure}")
-        if self.max_seconds < 0:
-            raise ValueError(
-                f"max_seconds must be non-negative, got {self.max_seconds}"
-            )
+        if self.timeout < 0:
+            raise ValueError(f"timeout must be non-negative, got {self.timeout}")
 
     def to_cpp_config(self) -> _TabuSearchConfig:
         return _TabuSearchConfig(
@@ -43,7 +41,7 @@ class TabuSearchConfig:
             max_iterations=self.max_iterations,
             neighborhood_size=self.neighborhood_size,
             tabu_tenure=self.tabu_tenure,
-            max_seconds=self.max_seconds,
+            timeout=self.timeout,
         )
 
 
@@ -57,7 +55,7 @@ class TabuSearchAllocator(BaseAllocator):
     swap just made is then forbidden from being immediately reversed for
     `tabu_tenure` iterations, which helps the search escape local optima
     without cycling between the same two orders. Each iteration evaluates
-    `neighborhood_size` full placements, so `max_seconds` (default 3s) bounds
+    `neighborhood_size` full placements, so `timeout` (default 3s) bounds
     wall-clock time as the input grows, independent of `max_iterations`.
     """
 

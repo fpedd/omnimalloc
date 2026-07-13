@@ -57,9 +57,9 @@ def test_genetic_rejects_invalid_tournament_size() -> None:
         GeneticAllocator(tournament_size=0)
 
 
-def test_genetic_rejects_negative_max_seconds() -> None:
-    with pytest.raises(ValueError, match="max_seconds must be non-negative"):
-        GeneticAllocator(max_seconds=-1.0)
+def test_genetic_rejects_negative_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout must be non-negative"):
+        GeneticAllocator(timeout=-1.0)
 
 
 def test_genetic_rejects_duplicate_ids() -> None:
@@ -104,3 +104,13 @@ def test_genetic_improves_or_matches_adversarial_insertion_order() -> None:
     assert validate_allocation(Pool(id="test_pool", allocations=result))
     baseline = peak_memory(GreedyBySizeAllocator().allocate(allocs))
     assert peak_memory(result) <= baseline
+
+
+def test_genetic_preserves_global_random_state() -> None:
+    import random
+
+    random.seed(7)
+    expected = [random.random() for _ in range(3)]
+    random.seed(7)
+    _fast_allocator().allocate(_allocs(10))
+    assert [random.random() for _ in range(3)] == expected

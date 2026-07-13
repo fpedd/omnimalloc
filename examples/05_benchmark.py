@@ -31,7 +31,12 @@ def main() -> None:
         "minimalloc_source",
         "huggingface_source",
     )
-    variants = (10, 50, 100, 250, 500)
+    # Counts for the parameterizable source, "first 5" for the fixed ones
+    variants = {
+        "random_source": (10, 50, 100, 250, 500),
+        "minimalloc_source": 5,
+        "huggingface_source": 5,
+    }
 
     # Run benchmark campaign
     campaign = run_benchmark(

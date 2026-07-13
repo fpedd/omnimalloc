@@ -16,7 +16,7 @@ from omnimalloc._cpp import (
     greedy_many,
     solve_many,
 )
-from omnimalloc.allocators.base import DEFAULT_MAX_SECONDS, BaseAllocator
+from omnimalloc.allocators.base import DEFAULT_TIMEOUT, BaseAllocator
 from omnimalloc.primitives.allocation import Allocation
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ GREEDY_HEURISTICS: tuple[Heuristic, ...] = (
 class SupermallocConfig:
     """Configuration for the SupermallocAllocator."""
 
-    timeout: float = DEFAULT_MAX_SECONDS
+    timeout: float = DEFAULT_TIMEOUT
     heuristics: tuple[Heuristic, ...] = DEFAULT_HEURISTICS
     cores: int | None = None
     canonical: bool = True
@@ -97,13 +97,13 @@ class _Portfolio:
     threads: int
     deadline: float
 
-    def solve(self, bounds: tuple[int, ...], max_seconds: float) -> Solution | None:
+    def solve(self, bounds: tuple[int, ...], timeout: float) -> Solution | None:
         """Run one portfolio round: each heuristic searches below each bound."""
         members = [p.with_bound(b) for b in bounds for p in self.partitions]
         return solve_many(
             members,
             sys.maxsize,
-            max_seconds,
+            timeout,
             max(bounds),
             self.options,
             self.threads,

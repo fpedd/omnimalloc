@@ -41,7 +41,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.allocators import DEFAULT_MAX_SECONDS, BaseAllocator
+from omnimalloc.allocators import DEFAULT_TIMEOUT, BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.timer import Timer
 from omnimalloc.common.units import MB
@@ -121,15 +121,15 @@ PROBLEM_LABELS = {
 # Direct-label offsets in points, tuned per hero point: (dx, dy, ha).
 HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
     "random_allocator": (0, -11, "center"),
-    "greedy_by_size_allocator_cpp": (-8, 0, "right"),
+    "greedy_by_size_allocator_cpp": (8, 0, "left"),
     "greedy_by_all_allocator_cpp": (0, -11, "center"),
-    "best_fit_allocator": (0, 8, "center"),
+    "best_fit_allocator": (8, 0, "left"),
     "hill_climb_allocator": (0, -11, "center"),
     "genetic_allocator": (8, -6, "left"),
     "simulated_annealing_allocator": (-8, 3, "right"),
-    "tabu_search_allocator": (0, 10, "center"),
-    "telamalloc_allocator": (-8, 0, "right"),
-    "minimalloc_allocator": (0, 8, "center"),
+    "tabu_search_allocator": (-8, 0, "right"),
+    "telamalloc_allocator": (0, -11, "center"),
+    "minimalloc_allocator": (8, 0, "left"),
     "supermalloc_allocator": (-10, 0, "right"),
 }
 
@@ -475,7 +475,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
         )
 
     ax.set_xscale("log")
-    ax.set_xlim(1.2e-3, 22)
+    ax.set_xlim(0.6e-3, 22)
     ax.set_ylim(52, 104)
     ticks = (1e-3, 1e-2, 1e-1, 1, 10)
     ax.set_xticks(ticks)
@@ -591,7 +591,7 @@ def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
         fig,
         theme,
         "Scaling",
-        f"random problems · search budget {DEFAULT_MAX_SECONDS:.0f} s",
+        f"random problems · search budget {DEFAULT_TIMEOUT:.0f} s",
     )
     fig.subplots_adjust(top=0.845, bottom=0.125, left=0.16, right=0.97)
     _save(fig, "scaling", theme, preview)

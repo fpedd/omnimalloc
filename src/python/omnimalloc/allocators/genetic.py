@@ -10,7 +10,7 @@ from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_MAX_SECONDS, require_unique_ids
+from .base import DEFAULT_TIMEOUT, require_unique_ids
 from .greedy import GreedyAllocator
 from .greedy_base import (
     order_by_area,
@@ -33,7 +33,7 @@ except ImportError:
 class GeneticAllocator(GreedyAllocator):
     """Genetic algorithm allocator that evolves greedy placement orders.
 
-    `max_seconds` (default 3s) bounds wall-clock time between generations,
+    `timeout` (default 3s) bounds wall-clock time between generations,
     independent of `num_generations`; set it to 0 to disable the deadline.
     """
 
@@ -45,7 +45,7 @@ class GeneticAllocator(GreedyAllocator):
         crossover_prob: float = 0.7,
         mutation_prob: float = 0.2,
         tournament_size: int = 3,
-        max_seconds: float = DEFAULT_MAX_SECONDS,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
@@ -62,8 +62,8 @@ class GeneticAllocator(GreedyAllocator):
             )
         if tournament_size <= 0:
             raise ValueError(f"tournament_size must be positive, got {tournament_size}")
-        if max_seconds < 0:
-            raise ValueError(f"max_seconds must be non-negative, got {max_seconds}")
+        if timeout < 0:
+            raise ValueError(f"timeout must be non-negative, got {timeout}")
 
         self.seed = seed
         self.population_size = population_size
@@ -71,7 +71,7 @@ class GeneticAllocator(GreedyAllocator):
         self.crossover_prob = crossover_prob
         self.mutation_prob = mutation_prob
         self.tournament_size = tournament_size
-        self.max_seconds = max_seconds
+        self.timeout = timeout
 
         # Setup DEAP creators (only once per process, they live in a global namespace)
         if not hasattr(creator, "FitnessMin"):
@@ -111,9 +111,16 @@ class GeneticAllocator(GreedyAllocator):
 
         require_unique_ids(allocations)
 
-        # DEAP operators draw from the global random module
+        # DEAP operators draw from the global random module; seed it for
+        # determinism but restore the caller's stream afterwards.
+        random_state = random.getstate()
         random.seed(self.seed)
+        try:
+            return self._evolve(allocations)
+        finally:
+            random.setstate(random_state)
 
+    def _evolve(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         placer = FirstFitPlacer(list(allocations))
         toolbox = base.Toolbox()
         n = len(allocations)
@@ -152,7 +159,7 @@ class GeneticAllocator(GreedyAllocator):
         # DEAP's eaSimple, unrolled so a wall-clock deadline can stop between
         # generations; varAnd keeps the RNG stream identical to eaSimple.
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        deadline = time.monotonic() + self.max_seconds if self.max_seconds else None
+        deadline = time.monotonic() + self.timeout if self.timeout else None
         evaluate_invalid(population)
         hall_of_fame.update(population)
         for _ in range(self.num_generations):

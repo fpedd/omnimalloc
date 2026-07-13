@@ -80,8 +80,9 @@ def _get_x_limits(system: System) -> tuple[int, int]:
     for memory in system.memories:
         for pool in memory.pools:
             for alloc in pool.allocations:
-                max_len = max(max_len, alloc.start + alloc.duration)
-    return 0, max_len
+                max_len = max(max_len, alloc.end)
+    # Clamp to at least 1 so empty systems keep a non-degenerate x-axis
+    return 0, max(max_len, 1)
 
 
 def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
@@ -89,9 +90,6 @@ def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
     for memory in system.memories:
         size = memory.size
         used = memory.used_size
-
-        if used is None:
-            raise ValueError(f"Memory {memory!r} has undefined used size")
 
         if size is None:
             # No size limit defined, scale to 1.2x used
@@ -109,7 +107,9 @@ def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
             # Usage below 50% of size, scale to 2x usage
             y_limit = used * 2
 
-        limits[memory] = (0, int(y_limit))
+        # Clamp to at least 1 so downstream tick spacing stays positive
+        # even for entities with zero used memory.
+        limits[memory] = (0, max(int(y_limit), 1))
 
     return limits
 
@@ -152,11 +152,10 @@ def _draw_allocation(ax: Axes, alloc: Allocation, offset: int, color: str) -> No
 
 
 def _draw_pool_background(
-    ax: Axes, y_offset: int, pool_size: int, color: str | set[str]
+    ax: Axes, y_offset: int, pool_size: int, colors: set[str]
 ) -> None:
-    """Draw background rectangle for allocation pool."""
-    if isinstance(color, set):
-        color = "gray" if len(color) > 1 else color.pop()
+    """Draw background rectangle for allocation pool (gray for mixed/empty kinds)."""
+    color = next(iter(colors)) if len(colors) == 1 else "gray"
     x_min, x_max = ax.get_xlim()
     rect = Rectangle(
         xy=(x_min, y_offset),
@@ -279,15 +278,15 @@ def _visualize_system(
         _set_axes_limits(ax, x_limits, memory_y_limits, memory.size)
         _set_axes_ticks(ax, memory_y_limits[1])
 
-        colors: set[str] = set()
         for pool in memory.pools:
             y_offset = y_offsets[memory][pool]
 
+            colors: set[str] = set()
             for alloc in pool.allocations:
                 color = _get_allocation_color(alloc.kind)
                 _draw_allocation(ax, alloc, y_offset, color)
                 colors.add(color)
-            _draw_pool_background(ax, y_offset, pool.size, color)
+            _draw_pool_background(ax, y_offset, pool.size, colors)
 
         # Draw memory limit lines
         limits: dict[str, int] = {"used": memory.used_size}

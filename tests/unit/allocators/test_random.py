@@ -51,11 +51,10 @@ def test_random_deterministic_for_same_seed() -> None:
     assert {a.id: a.offset for a in result1} == {a.id: a.offset for a in result2}
 
 
-def test_random_reset_restores_rng_sequence() -> None:
+def test_random_repeated_calls_on_same_instance_are_deterministic() -> None:
     allocs = _allocs(20)
     allocator = RandomAllocator(num_trials=10, seed=7)
     first = allocator.allocate(allocs)
-    allocator.reset()
     second = allocator.allocate(allocs)
     assert {a.id: a.offset for a in first} == {a.id: a.offset for a in second}
 
