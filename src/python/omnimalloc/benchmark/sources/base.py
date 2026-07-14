@@ -134,7 +134,7 @@ class BaseSource(Registered):
     ) -> tuple[Memory, ...]:
         num_memories = num_memories or self._num_memories
         memories = []
-        for i in range(num_memories + skip):
+        for i in range(num_memories):
             pools = self.get_pools(
                 num_pools=self._num_pools,
                 skip=(skip + i) * self._num_pools,
@@ -149,7 +149,7 @@ class BaseSource(Registered):
     ) -> tuple[System, ...]:
         num_systems = num_systems or self._num_systems
         systems = []
-        for i in range(num_systems + skip):
+        for i in range(num_systems):
             memories = self.get_memories(
                 num_memories=self._num_memories,
                 skip=(skip + i) * self._num_memories,

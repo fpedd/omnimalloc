@@ -418,3 +418,11 @@ def test_pickle_roundtrip() -> None:
         assert restored.id == alloc.id
         assert restored.offset == alloc.offset
         assert restored.kind == alloc.kind
+
+
+def test_allocation_eq_with_non_allocation_returns_false() -> None:
+    alloc = Allocation(id=1, size=10, start=0, end=5)
+    assert alloc != None  # noqa: E711
+    assert alloc != 5
+    assert (alloc == "allocation") is False
+    assert alloc in [1, "x", alloc]

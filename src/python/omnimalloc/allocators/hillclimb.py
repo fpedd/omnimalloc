@@ -9,7 +9,7 @@ import time
 from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_MAX_SECONDS
+from .base import DEFAULT_TIMEOUT
 from .greedy import GreedyAllocator
 from .greedy_base import compute_conflicts, peak_memory
 
@@ -22,7 +22,7 @@ class HillClimbAllocator(GreedyAllocator):
     peak improves (or occasionally when it worsens, per the annealing
     schedule). `acceptance_temperature` is the percent worsening accepted
     with probability 1/e at the start; it cools linearly to zero.
-    `max_seconds` (default 3s) bounds wall-clock time as the input grows,
+    `timeout` (default 3s) bounds wall-clock time as the input grows,
     independent of `max_iterations`; set it to 0 to disable the deadline.
     """
 
@@ -31,7 +31,7 @@ class HillClimbAllocator(GreedyAllocator):
         max_iterations: int = 100,
         seed: int = 42,
         acceptance_temperature: float = 2.0,
-        max_seconds: float = DEFAULT_MAX_SECONDS,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         if max_iterations <= 0:
             raise ValueError(f"max_iterations must be positive, got {max_iterations}")
@@ -40,13 +40,13 @@ class HillClimbAllocator(GreedyAllocator):
                 f"acceptance_temperature must be non-negative, "
                 f"got {acceptance_temperature}"
             )
-        if max_seconds < 0:
-            raise ValueError(f"max_seconds must be non-negative, got {max_seconds}")
+        if timeout < 0:
+            raise ValueError(f"timeout must be non-negative, got {timeout}")
 
         self._max_iterations = max_iterations
         self._seed = seed
         self._acceptance_temperature = acceptance_temperature
-        self._max_seconds = max_seconds
+        self._timeout = timeout
 
     def _collect_neighbors(
         self,
@@ -122,7 +122,7 @@ class HillClimbAllocator(GreedyAllocator):
         if not allocations:
             return allocations
 
-        deadline = time.monotonic() + self._max_seconds if self._max_seconds else None
+        deadline = time.monotonic() + self._timeout if self._timeout else None
         rng = random.Random(self._seed)
         conflicts = compute_conflicts(allocations)
         placer = FirstFitPlacer(list(allocations))

@@ -942,9 +942,9 @@ void run_workers(const std::function<void()>& work, int num_threads,
 
 // Cap the timeout so the duration cast stays representable; the comparison
 // also absorbs inf and NaN.
-std::chrono::steady_clock::time_point compute_deadline(double max_seconds) {
+std::chrono::steady_clock::time_point compute_deadline(double timeout) {
   constexpr double kMaxSeconds = 1e9;  // ~31 years
-  const double seconds = max_seconds < kMaxSeconds ? max_seconds : kMaxSeconds;
+  const double seconds = timeout < kMaxSeconds ? timeout : kMaxSeconds;
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(
              std::chrono::duration<double>(seconds));
@@ -953,14 +953,14 @@ std::chrono::steady_clock::time_point compute_deadline(double max_seconds) {
 }  // namespace
 
 Solution greedy_many(const Partition& partition,
-                     const std::vector<std::string>& heuristics,
-                     double max_seconds, int num_threads) {
+                     const std::vector<std::string>& heuristics, double timeout,
+                     int num_threads) {
   if (heuristics.empty()) {
     throw std::invalid_argument("greedy_many requires at least one heuristic");
   }
   validate_heuristics(heuristics);
 
-  const auto deadline = compute_deadline(max_seconds);
+  const auto deadline = compute_deadline(timeout);
   std::vector<std::optional<Solution>> results(heuristics.size());
   std::atomic<size_t> next{0};
 
@@ -984,12 +984,12 @@ Solution greedy_many(const Partition& partition,
 }
 
 std::optional<Solution> solve_many(const std::vector<Partition>& partitions,
-                                   int64_t node_limit, double max_seconds,
+                                   int64_t node_limit, double timeout,
                                    int64_t best_bound, SearchOptions options,
                                    int num_threads) {
   if (partitions.empty()) return std::nullopt;
 
-  const auto deadline = compute_deadline(max_seconds);
+  const auto deadline = compute_deadline(timeout);
   std::atomic<int64_t> shared_best{best_bound};
   std::vector<std::optional<Solution>> results(partitions.size());
   std::atomic<size_t> next{0};

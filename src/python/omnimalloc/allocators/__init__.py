@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from .base import DEFAULT_MAX_SECONDS as DEFAULT_MAX_SECONDS
+from .base import DEFAULT_TIMEOUT as DEFAULT_TIMEOUT
 from .base import BaseAllocator as BaseAllocator
 from .best_fit import BestFitAllocator as BestFitAllocator
 from .genetic import GeneticAllocator as GeneticAllocator
@@ -38,7 +38,6 @@ from .tabu_search import TabuSearchAllocator as TabuSearchAllocator
 from .tabu_search import TabuSearchConfig as TabuSearchConfig
 from .telamalloc import TelamallocAllocator as TelamallocAllocator
 from .telamalloc import TelamallocConfig as TelamallocConfig
-from .utils import AVAILABLE_ALLOCATORS as AVAILABLE_ALLOCATORS
 from .utils import DEFAULT_ALLOCATOR as DEFAULT_ALLOCATOR
 from .utils import get_allocator_by_name as get_allocator_by_name
 from .utils import get_available_allocators as get_available_allocators

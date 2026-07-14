@@ -14,7 +14,10 @@ def _collect_pools(entity: System | Memory | Pool) -> dict[str, Pool]:
     if isinstance(entity, Pool):
         return {str(entity.id): entity}
     if isinstance(entity, Memory):
-        return {str(pool.id): pool for pool in entity.pools}
+        pools = {str(pool.id): pool for pool in entity.pools}
+        if len(pools) != len(entity.pools):
+            raise ValueError("pool ids must be unique after string conversion")
+        return pools
     if isinstance(entity, System):
         pools = {
             f"{memory.id}_{pool.id}": pool

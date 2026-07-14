@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from omnimalloc import __version__
+from omnimalloc.common.directories import PROJECT_DIR
 
 
 def get_date_time() -> str:
@@ -35,6 +36,7 @@ def get_git_hash() -> str:
             capture_output=True,
             text=True,
             check=True,
+            cwd=PROJECT_DIR,
         )
         return result.stdout.strip()
     except (subprocess.SubprocessError, FileNotFoundError):

@@ -94,20 +94,12 @@ class BenchmarkReport:
         return float(np.mean([r.duration for r in self.results]))
 
     @property
-    def average_seconds(self) -> float:
-        return self.mean_seconds
-
-    @property
     def median_seconds(self) -> float:
         return float(np.median([r.duration for r in self.results]))
 
     @property
     def mean_allocation_efficiency(self) -> float:
         return float(np.mean([r.allocation_efficiency for r in self.results]))
-
-    @property
-    def average_allocation_efficiency(self) -> float:
-        return self.mean_allocation_efficiency
 
     @property
     def median_allocation_efficiency(self) -> float:

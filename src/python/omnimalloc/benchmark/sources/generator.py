@@ -204,8 +204,8 @@ class HighContentionSource(BaseSource):
             raise ValueError("size_min must be positive")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
-        if time_window <= 0:
-            raise ValueError("time_window must be positive")
+        if time_window < 2:
+            raise ValueError("time_window must be at least 2")
 
         self.size_min = size_min
         self.size_max = size_max

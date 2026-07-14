@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from functools import cached_property
-
 from omnimalloc._cpp import BestFitAllocatorCpp as _BestFitAllocatorCpp
 from omnimalloc.primitives import Allocation
 
@@ -19,9 +17,5 @@ class BestFitAllocator(BaseAllocator):
     useful gaps free for later, bigger allocations.
     """
 
-    @cached_property
-    def _cpp_allocator(self) -> _BestFitAllocatorCpp:
-        return _BestFitAllocatorCpp()
-
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return tuple(self._cpp_allocator.allocate(list(allocations)))
+        return tuple(_BestFitAllocatorCpp().allocate(list(allocations)))

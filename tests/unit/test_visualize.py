@@ -309,3 +309,24 @@ def test_byte_unit_picks_largest_unit_that_keeps_value_above_one() -> None:
 def test_format_bytes_does_not_collapse_small_values_to_zero() -> None:
     assert _format_bytes(3000) == "2.9KB"
     assert _format_bytes(200) == "200.0B"
+
+
+def test_visualize_memory_with_empty_pool(artifacts_dir: Path) -> None:
+    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    memory = Memory(
+        id="mem",
+        pools=(
+            Pool(id="empty", allocations=()),
+            Pool(id="full", allocations=(alloc,), offset=0),
+        ),
+    )
+    output_path = artifacts_dir / "test_empty_pool.pdf"
+    assert plot_allocation(memory, file_path=output_path) == output_path
+    assert output_path.exists()
+
+
+def test_visualize_entity_with_zero_used_memory(artifacts_dir: Path) -> None:
+    pool = Pool(id="empty", allocations=())
+    output_path = artifacts_dir / "test_zero_used.pdf"
+    assert plot_allocation(pool, file_path=output_path) == output_path
+    assert output_path.exists()

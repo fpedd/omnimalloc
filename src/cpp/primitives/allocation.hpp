@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <limits>
 #include <optional>
 
 #include "buffer_kind.hpp"
@@ -30,7 +31,14 @@ class Allocation {
   // Computed properties
   bool is_allocated() const noexcept { return offset_.has_value(); }
   int64_t duration() const noexcept { return end_ - start_; }
-  int64_t area() const noexcept { return duration() * size_; }
+  int64_t area() const noexcept {
+    // Saturate instead of overflowing (UB) at int64 extremes
+    const int64_t d = duration();
+    if (d > 0 && size_ > std::numeric_limits<int64_t>::max() / d) {
+      return std::numeric_limits<int64_t>::max();
+    }
+    return d * size_;
+  }
 
   std::optional<int64_t> height() const noexcept {
     if (offset_.has_value()) {

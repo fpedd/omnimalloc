@@ -14,10 +14,10 @@ TIMEOUT_SECONDS = 300  # 5 minutes
 
 
 @pytest.mark.parametrize("example_file", EXAMPLE_FILES, ids=lambda p: p.name)
-def test_examples(example_file: Path) -> None:
+def test_examples(example_file: Path, tmp_path: Path) -> None:
     result = subprocess.run(
         [sys.executable, str(example_file)],
-        cwd=EXAMPLES_DIR.parent,
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=TIMEOUT_SECONDS,

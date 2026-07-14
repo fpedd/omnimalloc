@@ -23,7 +23,7 @@ struct SimulatedAnnealingConfig {
   // Wall-clock budget checked once per iteration; 0 disables it. Each
   // iteration re-evaluates a full O(n) placement, so `max_iterations` alone
   // does not bound runtime as `allocations` grows - this does.
-  double max_seconds = kDefaultMaxSeconds;
+  double timeout = kDefaultTimeout;
 };
 
 // Simulated annealing over first-fit placement orders. Each iteration swaps a

@@ -38,9 +38,9 @@ def test_hillclimb_rejects_negative_temperature() -> None:
         HillClimbAllocator(acceptance_temperature=-1.0)
 
 
-def test_hillclimb_rejects_negative_max_seconds() -> None:
-    with pytest.raises(ValueError, match="max_seconds must be non-negative"):
-        HillClimbAllocator(max_seconds=-1.0)
+def test_hillclimb_rejects_negative_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout must be non-negative"):
+        HillClimbAllocator(timeout=-1.0)
 
 
 def test_hillclimb_preserves_allocations() -> None:
@@ -107,3 +107,21 @@ def test_hillclimb_deterministic() -> None:
     result1 = HillClimbAllocator(max_iterations=50).allocate(allocs)
     result2 = HillClimbAllocator(max_iterations=50).allocate(allocs)
     assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
+
+
+def test_hillclimb_not_worse_than_greedy_by_size() -> None:
+    from omnimalloc.allocators.greedy import GreedyBySizeAllocator
+
+    allocs = tuple(
+        Allocation(
+            id=i,
+            size=(i * 37 % 90 + 10),
+            start=(i * 13) % 40,
+            end=(i * 13) % 40 + (i * 7) % 15 + 1,
+        )
+        for i in range(40)
+    )
+    hillclimb = HillClimbAllocator(seed=42).allocate(allocs)
+    greedy = GreedyBySizeAllocator().allocate(allocs)
+    assert _is_valid(hillclimb)
+    assert peak_memory(hillclimb) <= peak_memory(greedy)

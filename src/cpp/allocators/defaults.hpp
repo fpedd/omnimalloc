@@ -7,7 +7,7 @@
 namespace omnimalloc {
 
 // Shared wall-clock budget for every time-bounded allocator (seconds).
-// Mirrors DEFAULT_MAX_SECONDS in the Python package.
-inline constexpr double kDefaultMaxSeconds = 3.0;
+// Mirrors DEFAULT_TIMEOUT in the Python package.
+inline constexpr double kDefaultTimeout = 3.0;
 
 }  // namespace omnimalloc

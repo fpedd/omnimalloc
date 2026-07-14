@@ -89,8 +89,8 @@ def _draw_graphs(
         )
         for r in reports
     ]
-    times = [r.average_seconds for r in reports]
-    efficiencies = [r.average_allocation_efficiency * 100 for r in reports]
+    times = [r.mean_seconds for r in reports]
+    efficiencies = [r.mean_allocation_efficiency * 100 for r in reports]
 
     ax.plot(
         x_vals,
@@ -158,13 +158,16 @@ def _draw_subplot(
     ax: Axes,
     source_name: str,
     source_data: dict[str, dict[str, tuple[BenchmarkReport, ...]]],
+    allocator_names: tuple[str, ...],
 ) -> None:
     ax2 = ax.twinx()
 
     is_categorical = _is_categorical(source_data)
 
-    for i, (allocator_name, allocator_data) in enumerate(source_data.items()):
-        color = _get_allocator_color(i)
+    for allocator_name, allocator_data in source_data.items():
+        # Color by campaign-wide allocator index so colors match the legend
+        # even when a source lacks some allocators.
+        color = _get_allocator_color(allocator_names.index(allocator_name))
         reports = _get_sorted_reports(allocator_data)
 
         _draw_graphs(ax, ax2, allocator_name, color, is_categorical, reports)
@@ -174,7 +177,12 @@ def _draw_subplot(
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
     else:
         ax.set_xlabel("Number of Allocations", fontsize=10)
-        num_allocations = [r.num_allocations for r in reports]
+        num_allocations = [
+            r.num_allocations
+            for allocator_data in source_data.values()
+            for reports in allocator_data.values()
+            for r in reports
+        ]
         if num_allocations and max(num_allocations) / min(num_allocations) > 10:
             ax.set_xscale("log")
 
@@ -256,7 +264,7 @@ def _visualize_campaign(
     fig, axs = _create_figure(len(source_names))
 
     for ax, source_name in zip(axs, source_names, strict=True):
-        _draw_subplot(ax, source_name, reports_by_source[source_name])
+        _draw_subplot(ax, source_name, reports_by_source[source_name], allocator_names)
 
     fig.tight_layout(rect=(0.01, 0.05, 0.99, 0.92))  # l, b, r, t
 

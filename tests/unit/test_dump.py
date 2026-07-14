@@ -4,6 +4,7 @@
 
 from pathlib import Path
 
+import pytest
 from omnimalloc.dump import dump_allocation, load_allocation
 from omnimalloc.primitives import Allocation, Memory, Pool, System
 
@@ -105,3 +106,9 @@ def test_dump_system_round_trip(tmp_path: Path) -> None:
     for file_path in written:
         loaded = load_allocation(file_path)
         assert len(loaded.allocations) == 2
+
+
+def test_dump_memory_rejects_pool_ids_colliding_after_str(tmp_path: Path) -> None:
+    memory = Memory(id="mem", pools=(make_pool(1), make_pool("1")))
+    with pytest.raises(ValueError, match="unique"):
+        dump_allocation(memory, tmp_path / "problem.csv")

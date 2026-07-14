@@ -39,6 +39,7 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(
   _cpp
   NB_STATIC
+  NOMINSIZE
   src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/greedy.cpp
   src/cpp/allocators/greedy_base.cpp

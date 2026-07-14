@@ -72,7 +72,8 @@ def test_benchmark_campaign_properties() -> None:
     campaign = BenchmarkCampaign(id="campaign_0", reports=(report,))
 
     assert campaign.num_results == 3
-    assert campaign.num_allocations == 10
+    assert campaign.num_allocations == 30
+    assert campaign.num_allocations_per_result == 10
     assert campaign.num_allocators == 1
     assert campaign.num_sources == 1
 

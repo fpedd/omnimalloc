@@ -37,7 +37,7 @@ class _MinimallocBuffer:
         if self.size <= 0:
             raise ValueError(f"size must be positive, got {self.size}")
         if self.upper <= self.lower:
-            raise ValueError(f"upper ({self.upper}) < lower ({self.lower})")
+            raise ValueError(f"upper ({self.upper}) <= lower ({self.lower})")
 
 
 def _read_minimalloc_csv(file_path: Path) -> list[_MinimallocBuffer]:
@@ -104,8 +104,9 @@ class MinimallocSource(BaseSource):
     def _pools(self) -> list[Pool]:
         if self._cached_pools is None:
             csv_dir = EXTERNAL_DIR / "minimalloc" / self.subset.value
+            # Sort for a filesystem-independent, reproducible variant order
             self._cached_pools = [
-                _from_minimalloc_csv(f) for f in csv_dir.glob("*.csv")
+                _from_minimalloc_csv(f) for f in sorted(csv_dir.glob("*.csv"))
             ]
         return self._cached_pools
 

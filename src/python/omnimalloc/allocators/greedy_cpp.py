@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from functools import cached_property
-
 from omnimalloc._cpp import GreedyAllocatorCpp as _GreedyAllocatorCpp
 from omnimalloc.primitives import Allocation
 
@@ -22,12 +20,8 @@ from .greedy_base import (
 class GreedyAllocatorCpp(BaseAllocator):
     """C++ implementation of the base greedy allocator using first-fit strategy."""
 
-    @cached_property
-    def _cpp_allocator(self) -> _GreedyAllocatorCpp:
-        return _GreedyAllocatorCpp()
-
     def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return tuple(self._cpp_allocator.allocate(list(allocations)))
+        return tuple(_GreedyAllocatorCpp().allocate(list(allocations)))
 
 
 class GreedyByDurationAllocatorCpp(GreedyAllocatorCpp):

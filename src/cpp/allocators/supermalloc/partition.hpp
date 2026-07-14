@@ -209,13 +209,13 @@ class Partition {
 
 // Run `partition.greedy_pack` under each heuristic ordering across
 // `num_threads` and return the best packing; ties go to the lowest heuristic
-// index for determinism. Heuristics claimed after `max_seconds` elapse are
+// index for determinism. Heuristics claimed after `timeout` elapse are
 // skipped, except the first, so a packing always exists. Throws
 // std::invalid_argument when `heuristics` is empty or contains an unknown
 // sort key.
 [[nodiscard]] Solution greedy_many(const Partition& partition,
                                    const std::vector<std::string>& heuristics,
-                                   double max_seconds, int num_threads);
+                                   double timeout, int num_threads);
 
 // Run `partitions` (typically the same problem under different heuristic
 // orderings) as an independent-search portfolio across `num_threads`, sharing
@@ -224,7 +224,6 @@ class Partition {
 // solution found, or nullopt if none beats `best_bound`.
 [[nodiscard]] std::optional<Solution> solve_many(
     const std::vector<Partition>& partitions, int64_t node_limit,
-    double max_seconds, int64_t best_bound, SearchOptions options,
-    int num_threads);
+    double timeout, int64_t best_bound, SearchOptions options, int num_threads);
 
 }  // namespace omnimalloc

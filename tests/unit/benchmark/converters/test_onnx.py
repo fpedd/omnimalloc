@@ -163,7 +163,7 @@ def test_node_to_op(simple_onnx_model: "onnx.ModelProto") -> None:
         buf = _value_info_to_buffer(val, BufferKind.WORKSPACE)
         buffers[buf.id] = buf
 
-    op = _node_to_op(node, buffers)
+    op = _node_to_op(node, buffers, node.name)
 
     assert op.id == "matmul_node"
     assert op.op_type == "MatMul"
@@ -179,7 +179,7 @@ def test_node_to_op_handles_missing_buffers(
     node = graph.node[0]
 
     # Empty buffer dict
-    op = _node_to_op(node, {})
+    op = _node_to_op(node, {}, node.name)
 
     assert op.id == "matmul_node"
     assert len(op.inputs) == 0
@@ -272,3 +272,30 @@ def test_from_onnx_ops_reference_buffers(simple_onnx_model: "onnx.ModelProto") -
 
     add_output_ids = {buf.id for buf in add_op.outputs}
     assert "output" in add_output_ids
+
+
+def test_from_onnx_synthesizes_ids_for_unnamed_nodes(
+    simple_onnx_model: "onnx.ModelProto",
+) -> None:
+    for node in simple_onnx_model.graph.node:
+        node.name = ""
+
+    model = from_onnx(simple_onnx_model)
+
+    assert set(model.ops) == {"MatMul_0", "Add_1"}
+
+
+def test_from_onnx_skips_initializers_relisted_as_inputs(
+    simple_onnx_model: "onnx.ModelProto",
+) -> None:
+    weights = next(
+        i for i in simple_onnx_model.graph.initializer if i.name == "weights"
+    )
+    value_info = helper.make_tensor_value_info(
+        "weights", TensorProto.FLOAT, list(weights.dims)
+    )
+    simple_onnx_model.graph.input.append(value_info)
+
+    model = from_onnx(simple_onnx_model)
+
+    assert model.buffers["weights"].kind == BufferKind.CONSTANT
