@@ -3,6 +3,7 @@
 #
 
 from .primitives import Allocation, IdType, Memory, Pool, System
+from .primitives.vector_clock import ensure_uniform_dim
 
 
 def _check_unique_ids(entities: tuple[Memory | Pool | Allocation, ...]) -> None:
@@ -42,6 +43,7 @@ def _validate_allocations(
     allocations: tuple[Allocation, ...], require_allocated: bool
 ) -> None:
     _check_unique_ids(allocations)
+    ensure_uniform_dim(allocations)
     _check_overlaps(allocations, require_allocated)
 
 

@@ -8,7 +8,7 @@ from omnimalloc.common.optional import OptionalDependencyError
 from omnimalloc.common.units import TB
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, BaseAllocator, require_unique_ids
+from .base import DEFAULT_TIMEOUT, BaseAllocator
 
 try:
     import minimalloc as mm  # type: ignore
@@ -45,6 +45,9 @@ def _to_buffer(allocation: Allocation) -> "mm.Buffer":
 class MinimallocAllocator(BaseAllocator):
     """Wrapper for Google's minimalloc constraint-based allocator."""
 
+    # mm.Lifespan is inherently an interval on one timeline
+    supports_vector_time = False
+
     def __init__(
         self, timeout: int = int(DEFAULT_TIMEOUT), max_capacity: int = 1 * TB
     ) -> None:
@@ -56,12 +59,7 @@ class MinimallocAllocator(BaseAllocator):
         self._timeout = timeout
         self._max_capacity = max_capacity
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
-
-        require_unique_ids(allocations)
-
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         problem = mm.Problem(buffers=[_to_buffer(a) for a in allocations])
         problem.capacity = self._max_capacity
 

@@ -6,7 +6,7 @@ from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.random import RandomAllocator
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
-from omnimalloc.primitives.utils import get_pressure
+from omnimalloc.primitives.queries import get_pressure
 from omnimalloc.validate import validate_allocation
 
 

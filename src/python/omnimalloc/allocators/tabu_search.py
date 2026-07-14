@@ -59,11 +59,11 @@ class TabuSearchAllocator(BaseAllocator):
     wall-clock time as the input grows, independent of `max_iterations`.
     """
 
+    supports_vector_time = True
+
     def __init__(self, config: TabuSearchConfig | None = None) -> None:
         self._config = config or TabuSearchConfig()
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         cpp_allocator = _TabuSearchAllocatorCpp(self._config.to_cpp_config())
         return tuple(cpp_allocator.allocate(list(allocations)))

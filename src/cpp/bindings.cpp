@@ -38,6 +38,15 @@ std::string stream_str(const T& value) {
   return ss.str();
 }
 
+// nanobind's default caster renders std::vector as list; the Python surface
+// wants tuples so scalar/tuple time points stay consistent under == and hash.
+nb::object time_to_python(const TimePoint& time) {
+  if (const auto* scalar = std::get_if<int64_t>(&time)) {
+    return nb::int_(*scalar);
+  }
+  return nb::tuple(nb::cast(std::get<std::vector<int64_t>>(time)));
+}
+
 }  // namespace
 
 NB_MODULE(_cpp, m) {
@@ -54,14 +63,22 @@ NB_MODULE(_cpp, m) {
 
   // Allocation class
   nb::class_<Allocation>(m, "Allocation")
-      .def(nb::init<IdType, int64_t, int64_t, int64_t, std::optional<int64_t>,
-                    std::optional<BufferKind>>(),
+      .def(nb::init<IdType, int64_t, TimePoint, TimePoint,
+                    std::optional<int64_t>, std::optional<BufferKind>>(),
            "id"_a, "size"_a, "start"_a, "end"_a, "offset"_a = nb::none(),
            "kind"_a = nb::none())
       .def_prop_ro("id", &Allocation::id, nb::rv_policy::copy)
       .def_prop_ro("size", &Allocation::size)
-      .def_prop_ro("start", &Allocation::start)
-      .def_prop_ro("end", &Allocation::end)
+      .def_prop_ro(
+          "start",
+          [](const Allocation& a) { return time_to_python(a.start_time()); },
+          nb::for_getter(
+              nb::sig("def start(self, /) -> int | tuple[int, ...]")))
+      .def_prop_ro(
+          "end",
+          [](const Allocation& a) { return time_to_python(a.end_time()); },
+          nb::for_getter(nb::sig("def end(self, /) -> int | tuple[int, ...]")))
+      .def_prop_ro("dim", &Allocation::dim)
       .def_prop_ro("offset", &Allocation::offset, nb::rv_policy::copy)
       .def_prop_ro("kind", &Allocation::kind, nb::rv_policy::copy)
       .def_prop_ro("is_allocated", &Allocation::is_allocated)
@@ -82,12 +99,12 @@ NB_MODULE(_cpp, m) {
       .def("__hash__", std::hash<Allocation>{})
       .def("__getstate__",
            [](const Allocation& a) {
-             return std::make_tuple(a.id(), a.size(), a.start(), a.end(),
-                                    a.offset(), a.kind());
+             return std::make_tuple(a.id(), a.size(), a.start_time(),
+                                    a.end_time(), a.offset(), a.kind());
            })
       .def("__setstate__",
            [](Allocation& a,
-              const std::tuple<IdType, int64_t, int64_t, int64_t,
+              const std::tuple<IdType, int64_t, TimePoint, TimePoint,
                                std::optional<int64_t>,
                                std::optional<BufferKind>>& state) {
              new (&a) Allocation(std::get<0>(state), std::get<1>(state),
@@ -97,6 +114,20 @@ NB_MODULE(_cpp, m) {
 
   m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
         "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
+  m.def("compute_conflict_degrees", &compute_conflict_degrees, "allocations"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+  nb::enum_<GreedyOrder>(m, "GreedyOrder")
+      .value("INPUT", GreedyOrder::kInput)
+      .value("SIZE", GreedyOrder::kSize)
+      .value("DURATION", GreedyOrder::kDuration)
+      .value("AREA", GreedyOrder::kArea)
+      .value("CONFLICT", GreedyOrder::kConflict)
+      .value("CONFLICT_SIZE", GreedyOrder::kConflictSize)
+      .value("START", GreedyOrder::kStart)
+      .value("ALL", GreedyOrder::kAll);
+  m.def("compute_allocation_peaks", &compute_allocation_peaks, "allocations"_a,
+        "order"_a = GreedyOrder::kAll, nb::call_guard<nb::gil_scoped_release>(),
         nb::rv_policy::move);
   m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);

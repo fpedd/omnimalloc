@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
 
 from .allocation import Allocation, IdType
-from .utils import get_pressure
+from .queries import Guarantee, get_pressure
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class Pool:
     @cached_property
     def pressure(self) -> int:
         """Peak memory pressure (max cut through all buffer lifetimes)."""
-        return get_pressure(self.allocations)
+        return get_pressure(self.allocations, Guarantee.ANTICHAIN)
 
     @cached_property
     def efficiency(self) -> float:

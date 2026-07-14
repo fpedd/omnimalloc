@@ -5,9 +5,20 @@
 import csv
 from pathlib import Path
 
-from .primitives import Allocation, BufferKind, Memory, Pool, System
+from .primitives import Allocation, BufferKind, Memory, Pool, System, TimePoint
+from .primitives.vector_clock import time_components
 
 _FIELDS = ("id", "lower", "upper", "size")
+
+
+def _format_time(time_point: TimePoint) -> str:
+    return ":".join(str(component) for component in time_components(time_point))
+
+
+def _parse_time(text: str) -> TimePoint:
+    if ":" in text:
+        return tuple(int(component) for component in text.split(":"))
+    return int(text)
 
 
 def _collect_pools(entity: System | Memory | Pool) -> dict[str, Pool]:
@@ -35,7 +46,8 @@ def _write_pool(pool: Pool, file_path: Path) -> Path:
         writer = csv.writer(csvfile)
         writer.writerow(_FIELDS)
         for alloc in pool.allocations:
-            writer.writerow([alloc.id, alloc.start, alloc.end, alloc.size])
+            lower, upper = _format_time(alloc.start), _format_time(alloc.end)
+            writer.writerow([alloc.id, lower, upper, alloc.size])
     return file_path
 
 
@@ -45,6 +57,9 @@ def dump_allocation(
     """Dump the entity's pools to disk as minimalloc-format CSV files.
 
     Path's stem is used as prefix, ie. ``<stem>_<pool_id>.csv`` per pool.
+    Vector-clock lifetimes use an omnimalloc extension (``:``-joined
+    components, e.g. ``3:0``); such files round-trip through
+    ``load_allocation`` but are no longer minimalloc-readable.
     """
     path_ = Path(path)
     path_.parent.mkdir(parents=True, exist_ok=True)
@@ -63,8 +78,8 @@ def load_allocation(file_path: str | Path) -> Pool:
             allocation = Allocation(
                 id=str(row["id"]),
                 size=int(row["size"]),
-                start=int(row["lower"]),
-                end=int(row["upper"]),
+                start=_parse_time(row["lower"]),
+                end=_parse_time(row["upper"]),
                 offset=int(row["offset"]) if row.get("offset") else None,
                 kind=BufferKind.WORKSPACE,
             )

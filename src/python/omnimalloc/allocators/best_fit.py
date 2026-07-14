@@ -17,5 +17,7 @@ class BestFitAllocator(BaseAllocator):
     useful gaps free for later, bigger allocations.
     """
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    supports_vector_time = True
+
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return tuple(_BestFitAllocatorCpp().allocate(list(allocations)))

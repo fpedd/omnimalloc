@@ -330,3 +330,51 @@ def test_visualize_entity_with_zero_used_memory(artifacts_dir: Path) -> None:
     output_path = artifacts_dir / "test_zero_used.pdf"
     assert plot_allocation(pool, file_path=output_path) == output_path
     assert output_path.exists()
+
+
+def test_visualize_mixed_dimension_pools(artifacts_dir: Path) -> None:
+    scalar_pool = Pool(
+        id=1,
+        allocations=(Allocation(id=1, size=100, start=0, end=4, offset=0),),
+        offset=0,
+    )
+    vector_pool = Pool(
+        id=2,
+        allocations=(Allocation(id=2, size=50, start=(0, 1), end=(2, 3), offset=0),),
+        offset=200,
+    )
+    memory = Memory(id="mem", pools=(scalar_pool, vector_pool), size=1000)
+
+    output_path = artifacts_dir / "test_mixed_dim_pools.pdf"
+    result = plot_allocation(memory, file_path=output_path)
+    assert result == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_visualize_empty_pool(artifacts_dir: Path) -> None:
+    empty = Pool(id=1, allocations=(), offset=0)
+    filled = Pool(
+        id=2,
+        allocations=(Allocation(id=1, size=100, start=0, end=4, offset=0),),
+        offset=100,
+    )
+    memory = Memory(id="mem", pools=(empty, filled), size=500)
+
+    output_path = artifacts_dir / "test_empty_pool.pdf"
+    result = plot_allocation(memory, file_path=output_path)
+    assert result == output_path
+    assert output_path.exists()
+
+
+def test_visualize_vector_time_lanes(artifacts_dir: Path) -> None:
+    alloc1 = Allocation(id=1, size=100, start=(0, 1), end=(2, 3), offset=0)
+    alloc2 = Allocation(id=2, size=100, start=(2, 3), end=(4, 5), offset=0)
+    alloc3 = Allocation(id=3, size=50, start=(1, 0), end=(3, 4), offset=100)
+    pool = Pool(id=1, allocations=(alloc1, alloc2, alloc3), offset=0)
+
+    output_path = artifacts_dir / "test_vector_lanes.pdf"
+    result = plot_allocation(pool, file_path=output_path, canonicalize=True)
+    assert result == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0

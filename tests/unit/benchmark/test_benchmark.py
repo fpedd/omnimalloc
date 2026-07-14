@@ -3,8 +3,11 @@
 #
 
 
+import pytest
 from omnimalloc.allocators import GreedyAllocator, NaiveAllocator
+from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.benchmark.benchmark import run_benchmark
+from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.generator import RandomSource
 
 
@@ -84,3 +87,44 @@ def test_run_benchmark_per_source_variants() -> None:
 
     assert campaign.num_reports == 2
     assert {r.variant_id for r in campaign.reports} == {5, 10}
+
+
+def test_run_benchmark_on_vector_clock_source() -> None:
+    source = ConcurrentTilingSource(num_allocations=16, num_threads=2, num_syncs=8)
+
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(source,),
+        iterations=1,
+        variants=16,
+        validate=True,
+    )
+
+    assert campaign.num_reports == 1
+    assert campaign.reports[0].mean_allocation_efficiency > 0
+
+
+def test_run_benchmark_skips_scalar_only_allocators_on_vector_source() -> None:
+    source = ConcurrentTilingSource(num_allocations=16, num_threads=2, num_syncs=8)
+
+    campaign = run_benchmark(
+        allocators=(SupermallocAllocator(), GreedyAllocator()),
+        sources=(source,),
+        iterations=1,
+        variants=16,
+    )
+
+    assert campaign.num_reports == 1
+    assert campaign.reports[0].allocator_name == "greedy_allocator"
+
+
+def test_run_benchmark_raises_when_all_pairs_skipped() -> None:
+    source = ConcurrentTilingSource(num_allocations=16, num_threads=2, num_syncs=8)
+
+    with pytest.raises(ValueError, match="No benchmark reports"):
+        run_benchmark(
+            allocators=(SupermallocAllocator(),),
+            sources=(source,),
+            iterations=1,
+            variants=16,
+        )

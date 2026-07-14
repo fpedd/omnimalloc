@@ -10,7 +10,9 @@ from .base import BaseAllocator
 class NaiveAllocator(BaseAllocator):
     """Naive allocator that places allocations sequentially."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    supports_vector_time = True
+
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         placed_allocations: list[Allocation] = []
         current_offset = 0
 

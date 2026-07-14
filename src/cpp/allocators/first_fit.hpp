@@ -50,6 +50,34 @@ void gather_spans(const std::vector<size_t>& neighbors,
 [[nodiscard]] int64_t first_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans);
 
+// Per-allocation count of temporally overlapping allocations, aligned with
+// `allocations`. Counts with multiplicity, so duplicate ids stay distinct.
+[[nodiscard]] std::vector<int64_t> compute_conflict_degrees(
+    const std::vector<Allocation>& allocations);
+
+// Greedy first-fit sort orders for compute_allocation_peaks, mirroring the
+// greedy_by_* allocators; kAll runs the whole portfolio in parallel and keeps
+// the placement with the lowest peak.
+enum class GreedyOrder : std::uint8_t {
+  kInput,
+  kSize,
+  kDuration,
+  kArea,
+  kConflict,
+  kConflictSize,
+  kStart,
+  kAll,
+};
+
+// Per-allocation BOUND peaks, aligned with `allocations`: place everything
+// with the selected greedy first-fit order (pre-existing offsets are
+// ignored), then reduce each allocation to the min of its closed
+// conflict-neighborhood weight sum and the placement skyline (highest end
+// offset across that neighborhood).
+[[nodiscard]] std::vector<int64_t> compute_allocation_peaks(
+    const std::vector<Allocation>& allocations,
+    GreedyOrder order = GreedyOrder::kAll);
+
 // Greedily place allocations in order using first-fit, reusing a precomputed
 // overlap map
 [[nodiscard]] std::vector<Allocation> first_fit_place(

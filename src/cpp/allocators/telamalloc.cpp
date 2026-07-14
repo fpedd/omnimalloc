@@ -10,6 +10,7 @@
 #include <optional>
 #include <random>
 #include <set>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 
@@ -290,6 +291,13 @@ TelamallocAllocator::TelamallocAllocator(TelamallocConfig config)
 
 std::vector<Allocation> TelamallocAllocator::allocate(
     const std::vector<Allocation>& allocations) const {
+  // The event sweeps and load bounds need a linear timeline; reject vector
+  // clocks here.
+  if (!std::ranges::all_of(allocations, &Allocation::is_scalar_time)) {
+    throw std::invalid_argument(
+        "TelamallocAllocator requires scalar time lifetimes; linearize vector "
+        "clocks first");
+  }
   // Bound by kUnbounded so the unbounded-capacity pack_phase incumbents in
   // solve_phase can never fail and the cursor arithmetic cannot overflow.
   check_total_size(allocations, kUnbounded);
