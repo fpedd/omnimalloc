@@ -4,7 +4,7 @@
 
 #include "greedy.hpp"
 
-#include "greedy_base.hpp"
+#include "first_fit.hpp"
 
 namespace omnimalloc {
 

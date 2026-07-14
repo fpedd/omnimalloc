@@ -4,12 +4,12 @@
 
 #include "tabu_search.hpp"
 
-#include <chrono>
 #include <random>
 #include <unordered_map>
 #include <utility>
 
-#include "greedy_base.hpp"
+#include "first_fit.hpp"
+#include "local_search.hpp"
 
 namespace omnimalloc {
 
@@ -47,26 +47,18 @@ std::vector<Allocation> TabuSearchAllocator::allocate(
   std::mt19937_64 rng(config_.seed);
   std::unordered_map<int64_t, int> tabu_until;
 
-  const auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::duration<double>(config_.timeout);
+  const auto deadline = make_deadline(config_.timeout);
 
   for (int iteration = 0; iteration < config_.max_iterations; ++iteration) {
-    if (config_.timeout > 0.0 && std::chrono::steady_clock::now() >= deadline) {
+    if (deadline_expired(deadline)) {
       break;
     }
 
-    std::vector<size_t> peak_positions;
-    for (size_t pos = 0; pos < current_placed.size(); ++pos) {
-      const auto height = current_placed[pos].height();
-      if (height && *height == current_peak) {
-        peak_positions.push_back(pos);
-      }
-    }
-    if (peak_positions.empty()) {
+    const std::vector<size_t> peaks =
+        peak_positions(current_placed, current_peak);
+    if (peaks.empty()) {
       break;  // no placed allocation reaches the peak: nothing to perturb
     }
-    std::uniform_int_distribution<size_t> pick_peak(0,
-                                                    peak_positions.size() - 1);
 
     // Sample a neighborhood of candidate swaps and keep the best admissible
     // one: non-tabu, or tabu but beating the best-ever solution (aspiration).
@@ -77,15 +69,12 @@ std::vector<Allocation> TabuSearchAllocator::allocate(
     bool best_is_tabu = false;
 
     for (int sample = 0; sample < config_.neighborhood_size; ++sample) {
-      size_t target_pos = peak_positions[pick_peak(rng)];
-      std::vector<size_t> neighbors =
-          earlier_neighbors(order, target_pos, allocations, placer.overlaps());
-      if (neighbors.empty()) {
+      const auto proposal =
+          propose_peak_swap(peaks, order, allocations, placer.overlaps(), rng);
+      if (!proposal) {
         continue;
       }
-      std::uniform_int_distribution<size_t> pick_neighbor(0,
-                                                          neighbors.size() - 1);
-      size_t other_pos = neighbors[pick_neighbor(rng)];
+      const auto [target_pos, other_pos] = *proposal;
 
       auto tabu_it =
           tabu_until.find(tabu_key(order[target_pos], order[other_pos], n));

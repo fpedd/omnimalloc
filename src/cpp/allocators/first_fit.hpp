@@ -9,6 +9,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "primitives/allocation.hpp"
@@ -38,6 +39,17 @@ void check_total_size(const std::vector<Allocation>& allocations,
 [[nodiscard]] OverlapIndices compute_overlap_indices(
     const std::vector<Allocation>& allocations);
 
+// Occupied (offset, end) spans of the already-placed neighbors of one
+// allocation, sorted by offset so the gap scans can go left-to-right
+void gather_spans(const std::vector<size_t>& neighbors,
+                  const std::vector<std::optional<int64_t>>& offsets,
+                  const std::vector<Allocation>& allocations,
+                  std::vector<std::pair<int64_t, int64_t>>& spans);
+
+// First-fit: lowest offset where `size` fits between the sorted spans
+[[nodiscard]] int64_t first_fit_offset(
+    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans);
+
 // Greedily place allocations in order using first-fit, reusing a precomputed
 // overlap map
 [[nodiscard]] std::vector<Allocation> first_fit_place(
@@ -49,20 +61,25 @@ void check_total_size(const std::vector<Allocation>& allocations,
 [[nodiscard]] std::vector<Allocation> first_fit_place_indexed(
     const std::vector<Allocation>& allocations, const OverlapIndices& indices);
 
-// Peak memory (highest end offset) across the placed allocations
-[[nodiscard]] int64_t peak_of(const std::vector<Allocation>& placed);
-
-// Indices into `allocations`, sorted largest-size-first: a decent, cheap
-// starting order for the order-search allocators.
-[[nodiscard]] std::vector<size_t> initial_order(
-    const std::vector<Allocation>& allocations);
-
-// Positions before `target_pos` in `order` whose allocation temporally
-// overlaps the one at `target_pos`, or every earlier position if none do.
-[[nodiscard]] std::vector<size_t> earlier_neighbors(
-    const std::vector<size_t>& order, size_t target_pos,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps);
+// Shared placement skeleton of the first-fit and best-fit placers: place
+// allocations in index order, choosing each offset with `choose_offset` over
+// the sorted spans of the allocation's already-placed neighbors
+template <typename OffsetFn>
+[[nodiscard]] std::vector<Allocation> place_indexed(
+    const std::vector<Allocation>& allocations, const OverlapIndices& indices,
+    OffsetFn choose_offset) {
+  check_total_size(allocations);
+  std::vector<std::optional<int64_t>> offsets(allocations.size());
+  std::vector<std::pair<int64_t, int64_t>> spans;
+  std::vector<Allocation> placed;
+  placed.reserve(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    gather_spans(indices[i], offsets, allocations, spans);
+    offsets[i] = choose_offset(allocations[i].size(), spans);
+    placed.push_back(allocations[i].with_offset(*offsets[i]));
+  }
+  return placed;
+}
 
 // Resident first-fit placer for the order-search allocators (genetic, random,
 // hill-climb): owns the allocations and their overlap maps (computed once) so

@@ -27,10 +27,4 @@ struct IdTypeHash {
   }
 };
 
-struct IdTypeEqual {
-  bool operator()(const IdType& lhs, const IdType& rhs) const noexcept {
-    return lhs == rhs;
-  }
-};
-
 }  // namespace omnimalloc
