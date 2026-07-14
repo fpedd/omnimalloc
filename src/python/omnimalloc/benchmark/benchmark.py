@@ -6,7 +6,7 @@ import logging
 
 from omnimalloc import run_allocation, validate_allocation
 from omnimalloc.allocators import BaseAllocator, get_available_allocators
-from omnimalloc.primitives import IdType
+from omnimalloc.primitives import IdType, Pool
 
 from .results import BenchmarkCampaign, BenchmarkReport, BenchmarkResult
 from .results.utils import get_date_time_snake_case
@@ -77,14 +77,10 @@ def _get_variant_ids(
 def _benchmark_result(
     allocator: BaseAllocator,
     source: BaseSource,
-    variant_id: IdType,
+    pool: Pool,
     result_id: IdType,
     validate: bool,
 ) -> BenchmarkResult:
-    pool = source.get_variant(variant_id)
-    if pool is None:
-        raise ValueError(f"source {source.name()} returned no pool")
-
     with Timer() as timer:
         allocated_pool = run_allocation(pool, allocator, validate=False)
 
@@ -108,16 +104,34 @@ def _benchmark_report(
     report_id: int,
     result_id: int,
     validate: bool,
-) -> BenchmarkReport:
-    results = []
+) -> BenchmarkReport | None:
     variant_desc = variant_id if isinstance(variant_id, str) else f"{variant_id} allocs"
+
+    # Validate and error out early; a variant the source cannot express
+    # (e.g. fewer allocations than threads) skips instead of aborting the
+    # whole campaign
+    try:
+        pool = source.get_variant(variant_id)
+    except ValueError as error:
+        logger.warning(f"Skipping {source.name()}[{variant_desc}]: {error}")
+        return None
+    if pool is None:
+        raise ValueError(f"source {source.name()} returned no pool")
+    if not allocator.supports(pool.allocations):
+        logger.warning(
+            f"Skipping {allocator.name()} on {source.name()}[{variant_desc}]: "
+            "requires scalar (interval) lifetimes"
+        )
+        return None
+
+    results = []
     for _ in tqdm(
         range(iterations),
         desc=f"Iterations [{variant_desc}]",
         position=3,
         leave=False,
     ):
-        result = _benchmark_result(allocator, source, variant_id, result_id, validate)
+        result = _benchmark_result(allocator, source, pool, result_id, validate)
         results.append(result)
         result_id += 1
 
@@ -210,11 +224,19 @@ def run_benchmark(
                     result_id,
                     validate,
                 )
+                if report is None:
+                    continue
                 reports.append(report)
                 report_id += 1
                 result_id += iterations
 
     timer.stop()
+
+    if not reports:
+        raise ValueError(
+            "No benchmark reports produced; every allocator/source/variant "
+            "combination was skipped or empty. Double-check your setup."
+        )
 
     campaign = BenchmarkCampaign(
         id=campaign_id,

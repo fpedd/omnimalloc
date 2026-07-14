@@ -213,6 +213,8 @@ void Partition::init_search_state() {
 }
 
 Partition Partition::from_allocations(std::vector<Allocation> allocations) {
+  // The section grid needs a linear timeline; reject vector clocks here.
+  require_scalar_time(allocations, "Partition");
   // Every offset, top, and floor + total the search computes is bounded by
   // twice the total size, so rejecting sums above INT64_MAX / 2 rules out
   // signed overflow everywhere downstream.

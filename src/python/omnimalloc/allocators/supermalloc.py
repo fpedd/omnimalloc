@@ -140,14 +140,14 @@ def _search(portfolio: _Portfolio, low: int, height: int) -> Solution | None:
 class SupermallocAllocator(BaseAllocator):
     """Portfolio branch-and-bound allocator built on a C++ partition solver."""
 
+    # The partition solver's section grid needs a linear timeline
+    supports_vector_time = False
+
     def __init__(self, config: SupermallocConfig | None = None) -> None:
         super().__init__()
         self._config = config or SupermallocConfig()
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
-
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         deadline = time.monotonic() + self._config.timeout
         threads = self._config.num_threads()
         base = Partition.from_allocations(allocations)

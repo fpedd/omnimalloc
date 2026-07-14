@@ -7,7 +7,9 @@ import os
 from bisect import bisect_left, bisect_right
 from concurrent.futures import ProcessPoolExecutor
 
+from omnimalloc._cpp import compute_conflict_degrees
 from omnimalloc.primitives import Allocation
+from omnimalloc.primitives.vector_clock import ensure_uniform_dim
 
 from .base import BaseAllocator
 
@@ -19,6 +21,11 @@ def peak_memory(allocations: tuple[Allocation, ...]) -> int:
 
 def compute_conflicts(allocations: tuple[Allocation, ...]) -> dict[Allocation, int]:
     """Count temporally overlapping allocations for each allocation."""
+    if ensure_uniform_dim(allocations) > 1:
+        # No linear timeline to bisect over; count conflicts pairwise (with
+        # multiplicity, matching the scalar sweep even under duplicate ids)
+        degrees = compute_conflict_degrees(allocations)
+        return dict(zip(allocations, degrees, strict=True))
     starts = sorted(alloc.start for alloc in allocations)
     ends = sorted(alloc.end for alloc in allocations)
     # An allocation overlaps [start, end) iff it starts before `end` and does
@@ -64,6 +71,7 @@ def order_by_conflict_size(
 
 def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
     """Order by start time (earliest first, largest ties first)."""
+    ensure_uniform_dim(allocations)  # mixed scalar/tuple starts do not compare
     return tuple(sorted(allocations, key=lambda a: (a.start, -a.size)))
 
 

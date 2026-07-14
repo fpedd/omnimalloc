@@ -38,16 +38,16 @@ class TilingSource(TilingBase):
         )
         self.mem_cut_prob = mem_cut_prob
 
-    def _can_split_time(self, tile: _Tile) -> bool:
+    def _can_split_time(self, tile: _Tile[int]) -> bool:
         return tile.end - tile.start >= 2 * self.min_duration
 
-    def _can_split_mem(self, tile: _Tile) -> bool:
+    def _can_split_mem(self, tile: _Tile[int]) -> bool:
         return tile.size >= 2 * self.min_size
 
-    def _can_split(self, tile: _Tile) -> bool:
+    def _can_split(self, tile: _Tile[int]) -> bool:
         return self._can_split_time(tile) or self._can_split_mem(tile)
 
-    def _split(self, tile: _Tile, rng: random.Random) -> list[_Tile]:
+    def _split(self, tile: _Tile[int], rng: random.Random) -> list[_Tile[int]]:
         can_mem = self._can_split_mem(tile)
         can_time = self._can_split_time(tile)
 

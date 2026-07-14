@@ -16,13 +16,18 @@
 #include "allocators/best_fit.hpp"
 #include "allocators/first_fit.hpp"
 #include "allocators/greedy.hpp"
+#include "allocators/omni.hpp"
 #include "allocators/simulated_annealing.hpp"
 #include "allocators/supermalloc/partition.hpp"
 #include "allocators/tabu_search.hpp"
 #include "allocators/telamalloc.hpp"
 #include "primitives/allocation.hpp"
+#include "primitives/antichain.hpp"
 #include "primitives/buffer_kind.hpp"
+#include "primitives/closure.hpp"
 #include "primitives/id_type.hpp"
+#include "primitives/linearize.hpp"
+#include "primitives/placement.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -36,6 +41,15 @@ std::string stream_str(const T& value) {
   std::ostringstream ss;
   ss << value;
   return ss.str();
+}
+
+// nanobind's default caster renders std::vector as list; the Python surface
+// wants tuples so scalar/tuple time points stay consistent under == and hash.
+nb::object time_to_python(const TimePoint& time) {
+  if (const auto* scalar = std::get_if<int64_t>(&time)) {
+    return nb::int_(*scalar);
+  }
+  return nb::tuple(nb::cast(std::get<std::vector<int64_t>>(time)));
 }
 
 }  // namespace
@@ -54,14 +68,22 @@ NB_MODULE(_cpp, m) {
 
   // Allocation class
   nb::class_<Allocation>(m, "Allocation")
-      .def(nb::init<IdType, int64_t, int64_t, int64_t, std::optional<int64_t>,
-                    std::optional<BufferKind>>(),
+      .def(nb::init<IdType, int64_t, TimePoint, TimePoint,
+                    std::optional<int64_t>, std::optional<BufferKind>>(),
            "id"_a, "size"_a, "start"_a, "end"_a, "offset"_a = nb::none(),
            "kind"_a = nb::none())
       .def_prop_ro("id", &Allocation::id, nb::rv_policy::copy)
       .def_prop_ro("size", &Allocation::size)
-      .def_prop_ro("start", &Allocation::start)
-      .def_prop_ro("end", &Allocation::end)
+      .def_prop_ro(
+          "start",
+          [](const Allocation& a) { return time_to_python(a.start_time()); },
+          nb::for_getter(
+              nb::sig("def start(self, /) -> int | tuple[int, ...]")))
+      .def_prop_ro(
+          "end",
+          [](const Allocation& a) { return time_to_python(a.end_time()); },
+          nb::for_getter(nb::sig("def end(self, /) -> int | tuple[int, ...]")))
+      .def_prop_ro("dim", &Allocation::dim)
       .def_prop_ro("offset", &Allocation::offset, nb::rv_policy::copy)
       .def_prop_ro("kind", &Allocation::kind, nb::rv_policy::copy)
       .def_prop_ro("is_allocated", &Allocation::is_allocated)
@@ -82,12 +104,12 @@ NB_MODULE(_cpp, m) {
       .def("__hash__", std::hash<Allocation>{})
       .def("__getstate__",
            [](const Allocation& a) {
-             return std::make_tuple(a.id(), a.size(), a.start(), a.end(),
-                                    a.offset(), a.kind());
+             return std::make_tuple(a.id(), a.size(), a.start_time(),
+                                    a.end_time(), a.offset(), a.kind());
            })
       .def("__setstate__",
            [](Allocation& a,
-              const std::tuple<IdType, int64_t, int64_t, int64_t,
+              const std::tuple<IdType, int64_t, TimePoint, TimePoint,
                                std::optional<int64_t>,
                                std::optional<BufferKind>>& state) {
              new (&a) Allocation(std::get<0>(state), std::get<1>(state),
@@ -98,6 +120,26 @@ NB_MODULE(_cpp, m) {
   m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
         "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
         nb::rv_policy::move);
+  m.def("compute_conflict_degrees", &compute_conflict_degrees, "allocations"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+  m.def("try_linearize", &try_linearize, "allocations"_a,
+        "work_budget"_a = kNoLinearizeBudget,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+  m.attr("DEFAULT_WORK_BUDGET") = kDefaultWorkBudget;
+  m.def("antichain_pressure", &antichain_pressure, "allocations"_a,
+        "work_budget"_a = kNoLinearizeBudget,
+        nb::call_guard<nb::gil_scoped_release>());
+  m.def("closure_pressure", &closure_pressure, "allocations"_a, "closure_cap"_a,
+        nb::call_guard<nb::gil_scoped_release>());
+  m.def("per_allocation_antichain_pressure", &per_allocation_antichain_pressure,
+        "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
+  m.def("per_allocation_closure_pressure", &per_allocation_closure_pressure,
+        "allocations"_a, "closure_cap"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+  m.def("per_allocation_placement_pressure", &per_allocation_placement_pressure,
+        "allocations"_a, "clique_cap"_a = false,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
@@ -121,6 +163,16 @@ NB_MODULE(_cpp, m) {
            [](const GreedyAllocator&) { return "GreedyAllocator()"; })
       .def("__eq__", &GreedyAllocator::operator==, nb::is_operator())
       .def("__hash__", std::hash<GreedyAllocator>{});
+
+  // OmniAllocator class
+  nb::class_<OmniAllocator>(m, "OmniAllocatorCpp")
+      .def(nb::init<>())
+      .def("allocate", &OmniAllocator::allocate, "allocations"_a,
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
+      .def("__str__", [](const OmniAllocator&) { return "OmniAllocator()"; })
+      .def("__repr__", [](const OmniAllocator&) { return "OmniAllocator()"; })
+      .def("__eq__", &OmniAllocator::operator==, nb::is_operator())
+      .def("__hash__", std::hash<OmniAllocator>{});
 
   // BestFitAllocator class
   nb::class_<BestFitAllocator>(m, "BestFitAllocatorCpp")

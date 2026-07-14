@@ -44,11 +44,16 @@ nanobind_add_module(
   src/cpp/allocators/first_fit.cpp
   src/cpp/allocators/greedy.cpp
   src/cpp/allocators/local_search.cpp
+  src/cpp/allocators/omni.cpp
   src/cpp/allocators/simulated_annealing.cpp
   src/cpp/allocators/supermalloc/partition.cpp
   src/cpp/allocators/tabu_search.cpp
   src/cpp/allocators/telamalloc.cpp
   src/cpp/primitives/allocation.cpp
+  src/cpp/primitives/antichain.cpp
+  src/cpp/primitives/closure.cpp
+  src/cpp/primitives/linearize.cpp
+  src/cpp/primitives/placement.cpp
   src/cpp/bindings.cpp)
 
 target_include_directories(_cpp PRIVATE src/cpp)

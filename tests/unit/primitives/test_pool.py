@@ -389,7 +389,7 @@ def test_pool_allocate_rejects_allocator_returning_different_set() -> None:
     from omnimalloc.allocators.base import BaseAllocator
 
     class DroppingAllocator(BaseAllocator):
-        def allocate(
+        def _allocate(
             self, allocations: tuple[Allocation, ...]
         ) -> tuple[Allocation, ...]:
             return tuple(a.with_offset(0) for a in allocations[:-1])

@@ -10,7 +10,7 @@ from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, require_unique_ids
+from .base import DEFAULT_TIMEOUT
 from .greedy import GreedyAllocator
 from .greedy_base import (
     order_by_area,
@@ -104,12 +104,10 @@ class GeneticAllocator(GreedyAllocator):
         ]
         return permutations[: self.population_size]
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         """Evolve permutations using a genetic algorithm to find best allocation."""
         if len(allocations) < 2:
-            return super().allocate(allocations)
-
-        require_unique_ids(allocations)
+            return super()._allocate(allocations)
 
         # DEAP operators draw from the global random module; seed it for
         # determinism but restore the caller's stream afterwards.

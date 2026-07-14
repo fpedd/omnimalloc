@@ -7,7 +7,7 @@ from omnimalloc import run_allocation, validate_allocation
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.primitives import Allocation, Pool
-from omnimalloc.primitives.utils import get_pressure
+from omnimalloc.primitives.pressure import get_pressure
 
 
 def _signatures(allocations: tuple[Allocation, ...]) -> list[tuple[int, int, int]]:

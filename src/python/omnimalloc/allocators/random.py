@@ -19,9 +19,9 @@ class RandomAllocator(GreedyAllocator):
         self._seed = seed
         self._num_trials = num_trials
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations or self._num_trials == 0:
-            return super().allocate(allocations)
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        if self._num_trials <= 0:
+            return super()._allocate(allocations)
 
         # Fresh RNG per call: repeated calls on one instance are deterministic
         rng = random.Random(self._seed)
