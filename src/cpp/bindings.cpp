@@ -14,8 +14,8 @@
 #include <sstream>
 
 #include "allocators/best_fit.hpp"
+#include "allocators/first_fit.hpp"
 #include "allocators/greedy.hpp"
-#include "allocators/greedy_base.hpp"
 #include "allocators/simulated_annealing.hpp"
 #include "allocators/supermalloc/partition.hpp"
 #include "allocators/tabu_search.hpp"
@@ -28,6 +28,18 @@ namespace nb = nanobind;
 using namespace nb::literals;
 using namespace omnimalloc;
 
+namespace {
+
+// __str__/__repr__ via the type's operator<<
+template <typename T>
+std::string stream_str(const T& value) {
+  std::ostringstream ss;
+  ss << value;
+  return ss.str();
+}
+
+}  // namespace
+
 NB_MODULE(_cpp, m) {
   // BufferKind enum
   nb::enum_<BufferKind>(m, "BufferKind")
@@ -36,18 +48,8 @@ NB_MODULE(_cpp, m) {
       .value("INPUT", BufferKind::INPUT)
       .value("OUTPUT", BufferKind::OUTPUT)
       .def_prop_ro("is_io", [](BufferKind kind) { return is_io(kind); })
-      .def("__str__",
-           [](BufferKind kind) {
-             std::ostringstream ss;
-             ss << kind;
-             return ss.str();
-           })
-      .def("__repr__",
-           [](BufferKind kind) {
-             std::ostringstream ss;
-             ss << kind;
-             return ss.str();
-           })
+      .def("__str__", &stream_str<BufferKind>)
+      .def("__repr__", &stream_str<BufferKind>)
       .def("__hash__", std::hash<BufferKind>{});
 
   // Allocation class
@@ -72,18 +74,8 @@ NB_MODULE(_cpp, m) {
       .def("with_offset", &Allocation::with_offset, "offset"_a,
            nb::rv_policy::move)
       .def("with_kind", &Allocation::with_kind, "kind"_a, nb::rv_policy::move)
-      .def("__str__",
-           [](const Allocation& a) {
-             std::ostringstream ss;
-             ss << a;
-             return ss.str();
-           })
-      .def("__repr__",
-           [](const Allocation& a) {
-             std::ostringstream ss;
-             ss << a;
-             return ss.str();
-           })
+      .def("__str__", &stream_str<Allocation>)
+      .def("__repr__", &stream_str<Allocation>)
       // is_operator: return NotImplemented for non-Allocation operands
       // instead of raising TypeError, per the Python equality protocol
       .def("__eq__", &Allocation::operator==, nb::is_operator())

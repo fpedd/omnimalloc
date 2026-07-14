@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "greedy_base.hpp"
 #include "primitives/allocation.hpp"
 
 namespace omnimalloc {

@@ -18,6 +18,9 @@
 #include <unordered_set>
 #include <utility>
 
+#include "allocators/defaults.hpp"
+#include "allocators/first_fit.hpp"
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX  // keep <windows.h> from defining min/max macros
@@ -213,13 +216,7 @@ Partition Partition::from_allocations(std::vector<Allocation> allocations) {
   // Every offset, top, and floor + total the search computes is bounded by
   // twice the total size, so rejecting sums above INT64_MAX / 2 rules out
   // signed overflow everywhere downstream.
-  int64_t total_size = 0;
-  for (const Allocation& a : allocations) {
-    if (a.size() > INT64_MAX / 2 - total_size) {
-      throw std::overflow_error("Total allocation size exceeds int64 range");
-    }
-    total_size += a.size();
-  }
+  check_total_size(allocations);
 
   auto data = build_shared_data(std::move(allocations));
 
@@ -940,14 +937,11 @@ void run_workers(const std::function<void()>& work, int num_threads,
   if (error) std::rethrow_exception(error);
 }
 
-// Cap the timeout so the duration cast stays representable; the comparison
-// also absorbs inf and NaN.
+// Unlike the allocators, `greedy_many`/`solve_many` treat a non-positive
+// timeout as an already-expired budget rather than a disabled one, so a
+// missing deadline collapses to "now".
 std::chrono::steady_clock::time_point compute_deadline(double timeout) {
-  constexpr double kMaxSeconds = 1e9;  // ~31 years
-  const double seconds = timeout < kMaxSeconds ? timeout : kMaxSeconds;
-  return std::chrono::steady_clock::now() +
-         std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-             std::chrono::duration<double>(seconds));
+  return make_deadline(timeout).value_or(std::chrono::steady_clock::now());
 }
 
 }  // namespace

@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "greedy_base.hpp"
+#include "first_fit.hpp"
 
 #include <algorithm>
-#include <numeric>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -66,49 +65,6 @@ OverlapIndices compute_overlap_indices(
   return indices;
 }
 
-int64_t peak_of(const std::vector<Allocation>& placed) {
-  int64_t peak = 0;
-  for (const auto& alloc : placed) {
-    if (const auto height = alloc.height()) {
-      peak = std::max(peak, *height);
-    }
-  }
-  return peak;
-}
-
-std::vector<size_t> initial_order(const std::vector<Allocation>& allocations) {
-  std::vector<size_t> order(allocations.size());
-  std::iota(order.begin(), order.end(), size_t{0});
-  std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-    return allocations[a].size() > allocations[b].size();
-  });
-  return order;
-}
-
-std::vector<size_t> earlier_neighbors(
-    const std::vector<size_t>& order, size_t target_pos,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps) {
-  std::vector<size_t> neighbors;
-  auto it = overlaps.find(allocations[order[target_pos]].id());
-  if (it != overlaps.end()) {
-    for (size_t pos = 0; pos < target_pos; ++pos) {
-      if (it->second.count(allocations[order[pos]].id())) {
-        neighbors.push_back(pos);
-      }
-    }
-  }
-  if (neighbors.empty()) {
-    neighbors.resize(target_pos);
-    std::iota(neighbors.begin(), neighbors.end(), size_t{0});
-  }
-  return neighbors;
-}
-
-namespace {
-
-// Occupied (offset, end) spans of the already-placed neighbors of one
-// allocation, sorted by offset so the gap scans can go left-to-right
 void gather_spans(const std::vector<size_t>& neighbors,
                   const std::vector<std::optional<int64_t>>& offsets,
                   const std::vector<Allocation>& allocations,
@@ -122,7 +78,6 @@ void gather_spans(const std::vector<size_t>& neighbors,
   std::sort(spans.begin(), spans.end());
 }
 
-// First-fit: lowest offset where `size` fits between the sorted spans
 int64_t first_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans) {
   int64_t best_offset = 0;
@@ -135,21 +90,14 @@ int64_t first_fit_offset(
   return best_offset;
 }
 
-}  // namespace
-
 std::vector<Allocation> first_fit_place_indexed(
     const std::vector<Allocation>& allocations, const OverlapIndices& indices) {
-  check_total_size(allocations);
-  std::vector<std::optional<int64_t>> offsets(allocations.size());
-  std::vector<std::pair<int64_t, int64_t>> spans;
-  std::vector<Allocation> placed;
-  placed.reserve(allocations.size());
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    gather_spans(indices[i], offsets, allocations, spans);
-    offsets[i] = first_fit_offset(allocations[i].size(), spans);
-    placed.push_back(allocations[i].with_offset(*offsets[i]));
-  }
-  return placed;
+  // Lambda rather than the function pointer so the placement loop inlines
+  // the offset scan instead of an indirect call per allocation
+  return place_indexed(allocations, indices,
+                       [](int64_t size, const auto& spans) {
+                         return first_fit_offset(size, spans);
+                       });
 }
 
 std::vector<Allocation> first_fit_place(

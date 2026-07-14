@@ -6,6 +6,8 @@
 
 #include <algorithm>
 
+#include "first_fit.hpp"
+
 namespace omnimalloc {
 
 namespace {
@@ -33,25 +35,12 @@ int64_t find_best_fit_offset(
 
 std::vector<Allocation> BestFitAllocator::allocate(
     const std::vector<Allocation>& allocations) const {
-  check_total_size(allocations);
-  const OverlapIndices indices = compute_overlap_indices(allocations);
-  std::vector<std::optional<int64_t>> offsets(allocations.size());
-  std::vector<std::pair<int64_t, int64_t>> spans;
-  std::vector<Allocation> placed_allocations;
-  placed_allocations.reserve(allocations.size());
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    spans.clear();
-    for (size_t j : indices[i]) {
-      if (offsets[j].has_value()) {
-        spans.emplace_back(*offsets[j], *offsets[j] + allocations[j].size());
-      }
-    }
-    std::sort(spans.begin(), spans.end());
-    offsets[i] = find_best_fit_offset(allocations[i].size(), spans);
-    placed_allocations.push_back(allocations[i].with_offset(*offsets[i]));
-  }
-
-  return placed_allocations;
+  // Lambda rather than the function pointer so the placement loop inlines
+  // the offset scan instead of an indirect call per allocation
+  return place_indexed(allocations, compute_overlap_indices(allocations),
+                       [](int64_t size, const auto& spans) {
+                         return find_best_fit_offset(size, spans);
+                       });
 }
 
 }  // namespace omnimalloc
