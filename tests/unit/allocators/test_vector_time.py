@@ -22,6 +22,7 @@ from omnimalloc.allocators.greedy_cpp import GreedyAllocatorCpp
 from omnimalloc.allocators.hillclimb import HillClimbAllocator
 from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC, MinimallocAllocator
 from omnimalloc.allocators.naive import NaiveAllocator
+from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.allocators.random import RandomAllocator
 from omnimalloc.allocators.simulated_annealing import (
     SimulatedAnnealingAllocator,
@@ -53,6 +54,7 @@ def vector_problem(n: int = 10) -> tuple[Allocation, ...]:
         GreedyAllocator,
         GreedyAllocatorCpp,
         NaiveAllocator,
+        OmniAllocator,
         RandomAllocator,
         HillClimbAllocator,
         BestFitAllocator,
@@ -194,6 +196,7 @@ def test_minimalloc_rejects_vector_time() -> None:
 def test_registry_declares_vector_time_support() -> None:
     registry = BaseAllocator.registry()
     assert registry["greedy_allocator"].supports_vector_time
+    assert registry["omni_allocator"].supports_vector_time
     assert registry["best_fit_allocator"].supports_vector_time
     assert registry["simulated_annealing_allocator"].supports_vector_time
     assert registry["tabu_search_allocator"].supports_vector_time

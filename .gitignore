@@ -53,6 +53,10 @@ htmlcov/
 *.gcov.json.gz
 **/artifacts/
 
+# Benchmark script outputs (scripts/*.py --out)
+benchmark_results_*/
+stress_results_*/
+
 # OS
 .DS_Store
 Thumbs.db
