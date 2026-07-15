@@ -5,36 +5,34 @@
 #include "first_fit.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <cstring>
+#include <future>
+#include <limits>
+#include <numeric>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 
+#include "common/parallel.hpp"
+
 namespace omnimalloc {
 
-void check_total_size(const std::vector<Allocation>& allocations,
-                      int64_t limit) {
-  int64_t total_size = 0;
-  for (const Allocation& a : allocations) {
-    if (a.size() > limit - total_size) {
-      throw std::overflow_error("Total allocation size exceeds int64 range");
-    }
-    total_size += a.size();
+void require_scalar_time(const std::vector<Allocation>& allocations,
+                         const char* who) {
+  if (!std::ranges::all_of(allocations, &Allocation::is_scalar_time)) {
+    throw std::invalid_argument(
+        std::string(who) +
+        " requires scalar time lifetimes; linearize vector clocks first");
   }
 }
 
-TemporalOverlaps compute_temporal_overlaps(
-    const std::vector<Allocation>& allocations) {
-  TemporalOverlaps overlaps;
-  const OverlapIndices indices = compute_overlap_indices(allocations);
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    for (size_t j : indices[i]) {
-      overlaps[allocations[i].id()].insert(allocations[j].id());
-    }
-  }
-  return overlaps;
-}
+namespace {
 
-OverlapIndices compute_overlap_indices(
+// Sweep line over the single timeline; valid only for all-scalar input.
+OverlapIndices scalar_overlap_indices(
     const std::vector<Allocation>& allocations) {
   std::vector<std::tuple<int64_t, bool, size_t>> events;
   events.reserve(allocations.size() * 2);
@@ -63,6 +61,268 @@ OverlapIndices compute_overlap_indices(
   }
 
   return indices;
+}
+
+// The pruned pairwise sweep itself lives in primitives/clock_rows.hpp
+// (ConflictSweep), shared with the exact per-allocation pressure kernels.
+ConflictSweep build_conflict_sweep(const std::vector<Allocation>& allocations) {
+  const ClockSpans spans = gather_clock_spans(allocations);
+  return {spans.starts, spans.ends, spans.dim};
+}
+
+}  // namespace
+
+CsrAdjacency build_conflict_adjacency(
+    const std::vector<Allocation>& allocations) {
+  const ConflictSweep sweep = build_conflict_sweep(allocations);
+  return sweep.adjacency(parallel_threads(sweep.count()));
+}
+
+namespace {
+
+// Pairwise happens-before adjacency; the only option for vector clocks
+OverlapIndices vector_overlap_indices(
+    const std::vector<Allocation>& allocations) {
+  const CsrAdjacency adj = build_conflict_adjacency(allocations);
+  OverlapIndices indices(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    indices[i].assign(adj.neighbors.begin() + adj.offsets[i],
+                      adj.neighbors.begin() + adj.offsets[i + 1]);
+  }
+  return indices;
+}
+
+TemporalOverlaps overlaps_from_indices(
+    const std::vector<Allocation>& allocations, const OverlapIndices& indices) {
+  TemporalOverlaps overlaps;
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    for (size_t j : indices[i]) {
+      overlaps[allocations[i].id()].insert(allocations[j].id());
+    }
+  }
+  return overlaps;
+}
+
+}  // namespace
+
+OverlapIndices compute_overlap_indices(
+    const std::vector<Allocation>& allocations) {
+  const bool all_scalar =
+      std::ranges::all_of(allocations, &Allocation::is_scalar_time);
+  return all_scalar ? scalar_overlap_indices(allocations)
+                    : vector_overlap_indices(allocations);
+}
+
+TemporalOverlaps compute_temporal_overlaps(
+    const std::vector<Allocation>& allocations) {
+  return overlaps_from_indices(allocations,
+                               compute_overlap_indices(allocations));
+}
+
+std::vector<int64_t> compute_conflict_degrees(
+    const std::vector<Allocation>& allocations) {
+  const ConflictSweep sweep = build_conflict_sweep(allocations);
+  std::vector<std::atomic<int64_t>> degree(sweep.count());
+  sweep.for_each_pair(parallel_threads(sweep.count()), [&](size_t i, size_t j) {
+    degree[i].fetch_add(1, std::memory_order_relaxed);
+    degree[j].fetch_add(1, std::memory_order_relaxed);
+  });
+  std::vector<int64_t> degrees(sweep.count());
+  for (size_t i = 0; i < sweep.count(); ++i) {
+    degrees[i] = degree[i].load(std::memory_order_relaxed);
+  }
+  return degrees;
+}
+
+namespace {
+
+// Occupied (offset, end) span of a placed allocation, matching the span
+// shape that `first_fit_offset` consumes
+using Interval = std::pair<int64_t, int64_t>;
+
+// LSD radix sort by offset (the end rides along as payload; equal-offset
+// order is irrelevant to the gap scan). The comparison sort dominated
+// first-fit at scale, radix is ~5x cheaper; pass count scales with the
+// actual offset magnitude, so no assumption on the offset range.
+void sort_intervals_by_lo(std::vector<Interval>& intervals,
+                          std::vector<Interval>& scratch) {
+  const size_t m = intervals.size();
+  if (m < 128) {
+    std::sort(intervals.begin(), intervals.end());
+    return;
+  }
+  uint64_t max_key = 0;
+  for (const Interval& v : intervals) {
+    max_key = std::max(max_key, static_cast<uint64_t>(v.first));
+  }
+  constexpr int kDigitBits = 11;
+  constexpr size_t kBuckets = size_t{1} << kDigitBits;
+  scratch.resize(m);
+  Interval* src = intervals.data();
+  Interval* dst = scratch.data();
+  int shift = 0;
+  // shift < 64: shifting a uint64_t by >= 64 is UB, and the 55..63 digit
+  // already covers every remaining bit
+  while (shift < 64 && (max_key >> shift) != 0) {
+    uint32_t count[kBuckets] = {};
+    for (size_t i = 0; i < m; ++i) {
+      ++count[(static_cast<uint64_t>(src[i].first) >> shift) & (kBuckets - 1)];
+    }
+    uint32_t running = 0;
+    for (size_t b = 0; b < kBuckets; ++b) {
+      const uint32_t c = count[b];
+      count[b] = running;
+      running += c;
+    }
+    for (size_t i = 0; i < m; ++i) {
+      dst[count[(static_cast<uint64_t>(src[i].first) >> shift) &
+                (kBuckets - 1)]++] = src[i];
+    }
+    std::swap(src, dst);
+    shift += kDigitBits;
+  }
+  if (src != intervals.data()) {
+    std::memcpy(intervals.data(), src, m * sizeof(Interval));
+  }
+}
+
+// First-fit offsets for the allocations taken in `order`, gathering each
+// allocation's placed CSR neighbors and reusing the shared gap scan
+std::vector<int64_t> place_order(const CsrAdjacency& adj,
+                                 const std::vector<int64_t>& sizes,
+                                 const std::vector<int32_t>& order) {
+  constexpr Interval kUnplaced{-1, -1};
+  std::vector<int64_t> offsets(sizes.size(), -1);
+  std::vector<Interval> placed(sizes.size(), kUnplaced);
+  std::vector<Interval> intervals;
+  std::vector<Interval> scratch;
+  for (const int32_t idx : order) {
+    intervals.clear();
+    for (int64_t e = adj.offsets[idx]; e < adj.offsets[idx + 1]; ++e) {
+      const Interval span =
+          placed[static_cast<size_t>(adj.neighbors[static_cast<size_t>(e)])];
+      if (span.first >= 0) {
+        intervals.push_back(span);
+      }
+    }
+    sort_intervals_by_lo(intervals, scratch);
+    const int64_t best = first_fit_offset(sizes[idx], intervals);
+    offsets[idx] = best;
+    placed[static_cast<size_t>(idx)] = {best, best + sizes[idx]};
+  }
+  return offsets;
+}
+
+// Saturating product for the conflict x size sort key: a raw int64 product
+// overflows (UB) on legal inputs; saturated ties at the extreme order as
+// well as anything can (Allocation::area() saturates the same way).
+int64_t saturating_product(int64_t a, int64_t b) noexcept {
+  if (a > 0 && b > std::numeric_limits<int64_t>::max() / a) {
+    return std::numeric_limits<int64_t>::max();
+  }
+  return a * b;
+}
+
+// The seven greedy_by_* sort orders over one shared adjacency, mirroring the
+// greedy_by_* allocators; place_portfolio races them all
+std::vector<std::vector<int32_t>> greedy_orders(
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj,
+    const std::vector<int64_t>& sizes) {
+  const size_t n = allocations.size();
+  std::vector<int64_t> durations(n);
+  std::vector<int64_t> areas(n);
+  std::vector<int64_t> loads(n);
+  const auto degree = [&](int32_t i) {
+    return adj.offsets[i + 1] - adj.offsets[i];
+  };
+  for (size_t i = 0; i < n; ++i) {
+    durations[i] = allocations[i].duration();
+    areas[i] = allocations[i].area();
+    loads[i] = saturating_product(degree(static_cast<int32_t>(i)), sizes[i]);
+  }
+  std::vector<int32_t> base(n);
+  std::iota(base.begin(), base.end(), 0);
+  const auto sorted_by = [&](auto&& less) {
+    std::vector<int32_t> result = base;
+    std::stable_sort(result.begin(), result.end(), less);
+    return result;
+  };
+  std::vector<std::vector<int32_t>> orders;
+  orders.reserve(7);
+  orders.push_back(base);      // greedy (input order)
+  orders.push_back(sorted_by(  // greedy_by_size
+      [&](int32_t a, int32_t b) { return sizes[a] > sizes[b]; }));
+  orders.push_back(sorted_by(  // greedy_by_duration
+      [&](int32_t a, int32_t b) { return durations[a] > durations[b]; }));
+  orders.push_back(sorted_by(  // greedy_by_area
+      [&](int32_t a, int32_t b) { return areas[a] > areas[b]; }));
+  orders.push_back(sorted_by([&](int32_t a, int32_t b) {  // greedy_by_conflict
+    return std::pair(degree(a), sizes[a]) > std::pair(degree(b), sizes[b]);
+  }));
+  orders.push_back(
+      sorted_by([&](int32_t a, int32_t b) {  // greedy_by_conflict_size
+        return std::pair(loads[a], sizes[a]) > std::pair(loads[b], sizes[b]);
+      }));
+  orders.push_back(sorted_by([&](int32_t a, int32_t b) {  // greedy_by_start
+    const auto sa = allocations[a].start_vec();
+    const auto sb = allocations[b].start_vec();
+    const auto cmp = std::lexicographical_compare_three_way(
+        sa.begin(), sa.end(), sb.begin(), sb.end());
+    if (cmp != 0) {
+      return cmp < 0;
+    }
+    return sizes[a] > sizes[b];
+  }));
+  return orders;
+}
+
+}  // namespace
+
+PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
+                                   const CsrAdjacency& adj) {
+  const size_t n = allocations.size();
+  std::vector<int64_t> sizes(n);
+  for (size_t i = 0; i < n; ++i) {
+    sizes[i] = allocations[i].size();
+  }
+  const auto orders = greedy_orders(allocations, adj, sizes);
+
+  // Placements are independent given the shared adjacency; spawning threads
+  // only pays off once the placements dwarf the thread startup cost
+  std::vector<std::vector<int64_t>> placements(orders.size());
+  if (n < kMinParallel) {
+    for (size_t v = 0; v < orders.size(); ++v) {
+      placements[v] = place_order(adj, sizes, orders[v]);
+    }
+  } else {
+    std::vector<std::future<std::vector<int64_t>>> futures;
+    futures.reserve(orders.size() - 1);
+    for (size_t v = 1; v < orders.size(); ++v) {
+      futures.push_back(std::async(std::launch::async, place_order,
+                                   std::cref(adj), std::cref(sizes),
+                                   std::cref(orders[v])));
+    }
+    placements[0] = place_order(adj, sizes, orders[0]);
+    for (size_t v = 1; v < orders.size(); ++v) {
+      placements[v] = futures[v - 1].get();
+    }
+  }
+
+  // Futures are joined before this strictly-ordered reduction, so ties break
+  // by the fixed order sequence and the winner is deterministic
+  PortfolioPlacement best;
+  best.peak = std::numeric_limits<int64_t>::max();
+  for (auto& offsets : placements) {
+    int64_t peak = 0;
+    for (size_t i = 0; i < n; ++i) {
+      peak = std::max(peak, offsets[i] + sizes[i]);
+    }
+    if (peak < best.peak) {
+      best.peak = peak;
+      best.offsets = std::move(offsets);
+    }
+  }
+  return best;
 }
 
 void gather_spans(const std::vector<size_t>& neighbors,
@@ -134,8 +394,8 @@ std::vector<Allocation> first_fit_place(
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)
     : allocations_(std::move(allocations)),
-      overlaps_(compute_temporal_overlaps(allocations_)),
-      indices_(compute_overlap_indices(allocations_)) {
+      indices_(compute_overlap_indices(allocations_)),
+      overlaps_(overlaps_from_indices(allocations_, indices_)) {
   check_total_size(allocations_);
 }
 

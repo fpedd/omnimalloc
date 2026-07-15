@@ -54,11 +54,12 @@ class TelamallocAllocator(BaseAllocator):
     alone.
     """
 
+    # The phase decomposition and load bounds sweep a linear timeline
+    supports_vector_time = False
+
     def __init__(self, config: TelamallocConfig | None = None) -> None:
         self._config = config or TelamallocConfig()
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         cpp_allocator = _TelamallocAllocatorCpp(self._config.to_cpp_config())
         return tuple(cpp_allocator.allocate(list(allocations)))

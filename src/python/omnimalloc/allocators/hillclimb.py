@@ -118,10 +118,7 @@ class HillClimbAllocator(GreedyAllocator):
         worsening_percent = 100.0 * (candidate - current) / current
         return rng.random() < math.exp(-worsening_percent / temperature)
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
-
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         deadline = time.monotonic() + self._timeout if self._timeout else None
         rng = random.Random(self._seed)
         conflicts = compute_conflicts(allocations)

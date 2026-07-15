@@ -5,15 +5,7 @@
 from .allocation import Allocation
 
 
-def get_pressure(allocations: tuple[Allocation, ...]) -> int:
-    """Calculate maximum memory pressure across all allocation intervals."""
-    events = [(alloc.start, alloc.size) for alloc in allocations]
-    events.extend((alloc.end, -alloc.size) for alloc in allocations)
-    events.sort()
-
-    max_pressure = current = 0
-    for _, delta in events:
-        current += delta
-        max_pressure = max(max_pressure, current)
-
-    return max_pressure
+def ensure_unique_ids(allocations: tuple[Allocation, ...]) -> None:
+    """Raise if any allocation id repeats; id-keyed placement assumes uniqueness."""
+    if len({alloc.id for alloc in allocations}) != len(allocations):
+        raise ValueError("allocation ids must be unique")

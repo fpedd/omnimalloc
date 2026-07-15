@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -13,6 +12,7 @@
 #include <vector>
 
 #include "primitives/allocation.hpp"
+#include "primitives/clock_rows.hpp"
 #include "primitives/id_type.hpp"
 
 namespace omnimalloc {
@@ -25,10 +25,10 @@ using TemporalOverlaps =
 // Index-based temporal adjacency: position i -> positions overlapping i
 using OverlapIndices = std::vector<std::vector<size_t>>;
 
-// Throw std::overflow_error when the total allocation size exceeds `limit`,
-// ruling out signed overflow in the placers' offset/cursor arithmetic
-void check_total_size(const std::vector<Allocation>& allocations,
-                      int64_t limit = std::numeric_limits<int64_t>::max() / 2);
+// Throw unless every allocation has scalar (interval) lifetimes; `who` names
+// the rejecting entry point in the message.
+void require_scalar_time(const std::vector<Allocation>& allocations,
+                         const char* who);
 
 // Map each allocation id to the ids of temporally overlapping allocations
 [[nodiscard]] TemporalOverlaps compute_temporal_overlaps(
@@ -49,6 +49,29 @@ void gather_spans(const std::vector<size_t>& neighbors,
 // First-fit: lowest offset where `size` fits between the sorted spans
 [[nodiscard]] int64_t first_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans);
+
+// Per-allocation count of temporally overlapping allocations, aligned with
+// `allocations`. Counts with multiplicity, so duplicate ids stay distinct.
+[[nodiscard]] std::vector<int64_t> compute_conflict_degrees(
+    const std::vector<Allocation>& allocations);
+
+// Pairwise happens-before conflict adjacency over the pruned vector sweep;
+// handles scalar and vector-clock lifetimes alike.
+[[nodiscard]] CsrAdjacency build_conflict_adjacency(
+    const std::vector<Allocation>& allocations);
+
+// Offsets (aligned with `allocations`) and peak of the winning placement.
+struct PortfolioPlacement {
+  std::vector<int64_t> offsets;
+  int64_t peak = 0;
+};
+
+// First-fit placement over the 7-order greedy portfolio (mirroring the
+// greedy_by_* allocators) in parallel, keeping the lowest peak; ties break
+// by the fixed order sequence, so the result is deterministic. Pre-existing
+// offsets are ignored.
+[[nodiscard]] PortfolioPlacement place_portfolio(
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj);
 
 // Greedily place allocations in order using first-fit, reusing a precomputed
 // overlap map
@@ -107,8 +130,8 @@ class FirstFitPlacer {
       const std::vector<size_t>& order) const;
 
   std::vector<Allocation> allocations_;
-  TemporalOverlaps overlaps_;
   OverlapIndices indices_;
+  TemporalOverlaps overlaps_;  // derived from indices_, initialized after it
 };
 
 }  // namespace omnimalloc

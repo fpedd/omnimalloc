@@ -61,11 +61,11 @@ class SimulatedAnnealingAllocator(BaseAllocator):
     as the input grows, independent of `max_iterations`.
     """
 
+    supports_vector_time = True
+
     def __init__(self, config: SimulatedAnnealingConfig | None = None) -> None:
         self._config = config or SimulatedAnnealingConfig()
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        if not allocations:
-            return allocations
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         cpp_allocator = _SimulatedAnnealingAllocatorCpp(self._config.to_cpp_config())
         return tuple(cpp_allocator.allocate(list(allocations)))

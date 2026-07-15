@@ -4,23 +4,30 @@
 
 import random
 from abc import abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
-from omnimalloc.primitives import Allocation, Pool
+from omnimalloc.primitives import Allocation, Pool, TimePoint
 
 from .base import BaseSource
 
+TimeT_co = TypeVar("TimeT_co", bound=TimePoint, covariant=True)
+
 
 @dataclass(frozen=True)
-class _Tile:
+class _Tile(Generic[TimeT_co]):
     """A leaf rectangle in the (time x memory) plane.
 
-    ``offset`` is the leaf's memory position in the ground-truth packing; it is
-    discarded when handed to an allocator but kept for validation/reference.
+    The split recursion works on a scalar timeline (``_Tile[int]``); sources
+    with vector-clock lifetimes re-time tiles to tuple clocks before they
+    become Allocations. ``offset`` is the leaf's memory position in the
+    ground-truth packing; it is discarded when handed to an allocator but kept
+    for validation/reference.
     """
 
-    start: int
-    end: int
+    start: TimeT_co
+    end: TimeT_co
     offset: int
     size: int
 
@@ -58,16 +65,18 @@ class TilingBase(BaseSource):
         self.seed = seed
 
     @abstractmethod
-    def _can_split(self, tile: _Tile) -> bool: ...
+    def _can_split(self, tile: _Tile[int]) -> bool: ...
 
     @abstractmethod
-    def _split(self, tile: _Tile, rng: random.Random) -> list[_Tile]:
+    def _split(self, tile: _Tile[int], rng: random.Random) -> list[_Tile[int]]:
         """Split a tile into children that exactly tile it."""
 
-    def _build_tiles(self, num: int, rng: random.Random) -> list[_Tile]:
+    def _build_tiles(
+        self, num: int, rng: random.Random, capacity: int | None = None
+    ) -> list[_Tile[int]]:
         if num <= 0:
             return []
-        tiles = [_Tile(0, self.makespan, 0, self.capacity)]
+        tiles = [_Tile(0, self.makespan, 0, capacity or self.capacity)]
         while len(tiles) < num:
             splittable = [i for i, t in enumerate(tiles) if self._can_split(t)]
             if not splittable:
@@ -81,21 +90,27 @@ class TilingBase(BaseSource):
             tiles[idx : idx + 1] = self._split(tiles[idx], rng)
         return tiles
 
+    def _variant_rng(self, skip: int) -> random.Random:
+        """Deterministic per-variant stream: same seed and skip, same problem."""
+        return random.Random(None if self.seed is None else self.seed + skip)
+
+    def _placed_tiles(self, num: int, skip: int) -> Sequence[_Tile[TimePoint]]:
+        """One placed tile per allocation to generate; the subclass hook."""
+        return self._build_tiles(num, self._variant_rng(skip))
+
     def _tile_allocations(
         self, num_allocations: int | None, skip: int, with_offsets: bool
     ) -> tuple[Allocation, ...]:
         num = num_allocations if num_allocations is not None else self.num_allocations
-        seed = None if self.seed is None else self.seed + skip
-        tiles = self._build_tiles(num, random.Random(seed))
         return tuple(
             Allocation(
                 id=skip + i,
-                size=t.size,
-                start=t.start,
-                end=t.end,
-                offset=t.offset if with_offsets else None,
+                size=tile.size,
+                start=tile.start,
+                end=tile.end,
+                offset=tile.offset if with_offsets else None,
             )
-            for i, t in enumerate(tiles)
+            for i, tile in enumerate(self._placed_tiles(num, skip))
         )
 
     def get_allocations(

@@ -37,13 +37,13 @@ class PinwheelSource(TilingBase):
             num_allocations, capacity, makespan, min_size, min_duration, seed
         )
 
-    def _can_split(self, tile: _Tile) -> bool:
+    def _can_split(self, tile: _Tile[int]) -> bool:
         return (
             tile.end - tile.start >= 3 * self.min_duration
             and tile.size >= 3 * self.min_size
         )
 
-    def _split(self, tile: _Tile, rng: random.Random) -> list[_Tile]:
+    def _split(self, tile: _Tile[int], rng: random.Random) -> list[_Tile[int]]:
         """Split a tile into a five-piece pinwheel (center + four blades)."""
         t0, t1, m0 = tile.start, tile.end, tile.offset
         width, height = t1 - t0, tile.size

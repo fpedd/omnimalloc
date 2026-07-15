@@ -27,6 +27,7 @@ from .greedy_cpp import GreedyByStartAllocatorCpp as GreedyByStartAllocatorCpp
 from .hillclimb import HillClimbAllocator as HillClimbAllocator
 from .minimalloc import MinimallocAllocator as MinimallocAllocator
 from .naive import NaiveAllocator as NaiveAllocator
+from .omni import OmniAllocator as OmniAllocator
 from .random import RandomAllocator as RandomAllocator
 from .simulated_annealing import (
     SimulatedAnnealingAllocator as SimulatedAnnealingAllocator,

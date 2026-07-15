@@ -112,3 +112,32 @@ def test_dump_memory_rejects_pool_ids_colliding_after_str(tmp_path: Path) -> Non
     memory = Memory(id="mem", pools=(make_pool(1), make_pool("1")))
     with pytest.raises(ValueError, match="unique"):
         dump_allocation(memory, tmp_path / "problem.csv")
+
+
+def test_dump_vector_time_joins_components_with_colons(tmp_path: Path) -> None:
+    pool = Pool(
+        id="p0",
+        allocations=(Allocation(id="a", size=4, start=(3, 0), end=(5, 2)),),
+    )
+    (file_path,) = dump_allocation(pool, tmp_path / "problem.csv")
+    assert file_path.read_text() == "id,lower,upper,size\na,3:0,5:2,4\n"
+
+
+def test_dump_load_round_trip_preserves_vector_time(tmp_path: Path) -> None:
+    pool = Pool(
+        id="p0",
+        allocations=(
+            Allocation(id="a", size=4, start=(3, 0), end=(5, 2)),
+            Allocation(id="b", size=8, start=(0, 1), end=(2, 4)),
+        ),
+    )
+    (file_path,) = dump_allocation(pool, tmp_path / "problem.csv")
+    loaded = load_allocation(file_path)
+    original = [(str(a.id), a.start, a.end, a.size) for a in pool.allocations]
+    restored = [(str(a.id), a.start, a.end, a.size) for a in loaded.allocations]
+    assert restored == original
+
+
+def test_dump_scalar_files_stay_minimalloc_format(tmp_path: Path) -> None:
+    (file_path,) = dump_allocation(make_pool(), tmp_path / "problem.csv")
+    assert ":" not in file_path.read_text()

@@ -20,7 +20,9 @@ from .greedy_base import (
 class GreedyAllocator(BaseAllocator):
     """Base greedy allocator using first-fit strategy."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    supports_vector_time = True
+
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return tuple(
             first_fit_place(allocations, compute_temporal_overlaps(allocations))
         )
@@ -29,43 +31,43 @@ class GreedyAllocator(BaseAllocator):
 class GreedyByDurationAllocator(GreedyAllocator):
     """Greedy allocator sorting by duration (longest first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_duration(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_duration(allocations))
 
 
 class GreedyByConflictAllocator(GreedyAllocator):
     """Greedy allocator sorting by conflict degree (most conflicted first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_conflict(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_conflict(allocations))
 
 
 class GreedyByConflictSizeAllocator(GreedyAllocator):
     """Greedy allocator sorting by conflict degree times size (largest first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_conflict_size(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_conflict_size(allocations))
 
 
 class GreedyByStartAllocator(GreedyAllocator):
     """Greedy allocator sorting by start time (earliest first, largest ties first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_start(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_start(allocations))
 
 
 class GreedyByAreaAllocator(GreedyAllocator):
     """Greedy allocator sorting by area (size * duration, largest first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_area(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_area(allocations))
 
 
 class GreedyBySizeAllocator(GreedyAllocator):
     """Greedy allocator sorting by size (largest first)."""
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return super().allocate(order_by_size(allocations))
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_size(allocations))
 
 
 class GreedyByAllAllocator(GreedyAllocator):
@@ -74,7 +76,7 @@ class GreedyByAllAllocator(GreedyAllocator):
     def __init__(self, cores: int | None = None) -> None:
         self._cores = cores
 
-    def allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         variants: tuple[BaseAllocator, ...] = (
             GreedyAllocator(),
             GreedyBySizeAllocator(),
