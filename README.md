@@ -99,4 +99,4 @@ uv run pre-commit run --all-files
 
 ## License
 
-Copyright 2025 Fabian Peddinghaus. Licensed under Apache 2.0 License. See [LICENSE](LICENSE) for details.
+Copyright 2025-2026 Fabian Peddinghaus. Licensed under Apache 2.0 License. See [LICENSE](LICENSE) for details.
