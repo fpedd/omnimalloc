@@ -21,6 +21,7 @@ from .primitives import System as System
 from .primitives import TimePoint as TimePoint
 from .primitives import VectorClock as VectorClock
 from .primitives import get_closure_pressure as get_closure_pressure
+from .primitives import get_conflicts as get_conflicts
 from .primitives import (
     get_per_allocation_closure_pressure as get_per_allocation_closure_pressure,
 )

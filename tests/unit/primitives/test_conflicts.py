@@ -1,0 +1,94 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+from random import Random
+
+import pytest
+from omnimalloc.primitives import Allocation
+from omnimalloc.primitives.conflicts import get_conflicts
+
+
+def test_conflicts_empty() -> None:
+    assert get_conflicts(()) == {}
+
+
+def test_conflicts_scalar_overlap() -> None:
+    allocations = (
+        Allocation(id=1, size=8, start=0, end=4),
+        Allocation(id=2, size=8, start=2, end=6),
+        Allocation(id=3, size=8, start=6, end=8),
+    )
+    assert get_conflicts(allocations) == {1: {2}, 2: {1}, 3: set()}
+
+
+def test_conflicts_touching_intervals_do_not_conflict() -> None:
+    allocations = (
+        Allocation(id=1, size=8, start=0, end=4),
+        Allocation(id=2, size=8, start=4, end=6),
+    )
+    assert get_conflicts(allocations) == {1: set(), 2: set()}
+
+
+def test_conflicts_vector_concurrent() -> None:
+    allocations = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
+        Allocation(id="b", size=8, start=(0, 0), end=(0, 1)),
+    )
+    assert get_conflicts(allocations) == {"a": {"b"}, "b": {"a"}}
+
+
+def test_conflicts_vector_ordered_do_not_conflict() -> None:
+    allocations = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
+        Allocation(id="b", size=8, start=(1, 0), end=(2, 0)),
+    )
+    assert get_conflicts(allocations) == {"a": set(), "b": set()}
+
+
+def test_conflicts_rejects_duplicate_ids() -> None:
+    duplicated = (
+        Allocation(id=1, size=8, start=0, end=2),
+        Allocation(id=1, size=8, start=1, end=3),
+    )
+    with pytest.raises(ValueError, match="unique"):
+        get_conflicts(duplicated)
+
+
+def test_conflicts_rejects_mixed_dimensions() -> None:
+    mixed = (
+        Allocation(id=1, size=8, start=0, end=1),
+        Allocation(id=2, size=8, start=(0, 0), end=(1, 1)),
+    )
+    with pytest.raises(ValueError, match="dimension"):
+        get_conflicts(mixed)
+
+
+def _random_instance(rng: Random) -> tuple[Allocation, ...]:
+    dim = rng.choice((1, 2, 3))
+    allocations = []
+    for i in range(rng.randint(1, 12)):
+        start = tuple(rng.randint(0, 5) for _ in range(dim))
+        delta = [rng.randint(0, 3) for _ in range(dim)]
+        if sum(delta) == 0:
+            delta[rng.randrange(dim)] = 1
+        end = tuple(s + x for s, x in zip(start, delta, strict=True))
+        if dim == 1:
+            allocations.append(Allocation(id=i, size=8, start=start[0], end=end[0]))
+        else:
+            allocations.append(Allocation(id=i, size=8, start=start, end=end))
+    return tuple(allocations)
+
+
+def test_conflicts_match_pairwise_overlaps() -> None:
+    rng = Random(5)
+    for _ in range(100):
+        allocations = _random_instance(rng)
+        conflicts = get_conflicts(allocations)
+        for alloc in allocations:
+            expected = {
+                other.id
+                for other in allocations
+                if other.id != alloc.id and alloc.overlaps_temporally(other)
+            }
+            assert conflicts[alloc.id] == expected
