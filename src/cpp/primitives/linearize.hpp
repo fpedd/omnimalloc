@@ -14,8 +14,7 @@
 
 namespace omnimalloc {
 
-inline constexpr uint64_t kNoLinearizeBudget =
-    std::numeric_limits<uint64_t>::max();
+inline constexpr uint64_t kNoWorkBudget = std::numeric_limits<uint64_t>::max();
 
 // Default dominance-counting budget for implicit and hot-path callers (the
 // omni allocator's linearize attempt, `Pool.pressure`), so huge vector-clock
@@ -30,13 +29,13 @@ inline constexpr uint64_t kDefaultWorkBudget = 100'000'000;
 // (undecided; the caller falls back to the vector conflict engine).
 [[nodiscard]] std::optional<std::vector<std::pair<int64_t, int64_t>>>
 linearize_times(const std::vector<Allocation>& allocations,
-                uint64_t work_budget = kNoLinearizeBudget);
+                uint64_t work_budget = kNoWorkBudget);
 
 // Allocation-level wrapper: allocations rebuilt with the surrogate scalar
 // times, or nullopt when `linearize_times` yields none (not an interval
 // order — or undecided under a finite `work_budget`).
 [[nodiscard]] std::optional<std::vector<Allocation>> try_linearize(
     const std::vector<Allocation>& allocations,
-    uint64_t work_budget = kNoLinearizeBudget);
+    uint64_t work_budget = kNoWorkBudget);
 
 }  // namespace omnimalloc

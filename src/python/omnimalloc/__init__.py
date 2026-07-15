@@ -20,7 +20,6 @@ from .primitives import Pool as Pool
 from .primitives import System as System
 from .primitives import TimePoint as TimePoint
 from .primitives import VectorClock as VectorClock
-from .primitives import get_antichain_pressure as get_antichain_pressure
 from .primitives import get_closure_pressure as get_closure_pressure
 from .primitives import (
     get_per_allocation_closure_pressure as get_per_allocation_closure_pressure,
@@ -29,6 +28,7 @@ from .primitives import (
     get_per_allocation_placement_pressure as get_per_allocation_placement_pressure,
 )
 from .primitives import get_per_allocation_pressure as get_per_allocation_pressure
+from .primitives import get_placement_pressure as get_placement_pressure
 from .primitives import get_pressure as get_pressure
 from .primitives import try_linearize as try_linearize
 from .validate import validate_allocation as validate_allocation
