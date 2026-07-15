@@ -54,13 +54,14 @@ dev = [
   "pre-commit>=4.0.0",
   "pytest>=8.0",
   "pytest-cov>=7.0.0",
+  "pytest-xdist>=3.6.0",
   "ruff>=0.14.0",
   "ty>=0.0.1a26",
 ]
 
 [tool.scikit-build]
 wheel.packages = ["src/python/omnimalloc"]
-cmake.build-type = "Release"                         # TODO(fpedd): Cross-check with CMakeLists.txt
+cmake.build-type = "Release"                                            # TODO(fpedd): Cross-check with CMakeLists.txt
 build-dir = "build/{wheel_tag}"
 sdist.include = ["src/cpp/**"]
 sdist.exclude = [".github", "notebooks", "external"]
@@ -137,7 +138,8 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib"]
+addopts = ["--import-mode=importlib", "-m", "not slow"]
+markers = ["slow: exhaustive stress grids (deselected by default)"]
 log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)s] %(message)s (%(filename)s:%(lineno)d)"

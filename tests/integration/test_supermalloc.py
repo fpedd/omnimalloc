@@ -13,6 +13,7 @@ from omnimalloc.visualize import HAS_MATPLOTLIB
 ALLOCATORS = (
     "greedy_by_size_allocator_cpp",
     "greedy_by_all_allocator_cpp",
+    "omni_allocator",
     SupermallocAllocator(SupermallocConfig(timeout=2)),
 ) + ((MinimallocAllocator(timeout=2),) if HAS_MINIMALLOC else ())
 

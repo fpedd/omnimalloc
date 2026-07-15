@@ -11,7 +11,8 @@ antichain) against the two exact C++ methods:
   reference every ratio is measured against
 - ``get_closure_pressure``: realizable peak via join-closure enumeration;
   instances whose closure exceeds ``--closure-cap`` are reported as capped
-  and excluded from the means
+  and excluded from the means. Instances where ``get_pressure`` exceeds its
+  default work budget are reported the same way
 
 and their per-allocation counterparts (dashed in the figures; ratios are
 means over the per-allocation pinned antichain):
@@ -125,6 +126,14 @@ def _capped(
         return None
 
 
+def _budgeted(allocations: tuple[Allocation, ...]) -> Value:
+    """None instead of raising when get_pressure exceeds its work budget."""
+    try:
+        return get_pressure(allocations)
+    except RuntimeError:
+        return None
+
+
 def _sample_runners(
     allocations: tuple[Allocation, ...],
     placed: tuple[Allocation, ...],
@@ -132,7 +141,7 @@ def _sample_runners(
     args: argparse.Namespace,
 ) -> dict[str, Runner]:
     return {
-        "get_pressure": lambda: get_pressure(allocations),
+        "get_pressure": lambda: _budgeted(allocations),
         REFERENCE: lambda: get_antichain_pressure(allocations),
         "get_closure_pressure": lambda: _capped(
             get_closure_pressure, allocations, args.closure_cap
