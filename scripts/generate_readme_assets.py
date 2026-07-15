@@ -66,6 +66,7 @@ ALLOCATORS: dict[str, tuple[str, str]] = {
     "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy"),
     "greedy_by_all_allocator_cpp": ("greedy (all)", "greedy"),
     "best_fit_allocator": ("best-fit", "greedy_alt"),
+    "omni_allocator": ("omni", "omni"),
     "hill_climb_allocator": ("hill climbing", "search_alt"),
     "genetic_allocator": ("genetic", "search_alt"),
     "simulated_annealing_allocator": ("simulated annealing", "search"),
@@ -80,6 +81,7 @@ HERO_ALLOCATORS = (
     "greedy_by_size_allocator_cpp",
     "greedy_by_all_allocator_cpp",
     "best_fit_allocator",
+    "omni_allocator",
     "hill_climb_allocator",
     "genetic_allocator",
     "simulated_annealing_allocator",
@@ -91,6 +93,7 @@ HERO_ALLOCATORS = (
 QUALITY_ALLOCATORS = (
     "greedy_by_size_allocator_cpp",
     "best_fit_allocator",
+    "omni_allocator",
     "tabu_search_allocator",
     "telamalloc_allocator",
     "minimalloc_allocator",
@@ -100,6 +103,7 @@ QUALITY_ALLOCATORS = (
 SCALING_ALLOCATORS = (
     "naive_allocator",
     "greedy_by_size_allocator_cpp",
+    "omni_allocator",
     "hill_climb_allocator",
     "telamalloc_allocator",
     "minimalloc_allocator",
@@ -124,6 +128,7 @@ HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
     "greedy_by_size_allocator_cpp": (8, 0, "left"),
     "greedy_by_all_allocator_cpp": (0, -11, "center"),
     "best_fit_allocator": (8, 0, "left"),
+    "omni_allocator": (8, 0, "left"),
     "hill_climb_allocator": (0, -11, "center"),
     "genetic_allocator": (8, -6, "left"),
     "simulated_annealing_allocator": (-8, 3, "right"),
@@ -139,6 +144,7 @@ HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
 SCALING_LABEL_OFFSETS = {
     "naive_allocator": (4, -2, "left"),
     "greedy_by_size_allocator_cpp": (4, -4, "left"),
+    "omni_allocator": (4, 4, "left"),
     "hill_climb_allocator": (4, 3, "left"),
     "telamalloc_allocator": (4, -11, "left"),
     "minimalloc_allocator": (0, 9, "center"),
@@ -168,6 +174,7 @@ LIGHT = Theme(
         "baseline": "#848d97",
         "greedy": "#0969da",
         "greedy_alt": "#54aeff",
+        "omni": "#cf222e",
         "search": "#bc4c00",
         "search_alt": "#9a6700",
         "telamalloc": "#1b7c83",
@@ -186,6 +193,7 @@ DARK = Theme(
         "baseline": "#768390",
         "greedy": "#4493f8",
         "greedy_alt": "#79c0ff",
+        "omni": "#f85149",
         "search": "#f0883e",
         "search_alt": "#d29922",
         "telamalloc": "#39c5cf",
@@ -475,7 +483,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
         )
 
     ax.set_xscale("log")
-    ax.set_xlim(0.6e-3, 22)
+    ax.set_xlim(0.2e-3, 22)
     ax.set_ylim(52, 104)
     ticks = (1e-3, 1e-2, 1e-1, 1, 10)
     ax.set_xticks(ticks)
@@ -538,8 +546,9 @@ def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
         (ALLOCATORS[name][0], theme.role[ALLOCATORS[name][1]])
         for name in QUALITY_ALLOCATORS
     ]
-    _series_line(fig, series, y=0.842)
-    fig.subplots_adjust(top=0.775, bottom=0.125, left=0.265, right=0.97)
+    _series_line(fig, series[:4], y=0.845)
+    _series_line(fig, series[4:], y=0.79)
+    fig.subplots_adjust(top=0.72, bottom=0.125, left=0.265, right=0.97)
     _save(fig, "quality", theme, preview)
 
 
