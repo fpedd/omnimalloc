@@ -9,7 +9,7 @@
 #include <numeric>
 #include <random>
 
-#include "clock_rows.hpp"
+#include "clock.hpp"
 #include "common/parallel.hpp"
 
 // Fishburn's interval-order test without materializing predecessor sets.
@@ -78,7 +78,8 @@ bool find_incomparability_witness(const DedupedRows& starts,
 }  // namespace
 
 std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
-    const std::vector<Allocation>& allocations, uint64_t work_budget) {
+    const std::vector<Allocation>& allocations,
+    std::optional<uint64_t> work_budget) {
   const size_t n = allocations.size();
   std::vector<std::pair<int64_t, int64_t>> times(n);
   if (n == 0) {
@@ -102,9 +103,9 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   if (find_incomparability_witness(starts, ends)) {
     return std::nullopt;
   }
-  // Dominance counting costs O(k * m * d) before pruning; under a finite
+  // Dominance counting costs O(k * m * d) before pruning; under a set
   // budget, give up undecided instead of stalling the caller.
-  if (static_cast<uint64_t>(k) * m * d > work_budget) {
+  if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
     return std::nullopt;
   }
 
@@ -198,7 +199,8 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
 }
 
 std::optional<std::vector<Allocation>> try_linearize(
-    const std::vector<Allocation>& allocations, uint64_t work_budget) {
+    const std::vector<Allocation>& allocations,
+    std::optional<uint64_t> work_budget) {
   const auto times = linearize_times(allocations, work_budget);
   if (!times.has_value()) {
     return std::nullopt;

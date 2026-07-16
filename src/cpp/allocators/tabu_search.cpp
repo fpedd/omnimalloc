@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/deadline.hpp"
 #include "first_fit.hpp"
 #include "local_search.hpp"
 

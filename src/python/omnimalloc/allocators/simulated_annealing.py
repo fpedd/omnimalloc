@@ -8,20 +8,25 @@ from omnimalloc._cpp import (
     SimulatedAnnealingAllocatorCpp as _SimulatedAnnealingAllocatorCpp,
 )
 from omnimalloc._cpp import SimulatedAnnealingConfig as _SimulatedAnnealingConfig
+from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import ensure_valid_timeout
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, BaseAllocator
+from .base import BaseAllocator
 
 
 @dataclass(frozen=True)
 class SimulatedAnnealingConfig:
     """Cooling schedule and iteration budget for `SimulatedAnnealingAllocator`."""
 
-    seed: int = 42
+    seed: int = DEFAULT_SEED
     max_iterations: int = 3000
+    # Percent memory worsening accepted with probability 1/e at iteration 0;
+    # decays geometrically by `cooling_rate` every iteration.
     initial_temperature: float = 3.0
     cooling_rate: float = 0.998
-    timeout: float = DEFAULT_TIMEOUT
+    # Wall-clock budget in seconds; None disables it.
+    timeout: float | None = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:
         if self.max_iterations <= 0:
@@ -35,8 +40,7 @@ class SimulatedAnnealingConfig:
             )
         if not 0.0 < self.cooling_rate <= 1.0:
             raise ValueError(f"cooling_rate must be in (0, 1], got {self.cooling_rate}")
-        if self.timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {self.timeout}")
+        ensure_valid_timeout(self.timeout)
 
     def to_cpp_config(self) -> _SimulatedAnnealingConfig:
         return _SimulatedAnnealingConfig(

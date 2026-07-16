@@ -21,13 +21,14 @@
 #include "allocators/supermalloc/partition.hpp"
 #include "allocators/tabu_search.hpp"
 #include "allocators/telamalloc.hpp"
+#include "analysis/antichain.hpp"
+#include "analysis/closure.hpp"
+#include "analysis/conflicts.hpp"
+#include "analysis/linearize.hpp"
+#include "analysis/placement.hpp"
 #include "primitives/allocation.hpp"
-#include "primitives/antichain.hpp"
 #include "primitives/buffer_kind.hpp"
-#include "primitives/closure.hpp"
 #include "primitives/id_type.hpp"
-#include "primitives/linearize.hpp"
-#include "primitives/placement.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -118,29 +119,26 @@ NB_MODULE(_cpp, m) {
            });
 
   m.def("compute_temporal_overlaps", &compute_temporal_overlaps,
-        "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
-        nb::rv_policy::move);
+        "allocations"_a, "work_budget"_a.none(),
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("compute_conflict_degrees", &compute_conflict_degrees, "allocations"_a,
-        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+        "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
   m.def("try_linearize", &try_linearize, "allocations"_a,
-        "work_budget"_a = kNoWorkBudget,
-        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
-  m.attr("DEFAULT_WORK_BUDGET") = kDefaultWorkBudget;
-  m.attr("DEFAULT_CLOSURE_CAP") = kDefaultClosureCap;
+        "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>(),
+        nb::rv_policy::move);
   m.def("antichain_pressure", &antichain_pressure, "allocations"_a,
-        "work_budget"_a = kNoWorkBudget,
-        nb::call_guard<nb::gil_scoped_release>());
-  m.def("closure_pressure", &closure_pressure, "allocations"_a,
-        "closure_cap"_a = kDefaultClosureCap,
+        "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>());
+  m.def("closure_pressure", &closure_pressure, "allocations"_a, "closure_cap"_a,
         nb::call_guard<nb::gil_scoped_release>());
   m.def("per_allocation_antichain_pressure", &per_allocation_antichain_pressure,
-        "allocations"_a, "work_budget"_a = kNoWorkBudget,
+        "allocations"_a, "work_budget"_a.none(),
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("per_allocation_closure_pressure", &per_allocation_closure_pressure,
-        "allocations"_a, "closure_cap"_a = kDefaultClosureCap,
+        "allocations"_a, "closure_cap"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("per_allocation_placement_pressure", &per_allocation_placement_pressure,
-        "allocations"_a, "clique_cap"_a = false,
+        "allocations"_a, "clique_cap"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("first_fit_place", &first_fit_place, "allocations"_a, "overlaps"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
@@ -167,12 +165,17 @@ NB_MODULE(_cpp, m) {
       .def("__hash__", std::hash<GreedyAllocator>{});
 
   // OmniAllocator class
+  const auto omni_repr = [](const OmniAllocator& allocator) {
+    const auto budget = allocator.linearize_budget();
+    return "OmniAllocator(linearize_budget=" +
+           (budget ? std::to_string(*budget) : std::string("None")) + ")";
+  };
   nb::class_<OmniAllocator>(m, "OmniAllocatorCpp")
-      .def(nb::init<>())
+      .def(nb::init<std::optional<uint64_t>>(), "linearize_budget"_a.none())
       .def("allocate", &OmniAllocator::allocate, "allocations"_a,
            nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
-      .def("__str__", [](const OmniAllocator&) { return "OmniAllocator()"; })
-      .def("__repr__", [](const OmniAllocator&) { return "OmniAllocator()"; })
+      .def("__str__", omni_repr)
+      .def("__repr__", omni_repr)
       .def("__eq__", &OmniAllocator::operator==, nb::is_operator())
       .def("__hash__", std::hash<OmniAllocator>{});
 
@@ -189,14 +192,10 @@ NB_MODULE(_cpp, m) {
       .def("__hash__", std::hash<BestFitAllocator>{});
 
   // SimulatedAnnealingConfig / SimulatedAnnealingAllocator classes
-  constexpr SimulatedAnnealingConfig kDefaultSaConfig{};
   nb::class_<SimulatedAnnealingConfig>(m, "SimulatedAnnealingConfig")
-      .def(nb::init<uint64_t, int, double, double, double>(),
-           "seed"_a = kDefaultSaConfig.seed,
-           "max_iterations"_a = kDefaultSaConfig.max_iterations,
-           "initial_temperature"_a = kDefaultSaConfig.initial_temperature,
-           "cooling_rate"_a = kDefaultSaConfig.cooling_rate,
-           "timeout"_a = kDefaultSaConfig.timeout)
+      .def(nb::init<uint64_t, int, double, double, std::optional<double>>(),
+           "seed"_a, "max_iterations"_a, "initial_temperature"_a,
+           "cooling_rate"_a, "timeout"_a.none())
       .def_rw("seed", &SimulatedAnnealingConfig::seed)
       .def_rw("max_iterations", &SimulatedAnnealingConfig::max_iterations)
       .def_rw("initial_temperature",
@@ -205,19 +204,15 @@ NB_MODULE(_cpp, m) {
       .def_rw("timeout", &SimulatedAnnealingConfig::timeout);
 
   nb::class_<SimulatedAnnealingAllocator>(m, "SimulatedAnnealingAllocatorCpp")
-      .def(nb::init<SimulatedAnnealingConfig>(), "config"_a = kDefaultSaConfig)
+      .def(nb::init<SimulatedAnnealingConfig>(), "config"_a)
       .def("allocate", &SimulatedAnnealingAllocator::allocate, "allocations"_a,
            nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // TabuSearchConfig / TabuSearchAllocator classes
-  constexpr TabuSearchConfig kDefaultTabuConfig{};
   nb::class_<TabuSearchConfig>(m, "TabuSearchConfig")
-      .def(nb::init<uint64_t, int, int, int, double>(),
-           "seed"_a = kDefaultTabuConfig.seed,
-           "max_iterations"_a = kDefaultTabuConfig.max_iterations,
-           "neighborhood_size"_a = kDefaultTabuConfig.neighborhood_size,
-           "tabu_tenure"_a = kDefaultTabuConfig.tabu_tenure,
-           "timeout"_a = kDefaultTabuConfig.timeout)
+      .def(nb::init<uint64_t, int, int, int, std::optional<double>>(), "seed"_a,
+           "max_iterations"_a, "neighborhood_size"_a, "tabu_tenure"_a,
+           "timeout"_a.none())
       .def_rw("seed", &TabuSearchConfig::seed)
       .def_rw("max_iterations", &TabuSearchConfig::max_iterations)
       .def_rw("neighborhood_size", &TabuSearchConfig::neighborhood_size)
@@ -225,35 +220,28 @@ NB_MODULE(_cpp, m) {
       .def_rw("timeout", &TabuSearchConfig::timeout);
 
   nb::class_<TabuSearchAllocator>(m, "TabuSearchAllocatorCpp")
-      .def(nb::init<TabuSearchConfig>(), "config"_a = kDefaultTabuConfig)
+      .def(nb::init<TabuSearchConfig>(), "config"_a)
       .def("allocate", &TabuSearchAllocator::allocate, "allocations"_a,
            nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // TelamallocConfig / TelamallocAllocator classes
-  constexpr TelamallocConfig kDefaultTelaConfig{};
   nb::class_<TelamallocConfig>(m, "TelamallocConfig")
-      .def(nb::init<uint64_t, int, double>(),
-           "seed"_a = kDefaultTelaConfig.seed,
-           "max_backtracks"_a = kDefaultTelaConfig.max_backtracks,
-           "timeout"_a = kDefaultTelaConfig.timeout)
+      .def(nb::init<uint64_t, int, std::optional<double>>(), "seed"_a,
+           "max_backtracks"_a, "timeout"_a.none())
       .def_rw("seed", &TelamallocConfig::seed)
       .def_rw("max_backtracks", &TelamallocConfig::max_backtracks)
       .def_rw("timeout", &TelamallocConfig::timeout);
 
   nb::class_<TelamallocAllocator>(m, "TelamallocAllocatorCpp")
-      .def(nb::init<TelamallocConfig>(), "config"_a = kDefaultTelaConfig)
+      .def(nb::init<TelamallocConfig>(), "config"_a)
       .def("allocate", &TelamallocAllocator::allocate, "allocations"_a,
            nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // SearchOptions class
-  constexpr SearchOptions kDefaultOptions{};
   nb::class_<SearchOptions>(m, "SearchOptions")
-      .def(nb::init<bool, bool, bool, bool, bool>(),
-           "canonical"_a = kDefaultOptions.canonical,
-           "dominance"_a = kDefaultOptions.dominance,
-           "floor_inference"_a = kDefaultOptions.floor_inference,
-           "monotonic_floor"_a = kDefaultOptions.monotonic_floor,
-           "decompose"_a = kDefaultOptions.decompose)
+      .def(nb::init<bool, bool, bool, bool, bool>(), "canonical"_a,
+           "dominance"_a, "floor_inference"_a, "monotonic_floor"_a,
+           "decompose"_a)
       .def_rw("canonical", &SearchOptions::canonical)
       .def_rw("dominance", &SearchOptions::dominance)
       .def_rw("floor_inference", &SearchOptions::floor_inference)
@@ -276,11 +264,11 @@ NB_MODULE(_cpp, m) {
       .def_ro("offsets", &Solution::offsets)
       .def_ro("height", &Solution::height);
 
-  m.def("greedy_many", &greedy_many, "partition"_a, "heuristics"_a, "timeout"_a,
-        "num_threads"_a, nb::call_guard<nb::gil_scoped_release>(),
-        nb::rv_policy::move);
+  m.def("greedy_many", &greedy_many, "partition"_a, "heuristics"_a,
+        "timeout"_a.none(), "num_threads"_a,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
-  m.def("solve_many", &solve_many, "partitions"_a, "node_limit"_a, "timeout"_a,
-        "best_bound"_a, "options"_a, "num_threads"_a,
+  m.def("solve_many", &solve_many, "partitions"_a, "node_limit"_a,
+        "timeout"_a.none(), "best_bound"_a, "options"_a, "num_threads"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 }

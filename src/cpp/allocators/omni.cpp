@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <optional>
 
+#include "analysis/linearize.hpp"
 #include "first_fit.hpp"
-#include "primitives/linearize.hpp"
 
 namespace omnimalloc {
 
@@ -28,7 +28,7 @@ std::vector<Allocation> OmniAllocator::allocate(
       std::ranges::all_of(allocations, &Allocation::is_scalar_time);
   std::optional<std::vector<Allocation>> surrogates;
   if (!all_scalar) {
-    surrogates = try_linearize(allocations, kDefaultWorkBudget);
+    surrogates = try_linearize(allocations, linearize_budget_);
   }
   const std::vector<Allocation>& problem =
       surrogates.has_value() ? *surrogates : allocations;
@@ -49,9 +49,8 @@ std::vector<Allocation> OmniAllocator::allocate(
 namespace std {
 
 size_t hash<omnimalloc::OmniAllocator>::operator()(
-    const omnimalloc::OmniAllocator&) const noexcept {
-  // Stateless class - all instances are equal, use constant hash
-  return 0x9e3779b9;  // arbitrary constant
+    const omnimalloc::OmniAllocator& allocator) const noexcept {
+  return hash<std::optional<uint64_t>>{}(allocator.linearize_budget());
 }
 
 }  // namespace std

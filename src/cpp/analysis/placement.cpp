@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "clock_rows.hpp"
+#include "clock.hpp"
 #include "common/parallel.hpp"
 #include "linearize.hpp"
 
@@ -166,7 +166,7 @@ std::vector<int64_t> per_allocation_placement_pressure(
   }
   // Linearization preserves the conflict relation exactly, so neighborhood
   // tops and clique sums transfer verbatim to the surrogate timeline.
-  if (const auto times = linearize_times(allocations)) {
+  if (const auto times = linearize_times(allocations, std::nullopt)) {
     return scalar_peaks(*times, heights, weights, clique_cap);
   }
   return vector_peaks(spans, heights, weights, clique_cap);

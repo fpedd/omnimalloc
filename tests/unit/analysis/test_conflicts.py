@@ -5,8 +5,8 @@
 from random import Random
 
 import pytest
+from omnimalloc.analysis.conflicts import get_conflict_degrees, get_conflicts
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.conflicts import get_conflicts
 
 
 def test_conflicts_empty() -> None:
@@ -62,6 +62,57 @@ def test_conflicts_rejects_mixed_dimensions() -> None:
     )
     with pytest.raises(ValueError, match="dimension"):
         get_conflicts(mixed)
+
+
+def test_conflicts_over_budget_give_up() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
+    assert get_conflicts(allocations, work_budget=1) is None
+
+
+def test_conflicts_unbounded_budget_always_computes() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(2))
+    assert get_conflicts(allocations, work_budget=None) == {0: {1}, 1: {0}}
+
+
+def test_conflicts_reject_negative_budget() -> None:
+    with pytest.raises(ValueError, match="work_budget must be non-negative"):
+        get_conflicts((), work_budget=-1)
+
+
+def test_conflict_degrees_empty() -> None:
+    assert get_conflict_degrees(()) == []
+
+
+def test_conflict_degrees_align_with_input_order() -> None:
+    allocations = (
+        Allocation(id=1, size=8, start=0, end=4),
+        Allocation(id=2, size=8, start=2, end=6),
+        Allocation(id=3, size=8, start=6, end=8),
+    )
+    assert get_conflict_degrees(allocations) == [1, 1, 0]
+
+
+def test_conflict_degrees_allow_duplicate_ids() -> None:
+    duplicated = (
+        Allocation(id=1, size=8, start=0, end=2),
+        Allocation(id=1, size=8, start=1, end=3),
+    )
+    assert get_conflict_degrees(duplicated) == [1, 1]
+
+
+def test_conflict_degrees_over_budget_give_up() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
+    assert get_conflict_degrees(allocations, work_budget=1) is None
+
+
+def test_conflict_degrees_unbounded_budget_always_counts() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
+    assert get_conflict_degrees(allocations, work_budget=None) == [3, 3, 3, 3]
+
+
+def test_conflict_degrees_reject_negative_budget() -> None:
+    with pytest.raises(ValueError, match="work_budget must be non-negative"):
+        get_conflict_degrees((), work_budget=-1)
 
 
 def _random_instance(rng: Random) -> tuple[Allocation, ...]:

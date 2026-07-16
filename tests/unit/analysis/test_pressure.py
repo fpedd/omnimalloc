@@ -7,8 +7,7 @@ from random import Random
 
 import pytest
 from omnimalloc.allocators.omni import OmniAllocator
-from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.pressure import (
+from omnimalloc.analysis.pressure import (
     get_closure_pressure,
     get_per_allocation_closure_pressure,
     get_per_allocation_placement_pressure,
@@ -16,6 +15,7 @@ from omnimalloc.primitives.pressure import (
     get_placement_pressure,
     get_pressure,
 )
+from omnimalloc.primitives import Allocation
 
 
 def test_pressure_empty_is_zero() -> None:
@@ -88,6 +88,16 @@ def test_pressure_work_budget_exceeded_raises() -> None:
     )
     with pytest.raises(RuntimeError, match="work_budget"):
         get_pressure(two_plus_two, work_budget=1)
+
+
+def test_pressure_negative_work_budget_rejected() -> None:
+    with pytest.raises(ValueError, match="work_budget must be non-negative"):
+        get_pressure((), work_budget=-1)
+
+
+def test_closure_pressure_negative_cap_rejected() -> None:
+    with pytest.raises(ValueError, match="closure_cap must be non-negative"):
+        get_closure_pressure((), closure_cap=-1)
 
 
 def test_pressure_total_size_overflow_raises() -> None:

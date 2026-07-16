@@ -14,7 +14,7 @@ from omnimalloc.validate import validate_allocation
 
 
 def _overlap_map(allocations: tuple[Allocation, ...]) -> dict[object, set[object]]:
-    overlaps = compute_temporal_overlaps(allocations)
+    overlaps = compute_temporal_overlaps(allocations, None)
     return {a.id: set(overlaps.get(a.id, ())) for a in allocations}
 
 
@@ -58,6 +58,25 @@ def test_two_plus_two_returns_none() -> None:
         Allocation(id="d", size=8, start=(0, 1), end=(0, 2)),
     )
     assert try_linearize(allocations) is None
+
+
+def test_tiny_work_budget_gives_up_undecided() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(i, i), end=(i + 1, i + 1)) for i in range(4)
+    )
+    assert try_linearize(allocations, work_budget=1) is None
+
+
+def test_unbounded_work_budget_decides() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(i, i), end=(i + 1, i + 1)) for i in range(4)
+    )
+    assert try_linearize(allocations, work_budget=None) is not None
+
+
+def test_negative_work_budget_rejected() -> None:
+    with pytest.raises(ValueError, match="work_budget must be non-negative"):
+        try_linearize((), work_budget=-1)
 
 
 def test_mixed_dimensions_rejected() -> None:

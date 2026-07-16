@@ -14,6 +14,7 @@
 #include <tuple>
 #include <utility>
 
+#include "common/deadline.hpp"
 #include "first_fit.hpp"
 
 namespace omnimalloc {

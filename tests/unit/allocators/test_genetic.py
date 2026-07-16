@@ -58,7 +58,7 @@ def test_genetic_rejects_invalid_tournament_size() -> None:
 
 
 def test_genetic_rejects_negative_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout must be non-negative"):
+    with pytest.raises(ValueError, match="timeout must be positive or None"):
         GeneticAllocator(timeout=-1.0)
 
 

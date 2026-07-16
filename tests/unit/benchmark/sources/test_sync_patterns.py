@@ -3,10 +3,10 @@
 #
 
 import pytest
+from omnimalloc.analysis.pressure import get_pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.pressure import get_pressure
 
 
 def _signatures(

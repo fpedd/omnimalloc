@@ -4,20 +4,18 @@
 
 # DEFAULT_WORK_BUDGET and DEFAULT_CLOSURE_CAP bound the exact queries so
 # implicit callers (`Pool.pressure`) can never hang or OOM on huge
-# vector-clock instances; both are exported from C++, next to the algorithms
-# they tune, so they cannot drift from the OmniAllocator linearize budget.
+# vector-clock instances.
 from omnimalloc._cpp import (
-    DEFAULT_CLOSURE_CAP,
-    DEFAULT_WORK_BUDGET,
     antichain_pressure,
     closure_pressure,
     per_allocation_antichain_pressure,
     per_allocation_closure_pressure,
     per_allocation_placement_pressure,
 )
-
-from .allocation import Allocation, IdType
-from .utils import ensure_unique_ids
+from omnimalloc.common.constants import DEFAULT_CLOSURE_CAP, DEFAULT_WORK_BUDGET
+from omnimalloc.common.deadline import ensure_valid_budget
+from omnimalloc.primitives.allocation import Allocation, IdType
+from omnimalloc.primitives.utils import ensure_unique_ids
 
 
 def get_pressure(
@@ -35,8 +33,7 @@ def get_pressure(
     phases and raises rather than hang when the flow would exceed it; pass
     `None` to always compute the exact answer.
     """
-    if work_budget is None:
-        return antichain_pressure(list(allocations))
+    ensure_valid_budget(work_budget)
     return antichain_pressure(list(allocations), work_budget)
 
 
@@ -50,6 +47,7 @@ def get_closure_pressure(
     below `get_pressure`; both soundly lower-bound any placement's peak.
     Raises once the closure exceeds `closure_cap`.
     """
+    ensure_valid_budget(closure_cap, name="closure_cap")
     peak = closure_pressure(list(allocations), closure_cap)
     if peak is None:
         raise RuntimeError(
@@ -90,11 +88,9 @@ def get_per_allocation_pressure(
     the linearize attempt and each pinned flow and raises rather than hang;
     pass `None` to always compute the exact answer.
     """
+    ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations)
-    if work_budget is None:
-        peaks = per_allocation_antichain_pressure(list(allocations))
-    else:
-        peaks = per_allocation_antichain_pressure(list(allocations), work_budget)
+    peaks = per_allocation_antichain_pressure(list(allocations), work_budget)
     return _keyed_by_id(allocations, peaks)
 
 
@@ -109,6 +105,7 @@ def get_per_allocation_closure_pressure(
     entry equals `get_closure_pressure`. Raises once the closure exceeds
     `closure_cap`.
     """
+    ensure_valid_budget(closure_cap, name="closure_cap")
     ensure_unique_ids(allocations)
     peaks = per_allocation_closure_pressure(list(allocations), closure_cap)
     if peaks is None:

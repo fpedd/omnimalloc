@@ -110,7 +110,7 @@ def test_order_by_start_mixed_dimensions_rejected() -> None:
 
 def test_compute_conflicts_matches_overlap_map() -> None:
     allocs = vector_problem()
-    overlaps = compute_temporal_overlaps(allocs)
+    overlaps = compute_temporal_overlaps(allocs, None)
     conflicts = compute_conflicts(allocs)
     for alloc in allocs:
         assert conflicts[alloc] == len(overlaps.get(alloc.id, ()))
@@ -120,7 +120,7 @@ def test_compute_conflicts_scalar_matches_overlap_map() -> None:
     allocs = tuple(
         Allocation(id=i, size=8, start=i % 4, end=i % 4 + 2) for i in range(10)
     )
-    overlaps = compute_temporal_overlaps(allocs)
+    overlaps = compute_temporal_overlaps(allocs, None)
     conflicts = compute_conflicts(allocs)
     for alloc in allocs:
         assert conflicts[alloc] == len(overlaps.get(alloc.id, ()))
@@ -145,7 +145,7 @@ def test_compute_conflicts_duplicate_ids_match_scalar() -> None:
 
 def test_overlap_map_matches_pairwise_test() -> None:
     allocs = vector_problem(12)
-    overlaps = compute_temporal_overlaps(allocs)
+    overlaps = compute_temporal_overlaps(allocs, None)
     for a in allocs:
         for b in allocs:
             if a.id == b.id:

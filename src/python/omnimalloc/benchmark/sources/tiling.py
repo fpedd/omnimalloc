@@ -4,6 +4,8 @@
 
 import random
 
+from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
+
 from .tiling_base import TilingBase, _Tile
 
 
@@ -20,12 +22,12 @@ class TilingSource(TilingBase):
     def __init__(
         self,
         num_allocations: int = 128,
-        capacity: int = 1024 * 1024,
+        capacity: int = MB,
         makespan: int = 1024 * 1024,
-        min_size: int = 1024,
+        min_size: int = KB,
         min_duration: int = 1,
         mem_cut_prob: float = 0.5,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         if capacity < min_size:
             raise ValueError("capacity must be >= min_size")

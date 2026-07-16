@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "clock_rows.hpp"
+#include "clock.hpp"
 #include "common/parallel.hpp"
 #include "linearize.hpp"
 
@@ -146,12 +146,14 @@ class Dinic {
 // Max-weight antichain over explicit lifetime rows via the min-flow
 // construction above; `max_threads` caps the parallel dominance-edge pass
 // so the nested per-allocation solves stay serial inside a parallel outer
-// loop. A finite `work_budget` bounds the dominance pass and the network
-// it feeds; past it, throw instead of stalling or exhausting memory.
+// loop. A set `work_budget` (nullopt means unbounded) bounds the dominance
+// pass and the network it feeds; past it, throw instead of stalling or
+// exhausting memory.
 int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
                       const std::vector<std::span<const int64_t>>& end_rows,
                       const std::vector<int64_t>& weights, size_t d,
-                      unsigned max_threads, uint64_t work_budget) {
+                      unsigned max_threads,
+                      std::optional<uint64_t> work_budget) {
   const size_t g = weights.size();
   if (g == 0) {
     return 0;
@@ -160,7 +162,7 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
   const DedupedRows ends = dedupe_rows(end_rows, d);
   const size_t k = starts.count();
   const size_t m = ends.count();
-  if (static_cast<uint64_t>(k) * m * d > work_budget) {
+  if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
     throw std::runtime_error(
         "Antichain flow work exceeds work_budget; rerun without a budget "
         "for the unbounded exact query");
@@ -233,7 +235,7 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
 }  // namespace
 
 int64_t antichain_pressure(const std::vector<Allocation>& allocations,
-                           uint64_t work_budget) {
+                           std::optional<uint64_t> work_budget) {
   if (allocations.empty()) {
     return 0;
   }
@@ -259,7 +261,8 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
 }
 
 std::vector<int64_t> per_allocation_antichain_pressure(
-    const std::vector<Allocation>& allocations, uint64_t work_budget) {
+    const std::vector<Allocation>& allocations,
+    std::optional<uint64_t> work_budget) {
   const size_t n = allocations.size();
   if (n == 0) {
     return {};

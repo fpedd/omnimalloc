@@ -5,8 +5,8 @@
 import csv
 from pathlib import Path
 
+from .analysis.clock import time_components
 from .primitives import Allocation, BufferKind, Memory, Pool, System, TimePoint
-from .primitives.vector_clock import time_components
 
 _FIELDS = ("id", "lower", "upper", "size")
 

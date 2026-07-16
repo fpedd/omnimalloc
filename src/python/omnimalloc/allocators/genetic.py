@@ -3,14 +3,18 @@
 #
 
 import random
-import time
 from typing import Any, cast
 
 from omnimalloc._cpp import FirstFitPlacer
+from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import (
+    deadline_expired,
+    ensure_valid_timeout,
+    make_deadline,
+)
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT
 from .greedy import GreedyAllocator
 from .greedy_base import (
     order_by_area,
@@ -34,18 +38,18 @@ class GeneticAllocator(GreedyAllocator):
     """Genetic algorithm allocator that evolves greedy placement orders.
 
     `timeout` (default 3s) bounds wall-clock time between generations,
-    independent of `num_generations`; set it to 0 to disable the deadline.
+    independent of `num_generations`; set it to None to disable the deadline.
     """
 
     def __init__(
         self,
-        seed: int = 42,
+        seed: int = DEFAULT_SEED,
         population_size: int = 100,
         num_generations: int = 50,
         crossover_prob: float = 0.7,
         mutation_prob: float = 0.2,
         tournament_size: int = 3,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
@@ -62,8 +66,7 @@ class GeneticAllocator(GreedyAllocator):
             )
         if tournament_size <= 0:
             raise ValueError(f"tournament_size must be positive, got {tournament_size}")
-        if timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {timeout}")
+        ensure_valid_timeout(timeout)
 
         self.seed = seed
         self.population_size = population_size
@@ -157,11 +160,11 @@ class GeneticAllocator(GreedyAllocator):
         # DEAP's eaSimple, unrolled so a wall-clock deadline can stop between
         # generations; varAnd keeps the RNG stream identical to eaSimple.
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        deadline = time.monotonic() + self.timeout if self.timeout else None
+        deadline = make_deadline(self.timeout)
         evaluate_invalid(population)
         hall_of_fame.update(population)
         for _ in range(self.num_generations):
-            if deadline is not None and time.monotonic() >= deadline:
+            if deadline_expired(deadline):
                 break
             offspring = toolbox.select(population, len(population))  # type: ignore[unresolved-attribute]
             offspring = algorithms.varAnd(

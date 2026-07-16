@@ -5,24 +5,25 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
-#include "allocators/defaults.hpp"
 #include "primitives/allocation.hpp"
 
 namespace omnimalloc {
 
-// Search budgets for `TelamallocAllocator`.
+// Search budgets for `TelamallocAllocator`. Defaults live in the Python
+// `TelamallocConfig` dataclass; every field must be set explicitly.
 struct TelamallocConfig {
   // Seeds the random-walk step of the conflict repair (see `pack_phase`);
   // results are deterministic for a fixed seed.
-  uint64_t seed = 42;
+  uint64_t seed{};
   // Eviction (backtrack) budget per capacity attempt; an attempt that
   // exhausts it reports the capacity as unreachable.
-  int max_backtracks = 10000;
-  // Wall-clock budget for the whole allocate(); 0 disables it, leaving the
-  // per-attempt `max_backtracks` as the only bound.
-  double timeout = kDefaultTimeout;
+  int max_backtracks{};
+  // Wall-clock budget for the whole allocate(); nullopt disables it, leaving
+  // the per-attempt `max_backtracks` as the only bound.
+  std::optional<double> timeout;
 };
 
 // TelaMalloc-style allocator after Maas et al., ASPLOS 2023 ("TelaMalloc:
@@ -41,7 +42,7 @@ struct TelamallocConfig {
 // deterministic min-conflict search can fall into.
 class TelamallocAllocator {
  public:
-  explicit TelamallocAllocator(TelamallocConfig config = TelamallocConfig{});
+  explicit TelamallocAllocator(TelamallocConfig config);
 
   [[nodiscard]] std::vector<Allocation> allocate(
       const std::vector<Allocation>& allocations) const;

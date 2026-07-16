@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from .analysis.clock import ensure_uniform_dim
 from .primitives import Allocation, IdType, Memory, Pool, System
-from .primitives.vector_clock import ensure_uniform_dim
 
 
 def _check_unique_ids(entities: tuple[Memory | Pool | Allocation, ...]) -> None:

@@ -18,8 +18,8 @@
 #include <unordered_set>
 #include <utility>
 
-#include "allocators/defaults.hpp"
 #include "allocators/first_fit.hpp"
+#include "common/deadline.hpp"
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -939,18 +939,26 @@ void run_workers(const std::function<void()>& work, int num_threads,
   if (error) std::rethrow_exception(error);
 }
 
-// Unlike the allocators, `greedy_many`/`solve_many` treat a non-positive
-// timeout as an already-expired budget rather than a disabled one, so a
-// missing deadline collapses to "now".
-std::chrono::steady_clock::time_point compute_deadline(double timeout) {
-  return make_deadline(timeout).value_or(std::chrono::steady_clock::now());
+// A nullopt timeout disables the deadline entirely, while a non-positive
+// one is an already-expired budget, so a caller whose wall-clock budget ran
+// out still gets the incumbent back. The expired case is resolved here
+// because make_deadline requires a positive budget.
+std::chrono::steady_clock::time_point compute_deadline(
+    std::optional<double> timeout) {
+  if (!timeout) {
+    return std::chrono::steady_clock::time_point::max();
+  }
+  if (*timeout <= 0.0) {
+    return std::chrono::steady_clock::now();
+  }
+  return *make_deadline(timeout);
 }
 
 }  // namespace
 
 Solution greedy_many(const Partition& partition,
-                     const std::vector<std::string>& heuristics, double timeout,
-                     int num_threads) {
+                     const std::vector<std::string>& heuristics,
+                     std::optional<double> timeout, int num_threads) {
   if (heuristics.empty()) {
     throw std::invalid_argument("greedy_many requires at least one heuristic");
   }
@@ -980,7 +988,8 @@ Solution greedy_many(const Partition& partition,
 }
 
 std::optional<Solution> solve_many(const std::vector<Partition>& partitions,
-                                   int64_t node_limit, double timeout,
+                                   int64_t node_limit,
+                                   std::optional<double> timeout,
                                    int64_t best_bound, SearchOptions options,
                                    int num_threads) {
   if (partitions.empty()) return std::nullopt;

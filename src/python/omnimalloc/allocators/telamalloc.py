@@ -6,26 +6,30 @@ from dataclasses import dataclass
 
 from omnimalloc._cpp import TelamallocAllocatorCpp as _TelamallocAllocatorCpp
 from omnimalloc._cpp import TelamallocConfig as _TelamallocConfig
+from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import ensure_valid_timeout
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, BaseAllocator
+from .base import BaseAllocator
 
 
 @dataclass(frozen=True)
 class TelamallocConfig:
     """Search budgets for TelamallocAllocator."""
 
-    seed: int = 42
+    seed: int = DEFAULT_SEED
+    # Eviction (backtrack) budget per capacity attempt; an attempt that
+    # exhausts it reports the capacity as unreachable.
     max_backtracks: int = 10000
-    timeout: float = DEFAULT_TIMEOUT
+    # Wall-clock budget in seconds; None disables it.
+    timeout: float | None = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:
         if self.max_backtracks < 0:
             raise ValueError(
                 f"max_backtracks must be non-negative, got {self.max_backtracks}"
             )
-        if self.timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {self.timeout}")
+        ensure_valid_timeout(self.timeout)
 
     def to_cpp_config(self) -> _TelamallocConfig:
         return _TelamallocConfig(

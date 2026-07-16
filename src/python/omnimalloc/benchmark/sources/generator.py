@@ -4,6 +4,7 @@
 
 import random
 
+from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation, BufferKind
 
 from .base import BaseSource
@@ -15,15 +16,15 @@ class RandomSource(BaseSource):
     def __init__(
         self,
         num_allocations: int = 100,
-        size_min: int = 1024,
-        size_max: int = 1024 * 1024,
+        size_min: int = KB,
+        size_max: int = MB,
         time_min: int = 0,
         time_max: int = 10000,
         duration_min: int = 1,
         duration_max: int = 500,
         kinds: tuple[BufferKind, ...] | None = None,
         kind_weights: tuple[float, ...] | None = None,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
         if size_min <= 0:
@@ -89,10 +90,10 @@ class UniformSource(BaseSource):
     def __init__(
         self,
         num_allocations: int = 100,
-        size: int = 4096,
+        size: int = 4 * KB,
         duration: int = 10,
         time_max: int = 100,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
         if size <= 0:
@@ -143,7 +144,7 @@ class PowerOf2Source(BaseSource):
         time_max: int = 100,
         duration_min: int = 1,
         duration_max: int = 50,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
         if size_exponent_min < 0:
@@ -194,10 +195,10 @@ class HighContentionSource(BaseSource):
     def __init__(
         self,
         num_allocations: int = 100,
-        size_min: int = 1024,
-        size_max: int = 1024 * 1024,
+        size_min: int = KB,
+        size_max: int = MB,
         time_window: int = 20,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
         if size_min <= 0:
@@ -242,11 +243,11 @@ class SequentialSource(BaseSource):
     def __init__(
         self,
         num_allocations: int = 100,
-        size_min: int = 1024,
-        size_max: int = 1024 * 1024,
+        size_min: int = KB,
+        size_max: int = MB,
         duration_min: int = 5,
         duration_max: int = 15,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
         if size_min <= 0:

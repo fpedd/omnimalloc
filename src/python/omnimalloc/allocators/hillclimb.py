@@ -4,12 +4,16 @@
 
 import math
 import random
-import time
 
 from omnimalloc._cpp import FirstFitPlacer
+from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import (
+    deadline_expired,
+    ensure_valid_timeout,
+    make_deadline,
+)
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT
 from .greedy import GreedyAllocator
 from .greedy_base import compute_conflicts, peak_memory
 
@@ -23,15 +27,15 @@ class HillClimbAllocator(GreedyAllocator):
     schedule). `acceptance_temperature` is the percent worsening accepted
     with probability 1/e at the start; it cools linearly to zero.
     `timeout` (default 3s) bounds wall-clock time as the input grows,
-    independent of `max_iterations`; set it to 0 to disable the deadline.
+    independent of `max_iterations`; set it to None to disable the deadline.
     """
 
     def __init__(
         self,
         max_iterations: int = 100,
-        seed: int = 42,
+        seed: int = DEFAULT_SEED,
         acceptance_temperature: float = 2.0,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
         if max_iterations <= 0:
             raise ValueError(f"max_iterations must be positive, got {max_iterations}")
@@ -40,8 +44,7 @@ class HillClimbAllocator(GreedyAllocator):
                 f"acceptance_temperature must be non-negative, "
                 f"got {acceptance_temperature}"
             )
-        if timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {timeout}")
+        ensure_valid_timeout(timeout)
 
         self._max_iterations = max_iterations
         self._seed = seed
@@ -119,7 +122,7 @@ class HillClimbAllocator(GreedyAllocator):
         return rng.random() < math.exp(-worsening_percent / temperature)
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        deadline = time.monotonic() + self._timeout if self._timeout else None
+        deadline = make_deadline(self._timeout)
         rng = random.Random(self._seed)
         conflicts = compute_conflicts(allocations)
         placer = FirstFitPlacer(list(allocations))
@@ -142,7 +145,7 @@ class HillClimbAllocator(GreedyAllocator):
         best, best_peak = current, current_peak
 
         for iteration in range(self._max_iterations):
-            if deadline is not None and time.monotonic() >= deadline:
+            if deadline_expired(deadline):
                 break
             swap = self._propose_swap(
                 order, current, current_peak, rng, allocations, adjacency

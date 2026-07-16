@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
 
+from omnimalloc.analysis.pressure import get_pressure
+
 from .allocation import Allocation, IdType
-from .pressure import get_pressure
 
 
 @dataclass(frozen=True)

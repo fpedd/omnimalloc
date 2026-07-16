@@ -32,9 +32,9 @@ from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 from omnimalloc.allocators import OmniAllocator
+from omnimalloc.analysis.pressure import get_pressure
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
-from omnimalloc.primitives.pressure import get_pressure
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes

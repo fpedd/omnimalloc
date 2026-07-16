@@ -18,17 +18,17 @@ from omnimalloc.allocators.greedy_cpp import (
     GreedyBySizeAllocatorCpp,
     GreedyByStartAllocatorCpp,
 )
+from omnimalloc.analysis.pressure import (
+    get_closure_pressure,
+    get_per_allocation_placement_pressure,
+    get_pressure,
+)
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.generator import HighContentionSource, RandomSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 from omnimalloc.primitives import Allocation, Pool
-from omnimalloc.primitives.pressure import (
-    get_closure_pressure,
-    get_per_allocation_placement_pressure,
-    get_pressure,
-)
 from omnimalloc.validate import validate_allocation
 
 GREEDY_PORTFOLIO = (
@@ -48,7 +48,7 @@ def _peak(allocations: tuple[Allocation, ...]) -> int:
 
 def _assert_conflicting_pairs_disjoint(placed: tuple[Allocation, ...]) -> None:
     by_id = {a.id: a for a in placed}
-    for alloc_id, neighbor_ids in compute_temporal_overlaps(placed).items():
+    for alloc_id, neighbor_ids in compute_temporal_overlaps(placed, None).items():
         a = by_id[alloc_id]
         for neighbor_id in neighbor_ids:
             b = by_id[neighbor_id]

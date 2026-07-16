@@ -5,25 +5,27 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
-#include "allocators/defaults.hpp"
 #include "primitives/allocation.hpp"
 
 namespace omnimalloc {
 
 // Cooling schedule and iteration budget for `SimulatedAnnealingAllocator`.
+// Defaults live in the Python `SimulatedAnnealingConfig` dataclass; every
+// field must be set explicitly.
 struct SimulatedAnnealingConfig {
-  uint64_t seed = 42;
-  int max_iterations = 3000;
+  uint64_t seed{};
+  int max_iterations{};
   // Percent memory worsening accepted with probability 1/e at iteration 0;
   // decays geometrically by `cooling_rate` every iteration.
-  double initial_temperature = 3.0;
-  double cooling_rate = 0.998;
-  // Wall-clock budget checked once per iteration; 0 disables it. Each
+  double initial_temperature{};
+  double cooling_rate{};
+  // Wall-clock budget checked once per iteration; nullopt disables it. Each
   // iteration re-evaluates a full O(n) placement, so `max_iterations` alone
   // does not bound runtime as `allocations` grows - this does.
-  double timeout = kDefaultTimeout;
+  std::optional<double> timeout;
 };
 
 // Simulated annealing over first-fit placement orders. Each iteration swaps a
@@ -35,8 +37,7 @@ struct SimulatedAnnealingConfig {
 // equivalent Python-orchestrated local search.
 class SimulatedAnnealingAllocator {
  public:
-  explicit SimulatedAnnealingAllocator(
-      SimulatedAnnealingConfig config = SimulatedAnnealingConfig{});
+  explicit SimulatedAnnealingAllocator(SimulatedAnnealingConfig config);
 
   [[nodiscard]] std::vector<Allocation> allocate(
       const std::vector<Allocation>& allocations) const;

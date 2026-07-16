@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import math
 from typing import Any, cast
 
+from omnimalloc.common.constants import DEFAULT_TIMEOUT, TB
+from omnimalloc.common.deadline import ensure_valid_timeout
 from omnimalloc.common.optional import OptionalDependencyError
-from omnimalloc.common.units import TB
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, BaseAllocator
+from .base import BaseAllocator
 
 try:
     import minimalloc as mm  # type: ignore
@@ -49,11 +51,10 @@ class MinimallocAllocator(BaseAllocator):
     supports_vector_time = False
 
     def __init__(
-        self, timeout: int = int(DEFAULT_TIMEOUT), max_capacity: int = 1 * TB
+        self, timeout: float | None = DEFAULT_TIMEOUT, max_capacity: int = 1 * TB
     ) -> None:
         _require_minimalloc()
-        if timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {timeout}")
+        ensure_valid_timeout(timeout)
         if max_capacity <= 0:
             raise ValueError(f"max_capacity must be positive, got {max_capacity}")
         self._timeout = timeout
@@ -64,7 +65,10 @@ class MinimallocAllocator(BaseAllocator):
         problem.capacity = self._max_capacity
 
         params = mm.SolverParams()
-        params.timeout = self._timeout
+        # minimalloc's own default timeout is infinite, matching None here;
+        # its solver takes whole seconds, so round up to never shorten the budget
+        if self._timeout is not None:
+            params.timeout = math.ceil(self._timeout)
         params.minimize_capacity = True
 
         solution = mm.Solver(params).solve(problem)

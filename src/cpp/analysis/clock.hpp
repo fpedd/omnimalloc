@@ -17,10 +17,10 @@
 #include <utility>
 #include <vector>
 
-#include "allocation.hpp"
 #include "common/parallel.hpp"
+#include "primitives/allocation.hpp"
 
-// Shared clock-row utilities for the exact vector-time primitives
+// Shared clock-row utilities for the exact vector-time analyses
 // (linearize, antichain, closure) and the conflict-graph consumers: row
 // deduplication, componentwise dominance, lifetime grouping, the scalar
 // sweep peaks, and the pruned pairwise conflict sweep.
@@ -299,6 +299,19 @@ class ConflictSweep {
   }
 
   size_t count() const noexcept { return n_; }
+
+  // Work the pruned pair sweep will perform, in component comparisons: row
+  // a scans until the ascending min-starts reach its cutoff, so each scan
+  // length falls out of one binary search and no pair is touched.
+  [[nodiscard]] uint64_t sweep_work() const noexcept {
+    uint64_t pairs = 0;
+    for (size_t a = 0; a < n_; ++a) {
+      const auto begin = min_start_.begin() + static_cast<ptrdiff_t>(a) + 1;
+      pairs += static_cast<uint64_t>(
+          std::lower_bound(begin, min_start_.end(), cutoff_[a]) - begin);
+    }
+    return pairs * dim_;
+  }
 
   // Calls `on_pair(i, j)` once per conflicting pair, in input indices;
   // `on_pair` must be thread-safe when num_threads > 1.

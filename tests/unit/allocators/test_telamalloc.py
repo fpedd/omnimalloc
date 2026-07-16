@@ -34,7 +34,7 @@ def test_telamalloc_rejects_negative_backtracks() -> None:
 
 
 def test_telamalloc_rejects_negative_seconds() -> None:
-    with pytest.raises(ValueError, match="timeout must be non-negative"):
+    with pytest.raises(ValueError, match="timeout must be positive or None"):
         TelamallocConfig(timeout=-1.0)
 
 
@@ -78,7 +78,7 @@ def test_telamalloc_all_overlap_stacks_sequentially() -> None:
 
 
 def test_telamalloc_overlapping_reach_lower_bound() -> None:
-    config = TelamallocConfig(timeout=0)
+    config = TelamallocConfig(timeout=None)
     result = TelamallocAllocator(config).allocate(
         (
             Allocation(id=1, size=100, start=0, end=10),
@@ -106,7 +106,7 @@ def test_telamalloc_deterministic_without_deadline() -> None:
         Allocation(id=i, size=(i % 5 + 1) * 100, start=i % 3, end=i % 3 + i % 7 + 1)
         for i in range(20)
     )
-    config = TelamallocConfig(timeout=0)
+    config = TelamallocConfig(timeout=None)
     result1 = TelamallocAllocator(config).allocate(allocs)
     result2 = TelamallocAllocator(config).allocate(allocs)
     assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
@@ -139,7 +139,7 @@ def test_telamalloc_matches_or_beats_single_pass_greedy() -> None:
         for i in range(40)
     )
     greedy_peak = peak_memory(GreedyBySizeAllocator().allocate(allocs))
-    config = TelamallocConfig(timeout=0)
+    config = TelamallocConfig(timeout=None)
     result = TelamallocAllocator(config).allocate(allocs)
     assert _is_valid(result)
     assert peak_memory(result) <= greedy_peak

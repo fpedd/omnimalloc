@@ -3,17 +3,14 @@
 #
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar
 
+from omnimalloc.analysis.clock import ensure_uniform_dim
 from omnimalloc.common.registry import Registered
 from omnimalloc.primitives.utils import ensure_unique_ids
-from omnimalloc.primitives.vector_clock import ensure_uniform_dim
 
 if TYPE_CHECKING:
     from omnimalloc.primitives import Allocation
-
-# Shared wall-clock budget for every time-bounded allocator (seconds).
-DEFAULT_TIMEOUT: Final[float] = 3.0
 
 
 class BaseAllocator(Registered):
