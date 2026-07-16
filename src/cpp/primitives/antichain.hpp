@@ -24,7 +24,7 @@ namespace omnimalloc {
 // of stalling or exhausting memory once the budget is exceeded.
 [[nodiscard]] int64_t antichain_pressure(
     const std::vector<Allocation>& allocations,
-    uint64_t work_budget = kNoLinearizeBudget);
+    uint64_t work_budget = kNoWorkBudget);
 
 // Exact per-allocation pressure, aligned with `allocations`: for each
 // allocation the max-weight antichain through it, i.e. the heaviest
@@ -34,7 +34,10 @@ namespace omnimalloc {
 // Interval orders resolve through one linearized window sweep; genuinely
 // partial orders solve one pinned min flow per distinct lifetime over its
 // conflict neighborhood — built for certification, not the 10k+ hot path.
+// A finite `work_budget` bounds the linearize attempt and each pinned flow
+// (see antichain_pressure); the flow path throws once it is exceeded.
 [[nodiscard]] std::vector<int64_t> per_allocation_antichain_pressure(
-    const std::vector<Allocation>& allocations);
+    const std::vector<Allocation>& allocations,
+    uint64_t work_budget = kNoWorkBudget);
 
 }  // namespace omnimalloc

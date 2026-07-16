@@ -259,7 +259,7 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
 }
 
 std::vector<int64_t> per_allocation_antichain_pressure(
-    const std::vector<Allocation>& allocations) {
+    const std::vector<Allocation>& allocations, uint64_t work_budget) {
   const size_t n = allocations.size();
   if (n == 0) {
     return {};
@@ -269,7 +269,7 @@ std::vector<int64_t> per_allocation_antichain_pressure(
   // Interval orders: every clique through an allocation shares a time point
   // inside its own lifetime (Helly), so the pinned antichain is the window
   // peak of the linearized sweep.
-  if (const auto times = linearize_times(allocations)) {
+  if (const auto times = linearize_times(allocations, work_budget)) {
     std::vector<int64_t> weights(n);
     std::ranges::transform(allocations, weights.begin(), &Allocation::size);
     return interval_peaks(*times, weights);
@@ -302,7 +302,7 @@ std::vector<int64_t> per_allocation_antichain_pressure(
       weights.push_back(groups.weights[j]);
     }
     pinned[i] = groups.weights[i] +
-                max_antichain(starts, ends, weights, d, 1, kNoLinearizeBudget);
+                max_antichain(starts, ends, weights, d, 1, work_budget);
   });
 
   std::vector<int64_t> peaks(n);

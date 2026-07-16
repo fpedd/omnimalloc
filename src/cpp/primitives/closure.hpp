@@ -13,16 +13,21 @@
 
 namespace omnimalloc {
 
+// Default join-closure enumeration cap, so huge vector-clock instances
+// fail fast instead of exhausting memory. Exported to Python as
+// DEFAULT_CLOSURE_CAP.
+inline constexpr size_t kDefaultClosureCap = 1 << 14;
+
 // Exact realizable peak: the maximum total size jointly live at a single
 // cut, scored over the join-closure of the birth clocks (the minimal cut
 // where a candidate set is jointly live is the join of its births, and
 // joins of observed clocks span the consistent-cut lattice). Note that
 // pairwise-concurrent allocations need not share a cut, so this can sit
 // strictly below antichain_pressure; both soundly lower-bound any
-// placement's peak. nullopt once the closure exceeds `closure_cap`; the
-// default cap policy lives on the Python side (`DEFAULT_CLOSURE_CAP`).
+// placement's peak. nullopt once the closure exceeds `closure_cap`.
 [[nodiscard]] std::optional<int64_t> closure_pressure(
-    const std::vector<Allocation>& allocations, size_t closure_cap);
+    const std::vector<Allocation>& allocations,
+    size_t closure_cap = kDefaultClosureCap);
 
 // Exact realizable peak while each allocation is live, aligned with
 // `allocations`: the maximum total size at any join-closure cut where the
@@ -32,6 +37,6 @@ namespace omnimalloc {
 // equals closure_pressure. nullopt once the closure exceeds `closure_cap`.
 [[nodiscard]] std::optional<std::vector<int64_t>>
 per_allocation_closure_pressure(const std::vector<Allocation>& allocations,
-                                size_t closure_cap);
+                                size_t closure_cap = kDefaultClosureCap);
 
 }  // namespace omnimalloc

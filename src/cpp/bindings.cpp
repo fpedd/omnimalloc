@@ -123,19 +123,21 @@ NB_MODULE(_cpp, m) {
   m.def("compute_conflict_degrees", &compute_conflict_degrees, "allocations"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("try_linearize", &try_linearize, "allocations"_a,
-        "work_budget"_a = kNoLinearizeBudget,
+        "work_budget"_a = kNoWorkBudget,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.attr("DEFAULT_WORK_BUDGET") = kDefaultWorkBudget;
+  m.attr("DEFAULT_CLOSURE_CAP") = kDefaultClosureCap;
   m.def("antichain_pressure", &antichain_pressure, "allocations"_a,
-        "work_budget"_a = kNoLinearizeBudget,
+        "work_budget"_a = kNoWorkBudget,
         nb::call_guard<nb::gil_scoped_release>());
-  m.def("closure_pressure", &closure_pressure, "allocations"_a, "closure_cap"_a,
+  m.def("closure_pressure", &closure_pressure, "allocations"_a,
+        "closure_cap"_a = kDefaultClosureCap,
         nb::call_guard<nb::gil_scoped_release>());
   m.def("per_allocation_antichain_pressure", &per_allocation_antichain_pressure,
-        "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
-        nb::rv_policy::move);
+        "allocations"_a, "work_budget"_a = kNoWorkBudget,
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("per_allocation_closure_pressure", &per_allocation_closure_pressure,
-        "allocations"_a, "closure_cap"_a,
+        "allocations"_a, "closure_cap"_a = kDefaultClosureCap,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("per_allocation_placement_pressure", &per_allocation_placement_pressure,
         "allocations"_a, "clique_cap"_a = false,

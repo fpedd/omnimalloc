@@ -9,11 +9,11 @@ import pytest
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pressure import (
-    get_antichain_pressure,
     get_closure_pressure,
     get_per_allocation_closure_pressure,
     get_per_allocation_placement_pressure,
     get_per_allocation_pressure,
+    get_placement_pressure,
     get_pressure,
 )
 
@@ -96,8 +96,8 @@ def test_pressure_total_size_overflow_raises() -> None:
         get_pressure(allocations)
 
 
-def test_antichain_pressure_empty_is_zero() -> None:
-    assert get_antichain_pressure(()) == 0
+def test_pressure_unbudgeted_empty_is_zero() -> None:
+    assert get_pressure((), work_budget=None) == 0
 
 
 def test_closure_pressure_empty_is_zero() -> None:
@@ -110,28 +110,18 @@ def test_exact_pressures_match_scalar_sweep() -> None:
         Allocation(id=2, size=50, start=2, end=6),
         Allocation(id=3, size=25, start=6, end=8),
     )
-    assert get_antichain_pressure(allocations) == 150
+    assert get_pressure(allocations, work_budget=None) == 150
     assert get_closure_pressure(allocations) == 150
 
 
-def test_antichain_pressure_linearizable_vector_is_exact() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=(0, 0), end=(2, 1)),
-        Allocation(id=2, size=50, start=(1, 0), end=(3, 2)),
-        Allocation(id=3, size=25, start=(3, 2), end=(4, 3)),
-    )
-    assert get_antichain_pressure(allocations) == 150
-
-
-def test_antichain_pressure_two_plus_two_exact() -> None:
+def test_pressure_unbudgeted_two_plus_two_exact() -> None:
     two_plus_two = (
         Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
         Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
         Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
         Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
     )
-    assert get_antichain_pressure(two_plus_two) == 16 + 64
-    assert get_pressure(two_plus_two) == 16 + 64
+    assert get_pressure(two_plus_two, work_budget=None) == 16 + 64
 
 
 def test_closure_pressure_below_antichain_without_common_cut() -> None:
@@ -140,7 +130,7 @@ def test_closure_pressure_below_antichain_without_common_cut() -> None:
         Allocation(id="j", size=1, start=(3, 0), end=(4, 1)),
         Allocation(id="k", size=1, start=(0, 3), end=(1, 4)),
     )
-    assert get_antichain_pressure(pinwheel) == 3
+    assert get_pressure(pinwheel, work_budget=None) == 3
     assert get_closure_pressure(pinwheel) == 2
 
 
@@ -159,7 +149,7 @@ def test_exact_pressures_reject_mixed_dimensions() -> None:
         Allocation(id=2, size=8, start=(0, 0, 0), end=(1, 1, 1)),
     )
     with pytest.raises(ValueError, match="dimension"):
-        get_antichain_pressure(mixed)
+        get_pressure(mixed, work_budget=None)
     with pytest.raises(ValueError, match="dimension"):
         get_closure_pressure(mixed)
 
@@ -174,7 +164,7 @@ def test_exact_pressures_match_scalar_equivalent_under_lockstep() -> None:
         Allocation(id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end))
         for a in scalar
     )
-    assert get_antichain_pressure(lockstep) == get_pressure(scalar)
+    assert get_pressure(lockstep, work_budget=None) == get_pressure(scalar)
     assert get_closure_pressure(lockstep) == get_pressure(scalar)
 
 
@@ -205,6 +195,37 @@ def test_per_allocation_pressure_two_plus_two() -> None:
     assert get_per_allocation_pressure(two_plus_two) == expected
     assert get_per_allocation_closure_pressure(two_plus_two) == expected
     assert max(expected.values()) == get_pressure(two_plus_two)
+
+
+def test_per_allocation_pressure_scalar_ignores_work_budget() -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=4),
+        Allocation(id=2, size=50, start=2, end=6),
+    )
+    assert get_per_allocation_pressure(allocations, work_budget=1) == {1: 150, 2: 150}
+
+
+def test_per_allocation_pressure_work_budget_exceeded_raises() -> None:
+    two_plus_two = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
+        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
+        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
+        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
+    )
+    with pytest.raises(RuntimeError, match="work_budget"):
+        get_per_allocation_pressure(two_plus_two, work_budget=1)
+
+
+def test_per_allocation_pressure_unbudgeted_matches_default() -> None:
+    two_plus_two = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
+        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
+        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
+        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
+    )
+    assert get_per_allocation_pressure(
+        two_plus_two, work_budget=None
+    ) == get_per_allocation_pressure(two_plus_two)
 
 
 def test_per_allocation_closure_below_pinned_without_common_cut() -> None:
@@ -256,6 +277,25 @@ def test_per_allocation_placement_pressure_requires_offsets() -> None:
     unplaced = (Allocation(id=1, size=8, start=0, end=2),)
     with pytest.raises(ValueError, match="placed"):
         get_per_allocation_placement_pressure(unplaced)
+
+
+def test_placement_pressure_empty_is_zero() -> None:
+    assert get_placement_pressure(()) == 0
+
+
+def test_placement_pressure_is_highest_occupied_address() -> None:
+    placed = (
+        Allocation(id="x", size=5, start=0, end=2, offset=0),
+        Allocation(id="y", size=50, start=1, end=3, offset=5),
+        Allocation(id="z", size=5, start=2, end=4, offset=0),
+    )
+    assert get_placement_pressure(placed) == 55
+
+
+def test_placement_pressure_requires_offsets() -> None:
+    unplaced = (Allocation(id=1, size=8, start=0, end=2),)
+    with pytest.raises(ValueError, match="placed"):
+        get_placement_pressure(unplaced)
 
 
 def test_per_allocation_placement_pressure_max_equals_peak() -> None:
@@ -322,14 +362,16 @@ def test_antichain_pressure_matches_brute_force() -> None:
     rng = Random(7)
     for _ in range(150):
         allocations = _random_instance(rng)
-        assert get_antichain_pressure(allocations) == _brute_antichain(allocations)
+        assert get_pressure(allocations, work_budget=None) == _brute_antichain(
+            allocations
+        )
 
 
 def test_closure_pressure_matches_brute_force_and_bound_order() -> None:
     rng = Random(11)
     for _ in range(150):
         allocations = _random_instance(rng)
-        antichain = get_antichain_pressure(allocations)
+        antichain = get_pressure(allocations, work_budget=None)
         closure = get_closure_pressure(allocations)
         assert closure == _brute_closure(allocations)
         assert closure <= antichain
@@ -396,7 +438,7 @@ def test_per_allocation_bound_order_and_peak_identities() -> None:
         capped = get_per_allocation_placement_pressure(placed, clique_cap=True)
         assert max(pinned.values()) == get_pressure(allocations)
         assert max(closure.values()) == get_closure_pressure(allocations)
-        assert max(placement.values()) == max(a.height for a in placed)
+        assert max(placement.values()) == get_placement_pressure(placed)
         for alloc_id in pinned:
             assert closure[alloc_id] <= pinned[alloc_id]
             assert pinned[alloc_id] <= capped[alloc_id] <= placement[alloc_id]
