@@ -29,7 +29,7 @@ constexpr int64_t kUnbounded = std::numeric_limits<int64_t>::max() / 4;
 
 // Connected components of the overlap graph: the paper's "phases". Buffers
 // in different components never interact, so each packs independently.
-std::vector<std::vector<int>> build_phases(const OverlapIndices& neighbors) {
+std::vector<std::vector<int>> build_phases(const ConflictIndices& neighbors) {
   const int n = static_cast<int>(neighbors.size());
   std::vector<std::vector<int>> phases;
   std::vector<char> visited(n, 0);
@@ -101,9 +101,10 @@ QueueKey queue_key(const Allocation& alloc, int idx, int evictions,
 // `capacity` at least the phase's max buffer size guarantees offset 0 is
 // always a repair candidate, so every iteration makes progress.
 std::optional<std::vector<int64_t>> pack_phase(
-    const std::vector<Allocation>& allocations, const OverlapIndices& neighbors,
-    const std::vector<int>& phase, int64_t capacity, int max_backtracks,
-    const Deadline& deadline, bool size_major, uint64_t seed) {
+    const std::vector<Allocation>& allocations,
+    const ConflictIndices& neighbors, const std::vector<int>& phase,
+    int64_t capacity, int max_backtracks, const Deadline& deadline,
+    bool size_major, uint64_t seed) {
   std::vector<int64_t> offsets(allocations.size(), -1);
   std::vector<int> evictions(allocations.size(), 0);
   std::mt19937_64 rng(seed);
@@ -245,9 +246,10 @@ int64_t phase_peak(const std::vector<Allocation>& allocations,
 // treated as infeasible even though they are only budget-exhausted, keeping
 // the search anytime rather than exact.
 void solve_phase(const std::vector<Allocation>& allocations,
-                 const OverlapIndices& neighbors, const std::vector<int>& phase,
-                 int64_t lower_bound, const TelamallocConfig& config,
-                 const Deadline& deadline, std::vector<int64_t>& result) {
+                 const ConflictIndices& neighbors,
+                 const std::vector<int>& phase, int64_t lower_bound,
+                 const TelamallocConfig& config, const Deadline& deadline,
+                 std::vector<int64_t>& result) {
   // Unbounded capacity never conflicts, so these incumbents are plain
   // first-fit in each tiered order and cannot fail. The winner's order also
   // steers the capacity search below.
@@ -287,23 +289,21 @@ void solve_phase(const std::vector<Allocation>& allocations,
 
 }  // namespace
 
-TelamallocAllocator::TelamallocAllocator(TelamallocConfig config)
-    : config_(config) {}
-
-std::vector<Allocation> TelamallocAllocator::allocate(
-    const std::vector<Allocation>& allocations) const {
+std::vector<Allocation> telamalloc_place(
+    const std::vector<Allocation>& allocations,
+    const TelamallocConfig& config) {
   // The event sweeps and load bounds need a linear timeline; reject vector
   // clocks here.
-  require_scalar_time(allocations, "TelamallocAllocator");
+  require_scalar_time(allocations, "telamalloc_place");
   // Bound by kUnbounded so the unbounded-capacity pack_phase incumbents in
   // solve_phase can never fail and the cursor arithmetic cannot overflow.
   check_total_size(allocations, kUnbounded);
-  const OverlapIndices neighbors = compute_overlap_indices(allocations);
+  const ConflictIndices neighbors = compute_conflict_indices(allocations);
   if (allocations.size() < 2) {
     return first_fit_place_indexed(allocations, neighbors);
   }
 
-  const Deadline deadline = make_deadline(config_.timeout);
+  const Deadline deadline = make_deadline(config.timeout);
   const auto phases = build_phases(neighbors);
 
   // Solve phases in descending load order: the global peak is the max over
@@ -319,7 +319,7 @@ std::vector<Allocation> TelamallocAllocator::allocate(
 
   std::vector<int64_t> result(allocations.size(), -1);
   for (const auto& [lower_bound, p] : order) {
-    solve_phase(allocations, neighbors, phases[p], lower_bound, config_,
+    solve_phase(allocations, neighbors, phases[p], lower_bound, config,
                 deadline, result);
   }
 

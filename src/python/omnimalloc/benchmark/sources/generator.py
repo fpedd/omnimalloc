@@ -5,7 +5,7 @@
 import random
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
-from omnimalloc.primitives import Allocation, BufferKind
+from omnimalloc.primitives import Allocation, AllocationKind
 
 from .base import BaseSource
 
@@ -22,7 +22,7 @@ class RandomSource(BaseSource):
         time_max: int = 10000,
         duration_min: int = 1,
         duration_max: int = 500,
-        kinds: tuple[BufferKind, ...] | None = None,
+        kinds: tuple[AllocationKind, ...] | None = None,
         kind_weights: tuple[float, ...] | None = None,
         seed: int | None = DEFAULT_SEED,
     ) -> None:

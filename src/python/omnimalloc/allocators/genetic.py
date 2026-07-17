@@ -13,6 +13,7 @@ from omnimalloc.common.deadline import (
     make_deadline,
 )
 from omnimalloc.common.optional import require_optional
+from omnimalloc.common.validation import ensure_non_negative, ensure_positive
 from omnimalloc.primitives import Allocation
 
 from .greedy import GreedyAllocator
@@ -38,14 +39,15 @@ class GeneticAllocator(GreedyAllocator):
     """Genetic algorithm allocator that evolves greedy placement orders.
 
     `timeout` (default 3s) bounds wall-clock time between generations,
-    independent of `num_generations`; set it to None to disable the deadline.
+    independent of `max_generations`; set it to None to disable the deadline.
     """
 
     def __init__(
         self,
+        *,
         seed: int = DEFAULT_SEED,
         population_size: int = 100,
-        num_generations: int = 50,
+        max_generations: int = 50,
         crossover_prob: float = 0.7,
         mutation_prob: float = 0.2,
         tournament_size: int = 3,
@@ -53,28 +55,23 @@ class GeneticAllocator(GreedyAllocator):
     ) -> None:
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
-        if population_size <= 0:
-            raise ValueError(f"population_size must be positive, got {population_size}")
-        if num_generations < 0:
-            raise ValueError(
-                f"num_generations must be non-negative, got {num_generations}"
-            )
+        ensure_positive(population_size, "population_size")
+        ensure_non_negative(max_generations, "max_generations")
         if not 0.0 <= crossover_prob <= 1.0 or not 0.0 <= mutation_prob <= 1.0:
             raise ValueError(
                 f"crossover_prob and mutation_prob must be in [0, 1], "
                 f"got {crossover_prob} and {mutation_prob}"
             )
-        if tournament_size <= 0:
-            raise ValueError(f"tournament_size must be positive, got {tournament_size}")
+        ensure_positive(tournament_size, "tournament_size")
         ensure_valid_timeout(timeout)
 
-        self.seed = seed
-        self.population_size = population_size
-        self.num_generations = num_generations
-        self.crossover_prob = crossover_prob
-        self.mutation_prob = mutation_prob
-        self.tournament_size = tournament_size
-        self.timeout = timeout
+        self._seed = seed
+        self._population_size = population_size
+        self._max_generations = max_generations
+        self._crossover_prob = crossover_prob
+        self._mutation_prob = mutation_prob
+        self._tournament_size = tournament_size
+        self._timeout = timeout
 
         # Setup DEAP creators (only once per process, they live in a global namespace)
         if not hasattr(creator, "FitnessMin"):
@@ -87,7 +84,7 @@ class GeneticAllocator(GreedyAllocator):
         self, permutation: list[int], placer: FirstFitPlacer
     ) -> tuple[float]:
         """Evaluate a permutation by computing its greedy peak memory usage."""
-        return (float(placer.evaluate(permutation)),)
+        return (float(placer.peak(permutation)),)
 
     def _heuristic_permutations(
         self, allocations: tuple[Allocation, ...]
@@ -105,7 +102,7 @@ class GeneticAllocator(GreedyAllocator):
         permutations = [
             [positions[alloc.id] for alloc in order(allocations)] for order in orders
         ]
-        return permutations[: self.population_size]
+        return permutations[: self._population_size]
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         """Evolve permutations using a genetic algorithm to find best allocation."""
@@ -115,14 +112,14 @@ class GeneticAllocator(GreedyAllocator):
         # DEAP operators draw from the global random module; seed it for
         # determinism but restore the caller's stream afterwards.
         random_state = random.getstate()
-        random.seed(self.seed)
+        random.seed(self._seed)
         try:
             return self._evolve(allocations)
         finally:
             random.setstate(random_state)
 
     def _evolve(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        placer = FirstFitPlacer(list(allocations))
+        placer = FirstFitPlacer(allocations)
         toolbox = base.Toolbox()
         n = len(allocations)
         toolbox.register("indices", random.sample, range(n), n)
@@ -137,7 +134,7 @@ class GeneticAllocator(GreedyAllocator):
         toolbox.register("mate", tools.cxOrdered)
         toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
         # TODO(fpedd): Try larger tournsize and selNSGA2
-        toolbox.register("select", tools.selTournament, tournsize=self.tournament_size)
+        toolbox.register("select", tools.selTournament, tournsize=self._tournament_size)
 
         # Seed the population with heuristic orders, fill up with random ones
         # Individual and individual() are dynamically created by DEAP
@@ -147,7 +144,7 @@ class GeneticAllocator(GreedyAllocator):
         ]
         population += [
             toolbox.individual()  # type: ignore[possibly-missing-attribute]
-            for _ in range(self.population_size - len(population))
+            for _ in range(self._population_size - len(population))
         ]
 
         hall_of_fame = tools.HallOfFame(maxsize=1)
@@ -160,15 +157,15 @@ class GeneticAllocator(GreedyAllocator):
         # DEAP's eaSimple, unrolled so a wall-clock deadline can stop between
         # generations; varAnd keeps the RNG stream identical to eaSimple.
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        deadline = make_deadline(self.timeout)
+        deadline = make_deadline(self._timeout)
         evaluate_invalid(population)
         hall_of_fame.update(population)
-        for _ in range(self.num_generations):
+        for _ in range(self._max_generations):
             if deadline_expired(deadline):
                 break
             offspring = toolbox.select(population, len(population))  # type: ignore[unresolved-attribute]
             offspring = algorithms.varAnd(
-                offspring, toolbox, self.crossover_prob, self.mutation_prob
+                offspring, toolbox, self._crossover_prob, self._mutation_prob
             )
             evaluate_invalid(offspring)
             hall_of_fame.update(offspring)

@@ -16,35 +16,36 @@
 
 namespace omnimalloc {
 
-// Temporal overlap adjacency: allocation id -> ids of overlapping allocations
-using TemporalOverlaps =
+// Conflict adjacency: allocation id -> ids of conflicting allocations.
+// Total: every allocation is a key, conflict-free ones map to an empty set.
+using ConflictMap =
     std::unordered_map<IdType, std::unordered_set<IdType, IdTypeHash>,
                        IdTypeHash>;
 
-// Index-based temporal adjacency: position i -> positions overlapping i
-using OverlapIndices = std::vector<std::vector<size_t>>;
+// Index-based conflict adjacency: position i -> positions conflicting with i
+using ConflictIndices = std::vector<std::vector<size_t>>;
 
-// Map each allocation id to the ids of temporally overlapping allocations.
-// A set `work_budget` bounds the pairwise sweep (quadratic in the worst
-// case), giving up (nullopt) instead of stalling the caller.
-[[nodiscard]] std::optional<TemporalOverlaps> compute_temporal_overlaps(
-    const std::vector<Allocation>& allocations,
-    std::optional<uint64_t> work_budget);
+// Map each allocation id to the ids of conflicting allocations (the
+// happens-before conflict relation every placement packs against). A set
+// `work_budget` bounds the pairwise sweep (quadratic in the worst case),
+// throwing std::runtime_error instead of stalling the caller.
+[[nodiscard]] ConflictMap conflicts(const std::vector<Allocation>& allocations,
+                                    std::optional<uint64_t> work_budget);
 
-// Map each allocation index to the indices of temporally overlapping
-// allocations
-[[nodiscard]] OverlapIndices compute_overlap_indices(
+// Map each allocation index to the indices of conflicting allocations
+[[nodiscard]] ConflictIndices compute_conflict_indices(
     const std::vector<Allocation>& allocations);
 
-// Id-keyed overlap map from an index adjacency
-[[nodiscard]] TemporalOverlaps overlaps_from_indices(
-    const std::vector<Allocation>& allocations, const OverlapIndices& indices);
+// Total id-keyed conflict map from an index adjacency
+[[nodiscard]] ConflictMap conflict_map_from_indices(
+    const std::vector<Allocation>& allocations, const ConflictIndices& indices);
 
-// Per-allocation count of temporally overlapping allocations, aligned with
+// Per-allocation count of conflicting allocations, aligned with
 // `allocations`. Counts with multiplicity, so duplicate ids stay distinct.
-// A set `work_budget` bounds the pairwise sweep (quadratic in the worst
-// case), giving up (nullopt) instead of stalling the caller.
-[[nodiscard]] std::optional<std::vector<int64_t>> compute_conflict_degrees(
+// Scalar timelines count in O(N log N) without enumerating pairs; on vector
+// clocks a set `work_budget` bounds the pairwise sweep (quadratic in the
+// worst case), throwing std::runtime_error instead of stalling the caller.
+[[nodiscard]] std::vector<int64_t> conflict_degrees(
     const std::vector<Allocation>& allocations,
     std::optional<uint64_t> work_budget);
 

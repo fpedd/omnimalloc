@@ -43,7 +43,5 @@ class BenchmarkResult:
     def num_allocations(self) -> int:
         return len(self.entity.allocations)
 
-    def visualize(
-        self, file_path: Path | str | None = None, show_inline: bool = False
-    ) -> None:
-        plot_allocation(self.entity, file_path=file_path, show_inline=show_inline)
+    def visualize(self, path: Path | str | None = None) -> None:
+        plot_allocation(self.entity, path)

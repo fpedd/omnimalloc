@@ -45,7 +45,7 @@ def _write_metadata(base_dir: Path, campaign: BenchmarkCampaign) -> None:
 
 def _write_campaign_visualization(base_dir: Path, campaign: BenchmarkCampaign) -> None:
     campaign_viz_file = base_dir / "campaign_overview.pdf"
-    plot_benchmark(campaign, file_path=campaign_viz_file, show_inline=False)
+    plot_benchmark(campaign, campaign_viz_file)
 
 
 def _create_zip_archive(output_path: Path, base_dir: Path, final_path: Path) -> None:
@@ -69,7 +69,7 @@ def _write_iterations(
 
     for i, result in enumerate(report.results):
         iteration_file = iterations_dir / f"iteration_{i}.pdf"
-        result.visualize(file_path=iteration_file, show_inline=False)
+        result.visualize(iteration_file)
         pbar.update(1)
 
 

@@ -2,9 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.random import RandomAllocator
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc.analysis import placement_pressure, pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -40,7 +39,7 @@ def test_random_zero_trials_falls_back_to_insertion_order_greedy() -> None:
 def test_random_produces_valid_allocation() -> None:
     allocs = _allocs(20)
     result = RandomAllocator(num_trials=20).allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
+    validate_allocation(Pool(id="test_pool", allocations=result))
     assert {a.id for a in result} == {a.id for a in allocs}
 
 
@@ -63,11 +62,11 @@ def test_random_more_trials_never_worse_for_same_seed() -> None:
     allocs = _allocs(30)
     few = RandomAllocator(num_trials=5, seed=3).allocate(allocs)
     many = RandomAllocator(num_trials=50, seed=3).allocate(allocs)
-    assert peak_memory(many) <= peak_memory(few)
+    assert placement_pressure(many) <= placement_pressure(few)
 
 
 def test_random_peak_within_problem_bounds() -> None:
     allocs = _allocs(30)
     result = RandomAllocator(num_trials=30, seed=1).allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
-    assert get_pressure(allocs) <= peak_memory(result) <= sum(a.size for a in allocs)
+    validate_allocation(Pool(id="test_pool", allocations=result))
+    assert pressure(allocs) <= placement_pressure(result) <= sum(a.size for a in allocs)

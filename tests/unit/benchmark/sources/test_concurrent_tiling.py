@@ -3,8 +3,8 @@
 #
 
 import pytest
-from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc import allocate, validate_allocation
+from omnimalloc.analysis import pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.primitives import Allocation
@@ -17,8 +17,8 @@ def _signatures(
 
 
 def test_concurrent_tiling_is_registered() -> None:
-    assert "concurrent_tiling_source" in BaseSource.registry()
-    assert BaseSource.get("concurrent_tiling_source") is ConcurrentTilingSource
+    assert "concurrent_tiling" in BaseSource.registry()
+    assert BaseSource.get("concurrent_tiling") is ConcurrentTilingSource
 
 
 def test_concurrent_tiling_produces_requested_count_and_dim() -> None:
@@ -64,7 +64,7 @@ def test_concurrent_tiling_pressure_bounded_by_capacity(num_syncs: int) -> None:
         num_allocations=64, num_threads=4, num_syncs=num_syncs, capacity=capacity
     )
     allocations = source.get_allocations()
-    assert max(a.size for a in allocations) <= get_pressure(allocations) <= capacity
+    assert max(a.size for a in allocations) <= pressure(allocations) <= capacity
 
 
 def test_concurrent_tiling_ground_truth_is_valid_and_optimal() -> None:
@@ -143,5 +143,5 @@ def test_concurrent_tiling_no_allocator_beats_the_optimum() -> None:
         num_allocations=96, num_threads=4, num_syncs=64, capacity=capacity
     )
     pool = source.get_pool()
-    allocated = run_allocation(pool, "greedy_by_size_allocator_cpp", validate=True)
+    allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity

@@ -27,30 +27,20 @@ int64_t find_best_fit_offset(
     cursor = std::max(cursor, end);
   }
 
-  // No finite gap fit: place after the last overlapping allocation
+  // No finite gap fit: place after the last conflicting allocation
   return best_gap < 0 ? cursor : best_offset;
 }
 
 }  // namespace
 
-std::vector<Allocation> BestFitAllocator::allocate(
-    const std::vector<Allocation>& allocations) const {
+std::vector<Allocation> best_fit_place(
+    const std::vector<Allocation>& allocations) {
   // Lambda rather than the function pointer so the placement loop inlines
   // the offset scan instead of an indirect call per allocation
-  return place_indexed(allocations, compute_overlap_indices(allocations),
+  return place_indexed(allocations, compute_conflict_indices(allocations),
                        [](int64_t size, const auto& spans) {
                          return find_best_fit_offset(size, spans);
                        });
 }
 
 }  // namespace omnimalloc
-
-namespace std {
-
-size_t hash<omnimalloc::BestFitAllocator>::operator()(
-    const omnimalloc::BestFitAllocator&) const noexcept {
-  // Stateless class - all instances are equal, use constant hash
-  return 0x517cc1b7;  // arbitrary constant
-}
-
-}  // namespace std

@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from omnimalloc.common.constants import DEFAULT_TIMEOUT, TB
 from omnimalloc.common.deadline import ensure_valid_timeout
-from omnimalloc.common.optional import OptionalDependencyError
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -29,7 +29,7 @@ def _require_minimalloc() -> None:
         import minimalloc  # type: ignore
     except ImportError:
         # TODO(fpedd): Make minimalloc more easily installable via PyPI
-        raise OptionalDependencyError(
+        raise ImportError(
             "The MinimallocAllocator feature requires 'minimalloc' which is not "
             "installed.\nInstall manually: pip install git+https://github.com/google/minimalloc.git"
         ) from None
@@ -51,18 +51,17 @@ class MinimallocAllocator(BaseAllocator):
     supports_vector_time = False
 
     def __init__(
-        self, timeout: float | None = DEFAULT_TIMEOUT, max_capacity: int = 1 * TB
+        self, *, timeout: float | None = DEFAULT_TIMEOUT, capacity: int = 1 * TB
     ) -> None:
         _require_minimalloc()
         ensure_valid_timeout(timeout)
-        if max_capacity <= 0:
-            raise ValueError(f"max_capacity must be positive, got {max_capacity}")
+        ensure_positive(capacity, "capacity")
         self._timeout = timeout
-        self._max_capacity = max_capacity
+        self._capacity = capacity
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         problem = mm.Problem(buffers=[_to_buffer(a) for a in allocations])
-        problem.capacity = self._max_capacity
+        problem.capacity = self._capacity
 
         params = mm.SolverParams()
         # minimalloc's own default timeout is infinite, matching None here;

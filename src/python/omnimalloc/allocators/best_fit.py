@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc._cpp import BestFitAllocatorCpp as _BestFitAllocatorCpp
+from omnimalloc._cpp import best_fit_place
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -20,4 +20,4 @@ class BestFitAllocator(BaseAllocator):
     supports_vector_time = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return tuple(_BestFitAllocatorCpp().allocate(list(allocations)))
+        return tuple(best_fit_place(allocations))

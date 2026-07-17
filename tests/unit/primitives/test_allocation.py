@@ -5,7 +5,7 @@
 import pickle
 
 import pytest
-from omnimalloc.primitives import Allocation, BufferKind
+from omnimalloc.primitives import Allocation, AllocationKind
 
 
 def test_basic_creation_with_int_id_simple() -> None:
@@ -53,9 +53,9 @@ def test_creation_with_kind() -> None:
         size=100,
         start=0,
         end=10,
-        kind=BufferKind.WORKSPACE,
+        kind=AllocationKind.WORKSPACE,
     )
-    assert alloc.kind == BufferKind.WORKSPACE
+    assert alloc.kind == AllocationKind.WORKSPACE
 
 
 def test_negative_start() -> None:
@@ -154,52 +154,52 @@ def test_area_different_values() -> None:
     assert alloc.area == 256 * 15
 
 
-def test_overlaps_temporally_partial_overlap() -> None:
-    """Test temporal overlap with partial overlap."""
+def test_conflicts_with_partial_overlap() -> None:
+    """Test conflict with partially overlapping lifetimes."""
     alloc1 = Allocation(id=101, size=100, start=0, end=10)
     alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.overlaps_temporally(alloc2)
-    assert alloc2.overlaps_temporally(alloc1)
+    assert alloc1.conflicts_with(alloc2)
+    assert alloc2.conflicts_with(alloc1)
 
 
-def test_overlaps_temporally_complete_overlap() -> None:
-    """Test temporal overlap when one contains the other."""
+def test_conflicts_with_contained_lifetime() -> None:
+    """Test conflict when one lifetime contains the other."""
     alloc1 = Allocation(id=101, size=100, start=0, end=20)
     alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.overlaps_temporally(alloc2)
-    assert alloc2.overlaps_temporally(alloc1)
+    assert alloc1.conflicts_with(alloc2)
+    assert alloc2.conflicts_with(alloc1)
 
 
-def test_overlaps_temporally_exact_match() -> None:
-    """Test temporal overlap with exact same time range."""
+def test_conflicts_with_exact_match() -> None:
+    """Test conflict with exact same time range."""
     alloc1 = Allocation(id=101, size=100, start=5, end=15)
     alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.overlaps_temporally(alloc2)
-    assert alloc2.overlaps_temporally(alloc1)
+    assert alloc1.conflicts_with(alloc2)
+    assert alloc2.conflicts_with(alloc1)
 
 
-def test_no_temporal_overlap_adjacent() -> None:
-    """Test no temporal overlap when adjacent."""
+def test_no_conflict_when_adjacent() -> None:
+    """Test no conflict when lifetimes are adjacent."""
     alloc1 = Allocation(id=101, size=100, start=0, end=10)
     alloc2 = Allocation(id=102, size=100, start=10, end=20)
-    assert not alloc1.overlaps_temporally(alloc2)
-    assert not alloc2.overlaps_temporally(alloc1)
+    assert not alloc1.conflicts_with(alloc2)
+    assert not alloc2.conflicts_with(alloc1)
 
 
-def test_no_temporal_overlap_separated() -> None:
-    """Test no temporal overlap when separated."""
+def test_no_conflict_when_separated() -> None:
+    """Test no conflict when lifetimes are separated."""
     alloc1 = Allocation(id=101, size=100, start=0, end=5)
     alloc2 = Allocation(id=102, size=100, start=10, end=15)
-    assert not alloc1.overlaps_temporally(alloc2)
-    assert not alloc2.overlaps_temporally(alloc1)
+    assert not alloc1.conflicts_with(alloc2)
+    assert not alloc2.conflicts_with(alloc1)
 
 
-def test_temporal_overlap_single_timestep() -> None:
-    """Test temporal overlap with single timestep overlap."""
+def test_conflicts_with_single_timestep() -> None:
+    """Test conflict with a single shared timestep."""
     alloc1 = Allocation(id=101, size=100, start=0, end=10)
     alloc2 = Allocation(id=102, size=100, start=9, end=20)
-    assert alloc1.overlaps_temporally(alloc2)
-    assert alloc2.overlaps_temporally(alloc1)
+    assert alloc1.conflicts_with(alloc2)
+    assert alloc2.conflicts_with(alloc1)
 
 
 def test_overlaps_spatially_partial_overlap() -> None:
@@ -355,10 +355,10 @@ def test_with_offset_preserves_kind() -> None:
         size=100,
         start=0,
         end=10,
-        kind=BufferKind.CONSTANT,
+        kind=AllocationKind.CONSTANT,
     )
     new_alloc = alloc.with_offset(50)
-    assert new_alloc.kind == BufferKind.CONSTANT
+    assert new_alloc.kind == AllocationKind.CONSTANT
 
 
 def test_with_offset_immutability() -> None:
@@ -408,7 +408,9 @@ def test_large_values() -> None:
 def test_pickle_roundtrip() -> None:
     """Test that pickling preserves all fields, equality, and hash."""
     allocs = (
-        Allocation(id="x", size=10, start=0, end=5, offset=3, kind=BufferKind.INPUT),
+        Allocation(
+            id="x", size=10, start=0, end=5, offset=3, kind=AllocationKind.INPUT
+        ),
         Allocation(id=7, size=10, start=0, end=5),
     )
     for alloc in allocs:

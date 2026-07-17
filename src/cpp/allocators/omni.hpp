@@ -12,35 +12,14 @@
 
 namespace omnimalloc {
 
-// Generalized greedy-portfolio allocator for scalar and vector-clock
+// Generalized greedy-portfolio placement for scalar and vector-clock
 // lifetimes: linearizes vector time to surrogate scalars when the
 // happens-before order allows (bounded by `linearize_budget`; nullopt means
 // unbounded), otherwise places truthfully on the vector conflict graph.
 // Either way the winning first-fit order of the 7-order portfolio decides
 // the offsets.
-class OmniAllocator {
- public:
-  explicit OmniAllocator(std::optional<uint64_t> linearize_budget)
-      : linearize_budget_(linearize_budget) {}
-
-  std::vector<Allocation> allocate(
-      const std::vector<Allocation>& allocations) const;
-
-  [[nodiscard]] std::optional<uint64_t> linearize_budget() const noexcept {
-    return linearize_budget_;
-  }
-
-  bool operator==(const OmniAllocator&) const noexcept = default;
-
- private:
-  std::optional<uint64_t> linearize_budget_;
-};
+[[nodiscard]] std::vector<Allocation> omni_place(
+    const std::vector<Allocation>& allocations,
+    std::optional<uint64_t> linearize_budget);
 
 }  // namespace omnimalloc
-
-namespace std {
-template <>
-struct hash<omnimalloc::OmniAllocator> {
-  size_t operator()(const omnimalloc::OmniAllocator&) const noexcept;
-};
-}  // namespace std

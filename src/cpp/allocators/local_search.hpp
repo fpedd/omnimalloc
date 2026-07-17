@@ -28,19 +28,18 @@ namespace omnimalloc {
 [[nodiscard]] std::vector<size_t> initial_order(
     const std::vector<Allocation>& allocations);
 
-// Positions before `target_pos` in `order` whose allocation temporally
-// overlaps the one at `target_pos`, or every earlier position if none do.
+// Positions before `target_pos` in `order` whose allocation conflicts with
+// the one at `target_pos`, or every earlier position if none do.
 [[nodiscard]] std::vector<size_t> earlier_neighbors(
     const std::vector<size_t>& order, size_t target_pos,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps);
+    const std::vector<Allocation>& allocations, const ConflictMap& conflicts);
 
 // One random peak-lowering move for the local searches: a random position
 // among `peaks` paired with a random earlier temporal neighbor, or nullopt
 // when the chosen target has no earlier position to swap with.
 [[nodiscard]] std::optional<std::pair<size_t, size_t>> propose_peak_swap(
     const std::vector<size_t>& peaks, const std::vector<size_t>& order,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps, std::mt19937_64& rng);
+    const std::vector<Allocation>& allocations, const ConflictMap& conflicts,
+    std::mt19937_64& rng);
 
 }  // namespace omnimalloc

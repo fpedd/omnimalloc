@@ -10,7 +10,7 @@ the two axes both hold fixed:
 - dimension sweep: wall time and packing quality versus the clock dimension
   (source ``num_threads``) at a fixed problem size, one series per sync
   pattern. Quality is peak over the budgeted exact lower bound
-  (``get_pressure``); instances whose bound exceeds the work budget are
+  (``pressure``); instances whose bound exceeds the work budget are
   reported without a ratio rather than stalling the sweep.
 - caller sweep: aggregate throughput versus concurrent Python callers on one
   fixed instance. The bindings release the GIL and the C++ portfolio spawns
@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 from omnimalloc.allocators import OmniAllocator
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc.analysis import pressure
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
 
@@ -80,7 +80,7 @@ def _bounded_ratio(
 ) -> float:
     """Peak over the budgeted exact bound; NaN when the budget is exceeded."""
     try:
-        return peak / get_pressure(allocations, work_budget=work_budget)
+        return peak / pressure(allocations, work_budget=work_budget)
     except RuntimeError:
         return nan
 

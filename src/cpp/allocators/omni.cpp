@@ -5,15 +5,14 @@
 #include "omni.hpp"
 
 #include <algorithm>
-#include <optional>
 
 #include "analysis/linearize.hpp"
 #include "first_fit.hpp"
 
 namespace omnimalloc {
 
-std::vector<Allocation> OmniAllocator::allocate(
-    const std::vector<Allocation>& allocations) const {
+std::vector<Allocation> omni_place(const std::vector<Allocation>& allocations,
+                                   std::optional<uint64_t> linearize_budget) {
   if (allocations.empty()) {
     return {};
   }
@@ -28,7 +27,7 @@ std::vector<Allocation> OmniAllocator::allocate(
       std::ranges::all_of(allocations, &Allocation::is_scalar_time);
   std::optional<std::vector<Allocation>> surrogates;
   if (!all_scalar) {
-    surrogates = try_linearize(allocations, linearize_budget_);
+    surrogates = try_linearize(allocations, linearize_budget);
   }
   const std::vector<Allocation>& problem =
       surrogates.has_value() ? *surrogates : allocations;
@@ -45,12 +44,3 @@ std::vector<Allocation> OmniAllocator::allocate(
 }
 
 }  // namespace omnimalloc
-
-namespace std {
-
-size_t hash<omnimalloc::OmniAllocator>::operator()(
-    const omnimalloc::OmniAllocator& allocator) const noexcept {
-  return hash<std::optional<uint64_t>>{}(allocator.linearize_budget());
-}
-
-}  // namespace std

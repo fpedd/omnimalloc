@@ -3,35 +3,34 @@
 #
 """Benchmark exact pressure lower bounds on vector-clock workloads.
 
-Compares the shipping ``get_pressure`` (linearize then sweep, else the exact
+Compares the shipping ``pressure`` (linearize then sweep, else the exact
 antichain, under the default work budget) against the two exact C++ methods:
 
-- ``get_pressure(work_budget=None)``: unbudgeted max-weight antichain
+- ``pressure(work_budget=None)``: unbudgeted max-weight antichain
   (weighted Dilworth via min flow), the tightest sound lower bound on any
   placement's peak and the reference every ratio is measured against
-- ``get_closure_pressure``: realizable peak via join-closure enumeration;
+- ``closure_pressure``: realizable peak via join-closure enumeration;
   instances whose closure exceeds ``--closure-cap`` are reported as capped
-  and excluded from the means. Instances where ``get_pressure`` exceeds its
+  and excluded from the means. Instances where ``pressure`` exceeds its
   default work budget are reported the same way
 
 and their per-allocation counterparts (dashed in the figures; ratios are
 means over the per-allocation pinned antichain):
 
-- ``get_per_allocation_pressure``: pinned antichain per distinct lifetime
-- ``get_per_allocation_closure_pressure``: realizable peak per allocation
-- ``get_per_allocation_placement_pressure``: placement-certified bound read
-  off an untimed ``OmniAllocator`` placement, plain and ``clique_cap`` forms
+- ``pressure_per_allocation``: pinned antichain per distinct lifetime
+- ``closure_pressure_per_allocation``: realizable peak per allocation
+- ``placement_pressure_per_allocation``: placement-certified bound read
+  off an untimed ``OmniAllocator`` placement
 
 Each sample also places the workload with ``OmniAllocator`` and reports its
 peak over the antichain bound, so a ratio of 1.000 certifies the placement
-optimal. Every sample cross-checks the bound order — globally ``get_pressure``
+optimal. Every sample cross-checks the bound order — globally ``pressure``
 equal to the antichain, closure at or below it, omni peak at or above it,
 antichain at or below the tiling optimum; per allocation closure <= pinned
-antichain <= clique-capped <= plain placement, with each per-allocation max
-matching its global counterpart and the plain placement max matching the
-placement's peak — so the sweep doubles as a torture pass for the exact
-primitives. Any method whose single run exceeds ``--budget`` seconds is
-dropped for the rest of the sweep.
+antichain <= placement, with each per-allocation max matching its global
+counterpart and the placement max matching the placement's peak — so the
+sweep doubles as a torture pass for the exact primitives. Any method whose
+single run exceeds ``--budget`` seconds is dropped for the rest of the sweep.
 
     uv run python scripts/benchmark_pressure.py --out benchmark_results_pressure
 """
@@ -47,12 +46,12 @@ from typing import TYPE_CHECKING, Any
 import matplotlib.pyplot as plt
 from omnimalloc import OmniAllocator
 from omnimalloc.analysis import (
-    get_closure_pressure,
-    get_per_allocation_closure_pressure,
-    get_per_allocation_placement_pressure,
-    get_per_allocation_pressure,
-    get_placement_pressure,
-    get_pressure,
+    closure_pressure,
+    closure_pressure_per_allocation,
+    placement_pressure,
+    placement_pressure_per_allocation,
+    pressure,
+    pressure_per_allocation,
 )
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
@@ -70,17 +69,16 @@ if TYPE_CHECKING:
 
 SIZES = (100, 300, 1_000, 3_000, 10_000)
 NUM_SYNCS = (0, 64, 1_024)
-REFERENCE = "get_pressure(work_budget=None)"
-PER_ALLOCATION_REFERENCE = "get_per_allocation_pressure"
+REFERENCE = "pressure(work_budget=None)"
+PER_ALLOCATION_REFERENCE = "pressure_per_allocation"
 METHODS = (
-    "get_pressure",
+    "pressure",
     REFERENCE,
-    "get_closure_pressure",
-    "omni_allocator",
+    "closure_pressure",
+    "omni",
     PER_ALLOCATION_REFERENCE,
-    "get_per_allocation_closure_pressure",
-    "get_per_allocation_placement_pressure",
-    "placement_clique_cap",
+    "closure_pressure_per_allocation",
+    "placement_pressure_per_allocation",
 )
 DEFAULT_CLOSURE_CAP = 1 << 16
 
@@ -91,21 +89,19 @@ INK_MUTED = "#898781"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
 COLORS = {
-    "get_pressure": "#2a78d6",
+    "pressure": "#2a78d6",
     REFERENCE: "#1baf7a",
-    "get_closure_pressure": "#eda100",
-    "omni_allocator": "#4a3aa7",
-    "get_per_allocation_pressure": "#1baf7a",
-    "get_per_allocation_closure_pressure": "#eda100",
-    "get_per_allocation_placement_pressure": "#4a3aa7",
-    "placement_clique_cap": "#4a3aa7",
+    "closure_pressure": "#eda100",
+    "omni": "#4a3aa7",
+    "pressure_per_allocation": "#1baf7a",
+    "closure_pressure_per_allocation": "#eda100",
+    "placement_pressure_per_allocation": "#4a3aa7",
 }
 # Per-allocation variants share their global counterpart's color, dashed
 LINESTYLES = {
-    "get_per_allocation_pressure": "--",
-    "get_per_allocation_closure_pressure": "--",
-    "get_per_allocation_placement_pressure": "--",
-    "placement_clique_cap": ":",
+    "pressure_per_allocation": "--",
+    "closure_pressure_per_allocation": "--",
+    "placement_pressure_per_allocation": "--",
 }
 
 Sample = dict[str, Any]
@@ -122,9 +118,9 @@ def _capped(
 
 
 def _budgeted(allocations: tuple[Allocation, ...]) -> Value:
-    """None instead of raising when get_pressure exceeds its work budget."""
+    """None instead of raising when pressure exceeds its work budget."""
     try:
-        return get_pressure(allocations)
+        return pressure(allocations)
     except RuntimeError:
         return None
 
@@ -136,23 +132,18 @@ def _sample_runners(
     args: argparse.Namespace,
 ) -> dict[str, Runner]:
     return {
-        "get_pressure": lambda: _budgeted(allocations),
-        REFERENCE: lambda: get_pressure(allocations, work_budget=None),
-        "get_closure_pressure": lambda: _capped(
-            get_closure_pressure, allocations, args.closure_cap
+        "pressure": lambda: _budgeted(allocations),
+        REFERENCE: lambda: pressure(allocations, work_budget=None),
+        "closure_pressure": lambda: _capped(
+            closure_pressure, allocations, args.closure_cap
         ),
-        "omni_allocator": lambda: get_placement_pressure(
-            allocator.allocate(allocations)
+        "omni": lambda: placement_pressure(allocator.allocate(allocations)),
+        PER_ALLOCATION_REFERENCE: lambda: pressure_per_allocation(allocations),
+        "closure_pressure_per_allocation": lambda: _capped(
+            closure_pressure_per_allocation, allocations, args.closure_cap
         ),
-        PER_ALLOCATION_REFERENCE: lambda: get_per_allocation_pressure(allocations),
-        "get_per_allocation_closure_pressure": lambda: _capped(
-            get_per_allocation_closure_pressure, allocations, args.closure_cap
-        ),
-        "get_per_allocation_placement_pressure": lambda: (
-            get_per_allocation_placement_pressure(placed)
-        ),
-        "placement_clique_cap": lambda: (
-            get_per_allocation_placement_pressure(placed, clique_cap=True)
+        "placement_pressure_per_allocation": lambda: (
+            placement_pressure_per_allocation(placed)
         ),
     }
 
@@ -205,9 +196,9 @@ def _finish_sample(
     reference = values.get(REFERENCE)
     if not reference:
         return sample
-    assert values.get("get_pressure", reference) == reference
-    assert values.get("get_closure_pressure", 0) <= reference
-    assert values.get("omni_allocator", reference) >= reference
+    assert values.get("pressure", reference) == reference
+    assert values.get("closure_pressure", 0) <= reference
+    assert values.get("omni", reference) >= reference
     assert optimum is None or reference <= optimum
     _check_per_allocation(values, reference, placed)
     sample["ratios"] = _ratios(values, reference)
@@ -219,20 +210,18 @@ def _check_per_allocation(
 ) -> None:
     """Per-allocation identities: maxima match globals, bounds are ordered."""
     per_alloc = values.get(PER_ALLOCATION_REFERENCE)
-    closure = values.get("get_per_allocation_closure_pressure")
-    placement = values.get("get_per_allocation_placement_pressure")
-    clique = values.get("placement_clique_cap")
+    closure = values.get("closure_pressure_per_allocation")
+    placement = values.get("placement_pressure_per_allocation")
     if per_alloc:
         assert max(per_alloc.values()) == reference
         for i, pinned in per_alloc.items():
             low = closure[i] if closure else pinned
-            mid = clique[i] if clique else pinned
-            high = placement[i] if placement else mid
-            assert low <= pinned <= mid <= high
-    if closure and values.get("get_closure_pressure") is not None:
-        assert max(closure.values()) == values["get_closure_pressure"]
+            high = placement[i] if placement else pinned
+            assert low <= pinned <= high
+    if closure and values.get("closure_pressure") is not None:
+        assert max(closure.values()) == values["closure_pressure"]
     if placement:
-        assert max(placement.values()) == get_placement_pressure(placed)
+        assert max(placement.values()) == placement_pressure(placed)
 
 
 def _ratios(values: dict[str, Any], reference: int) -> dict[str, float]:

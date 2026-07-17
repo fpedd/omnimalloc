@@ -5,7 +5,7 @@
 import pickle
 
 import pytest
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc.analysis import pressure
 from omnimalloc.primitives import Allocation
 
 
@@ -67,22 +67,22 @@ def test_scalar_duration_unchanged() -> None:
 def test_no_overlap_when_ordered() -> None:
     first = Allocation(id=1, size=1, start=(0, 0), end=(2, 1))
     second = Allocation(id=2, size=1, start=(2, 1), end=(3, 2))
-    assert not first.overlaps_temporally(second)
-    assert not second.overlaps_temporally(first)
+    assert not first.conflicts_with(second)
+    assert not second.conflicts_with(first)
 
 
 def test_overlap_when_concurrent() -> None:
     a = Allocation(id=1, size=1, start=(0, 0), end=(5, 1))
     b = Allocation(id=2, size=1, start=(1, 0), end=(2, 3))
-    assert a.overlaps_temporally(b)
-    assert b.overlaps_temporally(a)
+    assert a.conflicts_with(b)
+    assert b.conflicts_with(a)
 
 
 def test_overlap_dimension_mismatch_rejected() -> None:
     scalar = Allocation(id=1, size=1, start=0, end=1)
     vector = Allocation(id=2, size=1, start=(0, 0), end=(1, 1))
-    with pytest.raises(ValueError, match="dimension mismatch"):
-        scalar.overlaps_temporally(vector)
+    with pytest.raises(ValueError, match="share one clock dimension"):
+        scalar.conflicts_with(vector)
 
 
 def test_overlaps_combines_temporal_and_spatial() -> None:
@@ -117,14 +117,14 @@ def test_pickle_roundtrip_vector() -> None:
 
 def test_pressure_supports_vector_time() -> None:
     allocs = (Allocation(id=1, size=1, start=(0, 0), end=(1, 1)),)
-    assert get_pressure(allocs) == 1
+    assert pressure(allocs) == 1
 
 
 def test_conflict_without_per_thread_overlap() -> None:
     a = Allocation(id="a", size=1, start=(0, 5), end=(1, 6))
     b = Allocation(id="b", size=1, start=(2, 0), end=(3, 1))
-    assert a.overlaps_temporally(b)
-    assert b.overlaps_temporally(a)
+    assert a.conflicts_with(b)
+    assert b.conflicts_with(a)
 
 
 def test_before_relation_is_transitive_chain() -> None:
@@ -134,5 +134,5 @@ def test_before_relation_is_transitive_chain() -> None:
     )
     for i, earlier in enumerate(chain):
         for later in chain[i + 1 :]:
-            assert not earlier.overlaps_temporally(later)
-            assert not later.overlaps_temporally(earlier)
+            assert not earlier.conflicts_with(later)
+            assert not later.conflicts_with(earlier)

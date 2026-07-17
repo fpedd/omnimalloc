@@ -14,12 +14,9 @@
 
 namespace omnimalloc {
 
-SimulatedAnnealingAllocator::SimulatedAnnealingAllocator(
-    SimulatedAnnealingConfig config)
-    : config_(config) {}
-
-std::vector<Allocation> SimulatedAnnealingAllocator::allocate(
-    const std::vector<Allocation>& allocations) const {
+std::vector<Allocation> simulated_annealing_place(
+    const std::vector<Allocation>& allocations,
+    const SimulatedAnnealingConfig& config) {
   const FirstFitPlacer placer(allocations);
   std::vector<size_t> order = initial_order(allocations);
   if (allocations.size() < 2) {
@@ -31,13 +28,13 @@ std::vector<Allocation> SimulatedAnnealingAllocator::allocate(
   std::vector<Allocation> best_placed = current_placed;
   int64_t best_peak = current_peak;
 
-  std::mt19937_64 rng(config_.seed);
+  std::mt19937_64 rng(config.seed);
   std::uniform_real_distribution<double> unit(0.0, 1.0);
-  double temperature = config_.initial_temperature;
+  double temperature = config.initial_temperature;
 
-  const auto deadline = make_deadline(config_.timeout);
+  const auto deadline = make_deadline(config.timeout);
 
-  for (int iteration = 0; iteration < config_.max_iterations; ++iteration) {
+  for (int iteration = 0; iteration < config.max_iterations; ++iteration) {
     if (deadline_expired(deadline)) {
       break;
     }
@@ -49,9 +46,9 @@ std::vector<Allocation> SimulatedAnnealingAllocator::allocate(
     }
 
     const auto proposal =
-        propose_peak_swap(peaks, order, allocations, placer.overlaps(), rng);
+        propose_peak_swap(peaks, order, allocations, placer.conflicts(), rng);
     if (!proposal) {
-      temperature *= config_.cooling_rate;
+      temperature *= config.cooling_rate;
       continue;
     }
     const auto [target_pos, other_pos] = *proposal;
@@ -79,7 +76,7 @@ std::vector<Allocation> SimulatedAnnealingAllocator::allocate(
       std::swap(order[target_pos], order[other_pos]);  // undo the rejected swap
     }
 
-    temperature *= config_.cooling_rate;
+    temperature *= config.cooling_rate;
   }
 
   return best_placed;

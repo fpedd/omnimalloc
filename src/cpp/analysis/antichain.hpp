@@ -37,7 +37,7 @@ namespace omnimalloc {
 // conflict neighborhood — built for certification, not the 10k+ hot path.
 // A set `work_budget` bounds the linearize attempt and each pinned flow
 // (see antichain_pressure); the flow path throws once it is exceeded.
-[[nodiscard]] std::vector<int64_t> per_allocation_antichain_pressure(
+[[nodiscard]] std::vector<int64_t> antichain_pressure_per_allocation(
     const std::vector<Allocation>& allocations,
     std::optional<uint64_t> work_budget);
 

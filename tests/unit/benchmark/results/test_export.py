@@ -8,7 +8,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
-from omnimalloc import run_allocation
+from omnimalloc import allocate
 from omnimalloc.allocators import GreedyAllocator
 from omnimalloc.benchmark.results import (
     BenchmarkCampaign,
@@ -28,7 +28,7 @@ def simple_campaign() -> BenchmarkCampaign:
     """Create a simple benchmark campaign for testing."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
@@ -99,7 +99,7 @@ def test_save_benchmark_raises_typeerror_for_non_campaign(artifacts_dir: Path) -
     """Test that save_benchmark raises TypeError for non-campaign objects."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
     result = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
     )

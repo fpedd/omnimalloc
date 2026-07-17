@@ -7,6 +7,15 @@ from pathlib import Path
 
 import pytest
 
+# Headless backend: plot_allocation(path=None) displays the figure, which
+# must never block the test run on an interactive backend.
+try:
+    import matplotlib as mpl
+
+    mpl.use("Agg")
+except ImportError:
+    pass
+
 
 @pytest.fixture  # type: ignore[misc]
 def artifacts_dir(request: pytest.FixtureRequest) -> Path:

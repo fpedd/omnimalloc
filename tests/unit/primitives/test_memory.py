@@ -16,7 +16,7 @@ def test_basic_creation_with_int_id_simple() -> None:
     memory = Memory(id=301, pools=(pool,))
     assert memory.id == 301
     assert len(memory.pools) == 1
-    assert memory.size is None
+    assert memory.capacity is None
 
 
 def test_basic_creation_with_int_id() -> None:
@@ -34,15 +34,15 @@ def test_basic_creation_with_str_id() -> None:
     memory = Memory(id="mem_ddr", pools=(pool,))
     assert memory.id == "mem_ddr"
     assert len(memory.pools) == 1
-    assert memory.size is None
+    assert memory.capacity is None
 
 
-def test_creation_with_size() -> None:
-    """Test creating a memory with specified size."""
+def test_creation_with_capacity() -> None:
+    """Test creating a memory with declared capacity."""
     alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
     pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=1000)
-    assert memory.size == 1000
+    memory = Memory(id=301, pools=(pool,), capacity=1000)
+    assert memory.capacity == 1000
 
 
 def test_creation_with_multiple_pools() -> None:
@@ -63,20 +63,20 @@ def test_empty_memory() -> None:
     assert memory.is_allocated is True
 
 
-def test_negative_size() -> None:
-    """Test that negative size raises ValueError."""
+def test_negative_capacity() -> None:
+    """Test that negative capacity raises ValueError."""
     alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
     pool = Pool(id=211, allocations=(alloc,))
-    with pytest.raises(ValueError, match="size must be non-negative"):
-        Memory(id=301, pools=(pool,), size=-1)
+    with pytest.raises(ValueError, match="capacity must be non-negative"):
+        Memory(id=301, pools=(pool,), capacity=-1)
 
 
-def test_zero_size() -> None:
-    """Test that zero size is valid."""
+def test_zero_capacity() -> None:
+    """Test that zero capacity is valid."""
     alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
     pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=0)
-    assert memory.size == 0
+    memory = Memory(id=301, pools=(pool,), capacity=0)
+    assert memory.capacity == 0
 
 
 def test_duplicate_pool_ids() -> None:
@@ -113,70 +113,12 @@ def test_used_size_empty_memory() -> None:
     assert memory.used_size == 0
 
 
-def test_free_size_with_size() -> None:
-    """Test free_size calculation when size is set."""
+def test_used_size_can_exceed_capacity() -> None:
+    """Capacity is a declared limit, not a constructor constraint."""
     alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
     pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=1000)
-    assert memory.free_size == 900
-
-
-def test_free_size_without_size() -> None:
-    """Test free_size returns None when size is not set."""
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,))
-    assert memory.free_size is None
-
-
-def test_free_size_zero() -> None:
-    """Test free_size when used_size equals size."""
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=100)
-    assert memory.free_size == 0
-
-
-def test_free_size_empty_memory() -> None:
-    """Test free_size equals size for empty memory."""
-    memory = Memory(id=1, pools=(), size=1000)
-    assert memory.free_size == 1000
-
-
-def test_utilization_with_size() -> None:
-    """Test utilization calculation when size is set."""
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=1000)
-    assert memory.utilization == 0.1
-
-
-def test_utilization_without_size() -> None:
-    """Test utilization returns None when size is not set."""
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,))
-    assert memory.utilization is None
-
-
-def test_utilization_full() -> None:
-    """Test utilization when memory is fully used."""
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=301, pools=(pool,), size=100)
-    assert memory.utilization == 1.0
-
-
-def test_utilization_empty() -> None:
-    """Test utilization when memory is empty."""
-    memory = Memory(id=1, pools=(), size=1000)
-    assert memory.utilization == 0.0
-
-
-def test_utilization_zero_size() -> None:
-    """Test utilization returns zero for zero size."""
-    memory = Memory(id=1, pools=(), size=0)
-    assert memory.utilization == 0.0
+    memory = Memory(id=301, pools=(pool,), capacity=10)
+    assert memory.used_size == 100
 
 
 def test_is_allocated_all_pools_allocated() -> None:
@@ -221,12 +163,12 @@ def test_with_pools_replace() -> None:
     alloc2 = Allocation(id=102, size=200, start=0, end=10, offset=0)
     pool1 = Pool(id=211, allocations=(alloc1,))
     pool2 = Pool(id=212, allocations=(alloc2,))
-    memory = Memory(id=301, pools=(pool1,), size=1000)
+    memory = Memory(id=301, pools=(pool1,), capacity=1000)
     new_memory = memory.with_pools((pool2,))
     assert len(new_memory.pools) == 1
     assert new_memory.pools[0].id == 212
     assert new_memory.id == memory.id
-    assert new_memory.size == memory.size
+    assert new_memory.capacity == memory.capacity
 
 
 def test_with_pools_immutability() -> None:
@@ -269,11 +211,11 @@ def test_cannot_modify_pools() -> None:
         memory.pools = ()  # type: ignore[misc]
 
 
-def test_cannot_modify_size() -> None:
-    """Test that size cannot be modified."""
-    memory = Memory(id=301, pools=(), size=1000)
+def test_cannot_modify_capacity() -> None:
+    """Test that capacity cannot be modified."""
+    memory = Memory(id=301, pools=(), capacity=1000)
     with pytest.raises(AttributeError):
-        memory.size = 2000  # type: ignore[misc]
+        memory.capacity = 2000  # type: ignore[misc]
 
 
 def test_large_values() -> None:
@@ -282,10 +224,9 @@ def test_large_values() -> None:
     alloc2 = Allocation(id=102, size=10**11, start=0, end=100, offset=0)
     pool1 = Pool(id=211, allocations=(alloc1,))
     pool2 = Pool(id=212, allocations=(alloc2,))
-    memory = Memory(id=999, pools=(pool1, pool2), size=10**15)
+    memory = Memory(id=999, pools=(pool1, pool2), capacity=10**15)
     assert memory.used_size == 10**12 + 10**11
-    assert memory.free_size == 10**15 - (10**12 + 10**11)
-    assert memory.utilization == (10**12 + 10**11) / 10**15
+    assert memory.capacity == 10**15
 
 
 def test_complex_memory_structure() -> None:
@@ -295,7 +236,7 @@ def test_complex_memory_structure() -> None:
     alloc3 = Allocation(id=103, size=75, start=10, end=20, offset=0)
     pool1 = Pool(id=211, allocations=(alloc1, alloc2))
     pool2 = Pool(id=212, allocations=(alloc3,))
-    memory = Memory(id=400, pools=(pool1, pool2), size=500)
+    memory = Memory(id=400, pools=(pool1, pool2), capacity=500)
     assert memory.used_size == pool1.size + pool2.size
     assert memory.is_allocated is True
 
@@ -306,7 +247,7 @@ def test_allocate_with_allocator() -> None:
     alloc2 = Allocation(id=102, size=50, start=5, end=15)
     pool1 = Pool(id=211, allocations=(alloc1,))
     pool2 = Pool(id=212, allocations=(alloc2,))
-    memory = Memory(id=301, pools=(pool1, pool2), size=1000)
+    memory = Memory(id=301, pools=(pool1, pool2), capacity=1000)
     assert memory.is_allocated is False
 
     allocator = NaiveAllocator()
@@ -314,7 +255,7 @@ def test_allocate_with_allocator() -> None:
 
     assert allocated_memory.is_allocated is True
     assert allocated_memory.id == memory.id
-    assert allocated_memory.size == memory.size
+    assert allocated_memory.capacity == memory.capacity
     assert len(allocated_memory.pools) == 2
     # Original memory should be unchanged
     assert memory.is_allocated is False

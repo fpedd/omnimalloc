@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
 
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc.analysis._pressure import pressure as _pressure
+from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import Allocation, IdType
 
@@ -25,8 +26,8 @@ class Pool:
     def __post_init__(self) -> None:
         if len({alloc.id for alloc in self.allocations}) != len(self.allocations):
             raise ValueError("allocation ids must be unique")
-        if self.offset is not None and self.offset < 0:
-            raise ValueError(f"offset must be non-negative, got {self.offset}")
+        if self.offset is not None:
+            ensure_non_negative(self.offset, "offset")
 
     @cached_property
     def size(self) -> int:
@@ -45,18 +46,13 @@ class Pool:
         return max(ends, default=0)
 
     @cached_property
-    def total_size(self) -> int:
-        """Sum of all allocation sizes (ignoring temporal overlap)."""
-        return sum(alloc.size for alloc in self.allocations)
-
-    @cached_property
     def pressure(self) -> int:
         """Peak memory pressure (max cut through all buffer lifetimes).
 
         Exact: scalar sweep for linearizable lifetimes, max-weight antichain
-        for non-linearizable vector-clock instances (see `get_pressure`).
+        for non-linearizable vector-clock instances (see `analysis.pressure`).
         """
-        return get_pressure(self.allocations)
+        return _pressure(self.allocations)
 
     @cached_property
     def efficiency(self) -> float:

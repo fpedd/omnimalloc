@@ -42,11 +42,10 @@ nanobind_add_module(
   NOMINSIZE
   src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/first_fit.cpp
-  src/cpp/allocators/greedy.cpp
   src/cpp/allocators/local_search.cpp
   src/cpp/allocators/omni.cpp
   src/cpp/allocators/simulated_annealing.cpp
-  src/cpp/allocators/supermalloc/partition.cpp
+  src/cpp/allocators/supermalloc.cpp
   src/cpp/allocators/tabu_search.cpp
   src/cpp/allocators/telamalloc.cpp
   src/cpp/analysis/antichain.cpp

@@ -6,7 +6,7 @@ import random
 
 import pytest
 from omnimalloc import try_linearize
-from omnimalloc._cpp import compute_temporal_overlaps
+from omnimalloc._cpp import conflicts
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
@@ -14,8 +14,8 @@ from omnimalloc.validate import validate_allocation
 
 
 def _overlap_map(allocations: tuple[Allocation, ...]) -> dict[object, set[object]]:
-    overlaps = compute_temporal_overlaps(allocations, None)
-    return {a.id: set(overlaps.get(a.id, ())) for a in allocations}
+    conflict_map = conflicts(allocations, None)
+    return {a.id: set(conflict_map[a.id]) for a in allocations}
 
 
 def test_scalar_input_returned_unchanged() -> None:
@@ -47,7 +47,7 @@ def test_concurrent_pair_linearizes_to_overlap() -> None:
     )
     linearized = try_linearize(allocations)
     assert linearized is not None
-    assert linearized[0].overlaps_temporally(linearized[1])
+    assert linearized[0].conflicts_with(linearized[1])
 
 
 def test_two_plus_two_returns_none() -> None:
@@ -194,4 +194,4 @@ def test_linearize_unlocks_supermalloc() -> None:
     linearized = try_linearize(allocations)
     assert linearized is not None
     placed = SupermallocAllocator().allocate(linearized)
-    assert validate_allocation(Pool(id="p", allocations=placed))
+    validate_allocation(Pool(id="p", allocations=placed))

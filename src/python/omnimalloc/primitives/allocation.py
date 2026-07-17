@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc._cpp import Allocation, BufferKind
+from omnimalloc._cpp import Allocation, AllocationKind
 
 # Type alias for allocation identifiers (int or str)
 # Must match IdType in src/cpp/primitives/id_type.hpp
@@ -18,4 +18,4 @@ VectorClock = tuple[int, ...]
 # Must match TimePoint in src/cpp/primitives/allocation.hpp
 TimePoint = int | VectorClock
 
-__all__ = ["Allocation", "BufferKind", "IdType", "TimePoint", "VectorClock"]
+__all__ = ["Allocation", "AllocationKind", "IdType", "TimePoint", "VectorClock"]

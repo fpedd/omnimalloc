@@ -7,17 +7,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Final, Literal, NamedTuple
 
-from omnimalloc.analysis import (
-    ensure_uniform_dim,
-    get_conflict_degrees,
-    get_pressure,
-    time_components,
-    try_linearize,
-)
+from omnimalloc.analysis import conflict_degrees, pressure, try_linearize
+from omnimalloc.analysis.clock import time_components, uniform_dim
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import (
     Allocation,
-    BufferKind,
+    AllocationKind,
     IdType,
     Memory,
     Pool,
@@ -73,11 +68,11 @@ def _format_bytes(value: float) -> str:
     return f"{value / divisor:.1f}{suffix}"
 
 
-KIND_COLOR_MAP: Final[dict[BufferKind, str]] = {
-    BufferKind.WORKSPACE: "C0",
-    BufferKind.CONSTANT: "C1",
-    BufferKind.INPUT: "C2",
-    BufferKind.OUTPUT: "C3",
+KIND_COLOR_MAP: Final[dict[AllocationKind, str]] = {
+    AllocationKind.WORKSPACE: "C0",
+    AllocationKind.CONSTANT: "C1",
+    AllocationKind.INPUT: "C2",
+    AllocationKind.OUTPUT: "C3",
 }
 
 LANE_CAVEAT: Final[str] = (
@@ -93,9 +88,9 @@ PANEL_CAVEAT: Final[str] = (
 )
 
 
-def _get_allocation_color(kind: BufferKind | None) -> str:
+def _get_allocation_color(kind: AllocationKind | None) -> str:
     if kind is None:
-        kind = BufferKind.WORKSPACE
+        kind = AllocationKind.WORKSPACE
     if kind not in KIND_COLOR_MAP:
         raise ValueError(f"Unknown allocation kind: {kind}")
     return KIND_COLOR_MAP[kind]
@@ -104,9 +99,7 @@ def _get_allocation_color(kind: BufferKind | None) -> str:
 def _memory_dim(memory: Memory) -> int:
     # Dimension is uniform per pool (the validate.py contract), but pools of
     # one memory may mix, e.g. after linearizing one pool; lanes cover the max.
-    return max(
-        (ensure_uniform_dim(pool.allocations) for pool in memory.pools), default=1
-    )
+    return max((uniform_dim(pool.allocations) for pool in memory.pools), default=1)
 
 
 def _lane_extent(alloc: Allocation, lane: int) -> tuple[int, int]:
@@ -156,10 +149,13 @@ def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
     return {id(alloc): _sum_extent(alloc) for alloc in allocations}, False
 
 
-def _overlap_pairs(allocations: tuple[Allocation, ...]) -> int | None:
-    """Count temporally overlapping allocation pairs, or None once over budget."""
-    degrees = get_conflict_degrees(allocations)
-    return None if degrees is None else sum(degrees) // 2
+def _conflict_pairs(allocations: tuple[Allocation, ...]) -> int | None:
+    """Count conflicting allocation pairs, or None once over budget."""
+    try:
+        degrees = conflict_degrees(allocations)
+    except RuntimeError:
+        return None
+    return sum(degrees) // 2
 
 
 def _conflict_visibility(
@@ -173,8 +169,8 @@ def _conflict_visibility(
     visible = total = 0
     for pool in memory.pools:
         projected = tuple(_projected(a, extents[id(a)]) for a in pool.allocations)
-        pool_visible = _overlap_pairs(projected)
-        pool_total = _overlap_pairs(pool.allocations)
+        pool_visible = _conflict_pairs(projected)
+        pool_total = _conflict_pairs(pool.allocations)
         if pool_visible is None or pool_total is None:
             return None
         visible += pool_visible
@@ -205,7 +201,7 @@ def _lane_peaks(allocations: list[Allocation], dim: int) -> list[int]:
             _projected(alloc, extent)
             for alloc, extent in _visible_lane_extents(allocations, lane)
         )
-        peaks.append(get_pressure(projected))
+        peaks.append(pressure(projected))
     return peaks
 
 
@@ -223,23 +219,23 @@ def _select_lanes(
 def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
     limits: dict[Memory, tuple[int, int]] = {}
     for memory in system.memories:
-        size = memory.size
+        capacity = memory.capacity
         used = memory.used_size
 
-        if size is None:
-            # No size limit defined, scale to 1.2x used
+        if capacity is None:
+            # No capacity declared, scale to 1.2x used
             y_limit = used * 1.2
 
-        elif used > size:
-            # Usage exceeds size, scale to 1.2x usage
+        elif used > capacity:
+            # Usage exceeds capacity, scale to 1.2x usage
             y_limit = used * 1.2
 
-        elif used >= size * 0.5:
-            # Usage is 50-100% of size, use size as limit
-            y_limit = size
+        elif used >= capacity * 0.5:
+            # Usage is 50-100% of capacity, use capacity as limit
+            y_limit = capacity
 
         else:
-            # Usage below 50% of size, scale to 2x usage
+            # Usage below 50% of capacity, scale to 2x usage
             y_limit = used * 2
 
         # Clamp to at least 1 so downstream tick spacing stays positive
@@ -311,7 +307,7 @@ def _draw_pool_background(
 
 
 def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
-    """Draw horizontal lines with annotations for memory limits."""
+    """Draw annotated horizontal lines for used size, capacity, and extras."""
     _, x_max = ax.get_xlim()
     for name, value in limits.items():
         ax.axhline(value, color="black", linestyle="--", linewidth=1, alpha=0.8)
@@ -347,9 +343,11 @@ def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
 
 
 def _memory_title(memory: Memory, threads: str) -> str:
-    size = memory.size
-    size_str = _format_bytes(size) if size is not None else "Unknown Size"
-    return f"{memory.id} ({size_str}, {len(memory.pools)} pools{threads})"
+    capacity = memory.capacity
+    capacity_str = (
+        _format_bytes(capacity) if capacity is not None else "Unbounded Capacity"
+    )
+    return f"{memory.id} ({capacity_str}, {len(memory.pools)} pools{threads})"
 
 
 def _lane_panels(
@@ -418,12 +416,12 @@ def _set_axes_limits(
     ax: Axes,
     x_limits: tuple[int, int],
     y_limits: tuple[int, int],
-    memory_size: int | None,
+    capacity: int | None,
 ) -> None:
     """Set axis limits and add scaling notice if needed."""
     ax.set_xlim(x_limits)
     ax.set_ylim(y_limits)
-    if memory_size is not None and y_limits[1] < memory_size:
+    if capacity is not None and y_limits[1] < capacity:
         ax.text(
             0.02,
             0.98,
@@ -458,13 +456,13 @@ def _draw_panel(
     panel: _Panel,
     y_limits: tuple[int, int],
     y_offsets: dict[Pool, int],
-    memory_limits: dict[str, dict[IdType, int]],
+    capacities: dict[str, dict[IdType, int]],
 ) -> None:
     memory = panel.memory
     if panel.title is not None:
         ax.set_title(panel.title)
     ax.set_xlabel(panel.xlabel)
-    _set_axes_limits(ax, panel.x_limits, y_limits, memory.size)
+    _set_axes_limits(ax, panel.x_limits, y_limits, memory.capacity)
     _set_axes_ticks(ax, y_limits[1])
     if panel.note is not None:
         ax.text(
@@ -490,25 +488,24 @@ def _draw_panel(
                 _draw_allocation(ax, alloc, y_offset, color, extent)
         _draw_pool_background(ax, y_offset, pool.size, colors)
 
-    # Draw memory limit lines
+    # Draw used-size, capacity, and extra capacity lines
     limits: dict[str, int] = {"used": memory.used_size}
-    if memory.size is not None:
-        limits["size"] = memory.size
-    for limit_type, memory_id_to_limit in memory_limits.items():
-        if memory.id in memory_id_to_limit:
-            limits[limit_type] = memory_id_to_limit[memory.id]
+    if memory.capacity is not None:
+        limits["capacity"] = memory.capacity
+    for label, per_memory_capacity in capacities.items():
+        if memory.id in per_memory_capacity:
+            limits[label] = per_memory_capacity[memory.id]
 
     _draw_limit_lines(ax, limits)
 
 
 def _visualize_system(
     system: System,
-    file_path: Path | str | None,
-    show_inline: bool,
-    memory_limits: dict[str, dict[IdType, int]],
+    path: Path | str | None,
+    capacities: dict[str, dict[IdType, int]],
     view: Literal["panel", "lanes"],
     max_lanes: int | None,
-) -> Path | None:
+) -> None:
     if view == "lanes":
         panels, caveat = _lane_panels(system, max_lanes)
     else:
@@ -534,7 +531,7 @@ def _visualize_system(
             panel,
             y_limits[panel.memory],
             y_offsets[panel.memory],
-            memory_limits,
+            capacities,
         )
 
     if caveat is not None:
@@ -543,92 +540,31 @@ def _visualize_system(
         fig.suptitle(caveat, fontsize=8)
     _add_legend(fig)
 
-    if show_inline:
+    if path is None:
         plt.show()
-
-    if file_path is not None:
-        file_path = Path(file_path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(file_path, bbox_inches="tight")
+    else:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, bbox_inches="tight")
 
     plt.close(fig)
-
-    return file_path
-
-
-def _canonicalize(system: System) -> System:
-    """Reassign allocation IDs sequentially for cleaner visualization."""
-
-    def _id_sort_key(id_val: IdType) -> tuple[int, int | str]:
-        return (0, id_val) if isinstance(id_val, int) else (1, id_val)
-
-    def _alloc_sort_key(alloc: Allocation) -> tuple[object, ...]:
-        # Lexicographic on the (possibly vector) start, then original id
-        return time_components(alloc.start), _id_sort_key(alloc.id)
-
-    # Collect all allocations and assign sequential IDs
-    all_allocations = [
-        alloc
-        for memory in system.memories
-        for pool in memory.pools
-        for alloc in pool.allocations
-    ]
-
-    all_allocations.sort(key=_alloc_sort_key)
-
-    # Create mapping from old allocation to new ID
-    alloc_to_new_id = {
-        id(alloc): new_id for new_id, alloc in enumerate(all_allocations)
-    }
-
-    # Rebuild with new IDs
-    canonical_memories = tuple(
-        Memory(
-            id=memory.id,
-            size=memory.size,
-            pools=tuple(
-                Pool(
-                    id=pool.id,
-                    offset=pool.offset,
-                    allocations=tuple(
-                        Allocation(
-                            id=alloc_to_new_id[id(alloc)],
-                            size=alloc.size,
-                            start=alloc.start,
-                            end=alloc.end,
-                            offset=alloc.offset,
-                            kind=alloc.kind,
-                        )
-                        for alloc in sorted(pool.allocations, key=_alloc_sort_key)
-                    ),
-                )
-                for pool in sorted(memory.pools, key=lambda p: _id_sort_key(p.id))
-            ),
-        )
-        for memory in sorted(system.memories, key=lambda m: _id_sort_key(m.id))
-    )
-
-    return System(id=system.id, memories=canonical_memories)
 
 
 def plot_allocation(
     entity: System | Memory | Pool,
-    file_path: Path | str | None = None,
-    show_inline: bool = False,
-    canonicalize: bool = False,
-    memory_limits: dict[str, dict[IdType, int]] | None = None,
+    path: Path | str | None = None,
+    *,
+    capacities: dict[str, dict[IdType, int]] | None = None,
     view: Literal["panel", "lanes"] = "panel",
     max_lanes: int | None = None,
-) -> Path | None:
-    """Plot an allocated entity (System, Memory, or Pool).
+) -> None:
+    """Plot an allocated entity: `path=None` displays the figure, `path=...` saves it.
 
     Args:
-        entity: The entity to plot.
-        file_path: Optional path to save the plot.
-        show_inline: Whether to display inline (for notebooks).
-        canonicalize: Whether to canonicalize IDs for cleaner visualization.
-        memory_limits: Optional dict specifying custom memory limits
-                       for each memory in the system.
+        entity: The entity to plot (System, Memory, or Pool).
+        path: Where to save the figure; `None` displays it instead.
+        capacities: Extra capacity lines to draw, keyed by label then by
+                    memory id (byte limits, drawn as horizontal lines).
         view: "panel" draws each memory once over a happens-before-monotone
               virtual time (exact for scalar or linearizable lifetimes, else
               a sound clock-component-sum projection annotated with its
@@ -641,8 +577,7 @@ def plot_allocation(
                    memory to its top-k threads by peak definitely-live
                    occupancy.
 
-    Returns:
-        Path to the saved file, or None if not saved.
+    Raises `ImportError` without matplotlib.
     """
     if view not in ("panel", "lanes"):
         raise ValueError(f'view must be "panel" or "lanes", got {view!r}')
@@ -659,14 +594,10 @@ def plot_allocation(
     if isinstance(entity, Memory):
         entity = System(id=f"system_{entity.id}", memories=(entity,))
 
-    if canonicalize:
-        entity = _canonicalize(entity)
-
-    return _visualize_system(
+    _visualize_system(
         system=entity,
-        file_path=file_path,
-        show_inline=show_inline,
-        memory_limits=memory_limits or {},
+        path=path,
+        capacities=capacities or {},
         view=view,
         max_lanes=max_lanes,
     )

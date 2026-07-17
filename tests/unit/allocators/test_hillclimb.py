@@ -3,15 +3,15 @@
 #
 
 import pytest
-from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.hillclimb import HillClimbAllocator
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
 
 
-def _is_valid(result: tuple[Allocation, ...]) -> bool:
-    return validate_allocation(Pool(id="test_pool", allocations=result))
+def _assert_valid(result: tuple[Allocation, ...]) -> None:
+    validate_allocation(Pool(id="test_pool", allocations=result))
 
 
 def test_hillclimb_empty() -> None:
@@ -64,7 +64,7 @@ def test_hillclimb_produces_valid_allocation() -> None:
         Allocation(id=4, size=50, start=0, end=10),
     )
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
+    _assert_valid(result)
 
 
 def test_hillclimb_no_temporal_overlap_shares_offset() -> None:
@@ -81,8 +81,8 @@ def test_hillclimb_all_overlap_stacks_sequentially() -> None:
     allocator = HillClimbAllocator()
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
-    assert peak_memory(result) == 500
+    _assert_valid(result)
+    assert placement_pressure(result) == 500
 
 
 def test_hillclimb_survives_rejected_step_undo() -> None:
@@ -96,7 +96,7 @@ def test_hillclimb_survives_rejected_step_undo() -> None:
     )
     result = allocator.allocate(allocs)
     assert len(result) == len(allocs)
-    assert _is_valid(result)
+    _assert_valid(result)
 
 
 def test_hillclimb_deterministic() -> None:
@@ -123,5 +123,5 @@ def test_hillclimb_not_worse_than_greedy_by_size() -> None:
     )
     hillclimb = HillClimbAllocator(seed=42).allocate(allocs)
     greedy = GreedyBySizeAllocator().allocate(allocs)
-    assert _is_valid(hillclimb)
-    assert peak_memory(hillclimb) <= peak_memory(greedy)
+    _assert_valid(hillclimb)
+    assert placement_pressure(hillclimb) <= placement_pressure(greedy)

@@ -3,7 +3,7 @@
 #
 
 import pytest
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc.analysis import pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation
@@ -16,8 +16,8 @@ def _signatures(
 
 
 def test_sync_patterns_is_registered() -> None:
-    assert "sync_pattern_source" in BaseSource.registry()
-    assert BaseSource.get("sync_pattern_source") is SyncPatternSource
+    assert "sync_pattern" in BaseSource.registry()
+    assert BaseSource.get("sync_pattern") is SyncPatternSource
 
 
 @pytest.mark.parametrize("pattern", SYNC_PATTERNS)
@@ -114,6 +114,6 @@ def test_sync_patterns_pressure_is_bounded(pattern: str) -> None:
         num_allocations=10, num_threads=3, pattern=pattern, seed=5
     )
     allocations = source.get_allocations()
-    pressure = get_pressure(allocations)
-    assert pressure >= max(a.size for a in allocations)
-    assert pressure <= sum(a.size for a in allocations)
+    peak = pressure(allocations)
+    assert peak >= max(a.size for a in allocations)
+    assert peak <= sum(a.size for a in allocations)

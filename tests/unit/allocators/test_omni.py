@@ -5,9 +5,8 @@
 import random
 
 import pytest
-from omnimalloc._cpp import OmniAllocatorCpp
 from omnimalloc.allocators import BaseAllocator, NaiveAllocator, OmniAllocator
-from omnimalloc.analysis.pressure import get_placement_pressure, get_pressure
+from omnimalloc.analysis import placement_pressure, pressure
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation, Pool
@@ -40,18 +39,13 @@ def _two_plus_two() -> tuple[Allocation, ...]:
 
 
 def test_omni_is_registered_and_supports_vector_time() -> None:
-    assert BaseAllocator.get("omni_allocator") is OmniAllocator
+    assert BaseAllocator.get("omni") is OmniAllocator
     assert OmniAllocator.supports_vector_time is True
 
 
 def test_omni_rejects_negative_linearize_budget() -> None:
     with pytest.raises(ValueError, match="linearize_budget"):
         OmniAllocator(linearize_budget=-1)
-
-
-def test_omni_cpp_repr_includes_budget() -> None:
-    assert repr(OmniAllocatorCpp(100)) == "OmniAllocator(linearize_budget=100)"
-    assert repr(OmniAllocatorCpp(None)) == "OmniAllocator(linearize_budget=None)"
 
 
 def test_omni_empty_returns_empty() -> None:
@@ -67,15 +61,15 @@ def test_omni_scalar_placement_is_valid_and_bounded() -> None:
     allocations = _random_scalar(200, seed=1)
     placed = OmniAllocator().allocate(allocations)
     validate_allocation(Pool(id="p", allocations=placed))
-    assert get_pressure(allocations) <= get_placement_pressure(placed)
-    assert get_placement_pressure(placed) <= sum(a.size for a in allocations)
+    assert pressure(allocations) <= placement_pressure(placed)
+    assert placement_pressure(placed) <= sum(a.size for a in allocations)
 
 
 def test_omni_scalar_not_worse_than_naive() -> None:
     allocations = _random_scalar(150, seed=2)
     omni = OmniAllocator().allocate(allocations)
     naive = NaiveAllocator().allocate(allocations)
-    assert get_placement_pressure(omni) <= get_placement_pressure(naive)
+    assert placement_pressure(omni) <= placement_pressure(naive)
 
 
 def test_omni_preserves_vector_times_and_metadata() -> None:
@@ -90,7 +84,7 @@ def test_omni_preserves_vector_times_and_metadata() -> None:
 def test_omni_non_linearizable_placement_is_valid() -> None:
     placed = OmniAllocator().allocate(_two_plus_two())
     validate_allocation(Pool(id="p", allocations=placed))
-    assert get_placement_pressure(placed) >= 64 + 16
+    assert placement_pressure(placed) >= 64 + 16
 
 
 def test_omni_lockstep_matches_scalar_peak() -> None:
@@ -99,8 +93,8 @@ def test_omni_lockstep_matches_scalar_peak() -> None:
         Allocation(id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end))
         for a in scalar
     )
-    lockstep_peak = get_placement_pressure(OmniAllocator().allocate(lockstep))
-    assert lockstep_peak == get_placement_pressure(OmniAllocator().allocate(scalar))
+    lockstep_peak = placement_pressure(OmniAllocator().allocate(lockstep))
+    assert lockstep_peak == placement_pressure(OmniAllocator().allocate(scalar))
 
 
 def test_omni_is_deterministic() -> None:
@@ -117,7 +111,7 @@ def test_omni_ignores_existing_offsets() -> None:
         for i in range(4)
     )
     placed = OmniAllocator().allocate(allocations)
-    assert get_placement_pressure(placed) == 128
+    assert placement_pressure(placed) == 128
 
 
 def test_omni_handles_extreme_durations() -> None:
@@ -126,7 +120,7 @@ def test_omni_handles_extreme_durations() -> None:
     )
     placed = OmniAllocator().allocate(allocations)
     validate_allocation(Pool(id="p", allocations=placed))
-    assert get_placement_pressure(placed) == sum(a.size for a in allocations)
+    assert placement_pressure(placed) == sum(a.size for a in allocations)
 
 
 def test_omni_rejects_duplicate_ids() -> None:
@@ -155,7 +149,7 @@ def test_omni_concurrent_tiling_stays_near_optimum(num_syncs: int) -> None:
     )
     placed = OmniAllocator().allocate(source.get_allocations())
     validate_allocation(Pool(id="p", allocations=placed))
-    assert capacity <= get_placement_pressure(placed) <= 2 * capacity
+    assert capacity <= placement_pressure(placed) <= 2 * capacity
 
 
 @pytest.mark.parametrize("pattern", SYNC_PATTERNS)
@@ -168,7 +162,7 @@ def test_omni_torture_across_sync_patterns(pattern: str) -> None:
         placed = OmniAllocator().allocate(allocations)
         validate_allocation(Pool(id=f"{pattern}-{seed}", allocations=placed))
         naive = NaiveAllocator().allocate(allocations)
-        assert get_placement_pressure(placed) <= get_placement_pressure(naive)
+        assert placement_pressure(placed) <= placement_pressure(naive)
 
 
 def test_omni_torture_across_tiling_variants() -> None:

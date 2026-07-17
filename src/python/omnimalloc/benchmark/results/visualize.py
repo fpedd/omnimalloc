@@ -247,9 +247,8 @@ def _create_figure(num_sources: int) -> tuple[Figure, list[Axes]]:
 
 def _visualize_campaign(
     campaign: BenchmarkCampaign,
-    file_path: Path | str | None,
-    show_inline: bool,
-) -> Path | None:
+    path: Path | str | None,
+) -> None:
     source_names = campaign.source_names
     allocator_names = campaign.allocator_names
     reports_by_source = campaign.reports_by_source_allocator_variant
@@ -271,18 +270,15 @@ def _visualize_campaign(
     _add_footer(campaign, fig)
     _add_legend(fig, allocator_names)
 
-    if show_inline:
+    if path is None:
         plt.show()
-
-    if file_path is not None:
-        file_path = Path(file_path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(file_path, bbox_inches="tight", format="pdf")
-        logger.info(f"Visualization saved to {file_path}")
+    else:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, bbox_inches="tight", format="pdf")
+        logger.info(f"Visualization saved to {path}")
 
     plt.close(fig)
-
-    return file_path
 
 
 def _canonicalize_artifact(
@@ -297,21 +293,13 @@ def _canonicalize_artifact(
 
 def plot_benchmark(
     artifact: BenchmarkResult | BenchmarkReport | BenchmarkCampaign,
-    file_path: Path | str | None = None,
-    show_inline: bool = False,
-) -> Path | None:
-    """Visualize benchmark results.
+    path: Path | str | None = None,
+) -> None:
+    """Plot a benchmark artifact: `path=None` displays the figure, `path=...` saves it.
 
-    Args:
-        artifact: The benchmark artifact to visualize.
-        file_path: Optional path to save the plot.
-        show_inline: Whether to display inline (for notebooks).
-
-    Returns:
-        Path to the saved file, or None if not saved.
+    Raises `ImportError` without matplotlib.
     """
     if not HAS_MATPLOTLIB:
         require_optional("matplotlib", "benchmark visualization")
 
-    campaign = _canonicalize_artifact(artifact)
-    return _visualize_campaign(campaign, file_path, show_inline)
+    _visualize_campaign(_canonicalize_artifact(artifact), path)

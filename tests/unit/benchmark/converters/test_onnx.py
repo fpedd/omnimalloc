@@ -17,7 +17,7 @@ if HAS_ONNX:
         _value_info_to_buffer,
         from_onnx,
     )
-    from omnimalloc.primitives import BufferKind
+    from omnimalloc.primitives import AllocationKind
     from onnx import TensorProto, helper
 
 pytestmark = pytest.mark.skipif(not HAS_ONNX, reason="onnx not installed")
@@ -84,7 +84,7 @@ def test_tensor_proto_to_buffer() -> None:
     assert buffer.id == "test_tensor"
     assert buffer.shape == (2, 3, 4)
     assert buffer.dtype == np.float32
-    assert buffer.kind == BufferKind.CONSTANT
+    assert buffer.kind == AllocationKind.CONSTANT
 
 
 def test_tensor_proto_to_buffer_different_dtype() -> None:
@@ -102,37 +102,37 @@ def test_tensor_proto_to_buffer_different_dtype() -> None:
     assert buffer.id == "int_tensor"
     assert buffer.shape == (3, 5)
     assert buffer.dtype == np.int64
-    assert buffer.kind == BufferKind.CONSTANT
+    assert buffer.kind == AllocationKind.CONSTANT
 
 
 def test_value_info_to_buffer() -> None:
     """Test converting ONNX ValueInfoProto to Buffer."""
     value_info = helper.make_tensor_value_info("test_value", TensorProto.INT32, [5, 10])
 
-    buffer = _value_info_to_buffer(value_info, BufferKind.WORKSPACE)
+    buffer = _value_info_to_buffer(value_info, AllocationKind.WORKSPACE)
 
     assert buffer.id == "test_value"
     assert buffer.shape == (5, 10)
     assert buffer.dtype == np.int32
-    assert buffer.kind == BufferKind.WORKSPACE
+    assert buffer.kind == AllocationKind.WORKSPACE
 
 
 def test_value_info_to_buffer_input_kind() -> None:
     """Test converting ONNX ValueInfoProto with INPUT kind."""
     value_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 224])
 
-    buffer = _value_info_to_buffer(value_info, BufferKind.INPUT)
+    buffer = _value_info_to_buffer(value_info, AllocationKind.INPUT)
 
-    assert buffer.kind == BufferKind.INPUT
+    assert buffer.kind == AllocationKind.INPUT
 
 
 def test_value_info_to_buffer_output_kind() -> None:
     """Test converting ONNX ValueInfoProto with OUTPUT kind."""
     value_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1000])
 
-    buffer = _value_info_to_buffer(value_info, BufferKind.OUTPUT)
+    buffer = _value_info_to_buffer(value_info, AllocationKind.OUTPUT)
 
-    assert buffer.kind == BufferKind.OUTPUT
+    assert buffer.kind == AllocationKind.OUTPUT
 
 
 def test_value_info_to_buffer_filters_zero_dims() -> None:
@@ -141,7 +141,7 @@ def test_value_info_to_buffer_filters_zero_dims() -> None:
         "test_value", TensorProto.FLOAT, [3, 0, 5]
     )
 
-    buffer = _value_info_to_buffer(value_info, BufferKind.WORKSPACE)
+    buffer = _value_info_to_buffer(value_info, AllocationKind.WORKSPACE)
 
     assert buffer.shape == (3, 5)
 
@@ -157,10 +157,10 @@ def test_node_to_op(simple_onnx_model: "onnx.ModelProto") -> None:
         buf = _tensor_proto_to_buffer(init)
         buffers[buf.id] = buf
     for inp in graph.input:
-        buf = _value_info_to_buffer(inp, BufferKind.INPUT)
+        buf = _value_info_to_buffer(inp, AllocationKind.INPUT)
         buffers[buf.id] = buf
     for val in graph.value_info:
-        buf = _value_info_to_buffer(val, BufferKind.WORKSPACE)
+        buf = _value_info_to_buffer(val, AllocationKind.WORKSPACE)
         buffers[buf.id] = buf
 
     op = _node_to_op(node, buffers, node.name)
@@ -238,19 +238,19 @@ def test_from_onnx_buffer_kinds(simple_onnx_model: "onnx.ModelProto") -> None:
     model = from_onnx(simple_onnx_model)
 
     input_buffer = model.buffers["input"]
-    assert input_buffer.kind == BufferKind.INPUT
+    assert input_buffer.kind == AllocationKind.INPUT
 
     output_buffer = model.buffers["output"]
-    assert output_buffer.kind == BufferKind.OUTPUT
+    assert output_buffer.kind == AllocationKind.OUTPUT
 
     weights_buffer = model.buffers["weights"]
-    assert weights_buffer.kind == BufferKind.CONSTANT
+    assert weights_buffer.kind == AllocationKind.CONSTANT
 
     bias_buffer = model.buffers["bias"]
-    assert bias_buffer.kind == BufferKind.CONSTANT
+    assert bias_buffer.kind == AllocationKind.CONSTANT
 
     intermediate_buffer = model.buffers["intermediate"]
-    assert intermediate_buffer.kind == BufferKind.WORKSPACE
+    assert intermediate_buffer.kind == AllocationKind.WORKSPACE
 
 
 def test_from_onnx_ops_reference_buffers(simple_onnx_model: "onnx.ModelProto") -> None:
@@ -298,4 +298,4 @@ def test_from_onnx_skips_initializers_relisted_as_inputs(
 
     model = from_onnx(simple_onnx_model)
 
-    assert model.buffers["weights"].kind == BufferKind.CONSTANT
+    assert model.buffers["weights"].kind == AllocationKind.CONSTANT

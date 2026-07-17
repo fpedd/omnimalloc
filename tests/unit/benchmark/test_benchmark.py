@@ -82,7 +82,7 @@ def test_run_benchmark_per_source_variants() -> None:
         allocators=(allocator,),
         sources=(source,),
         iterations=1,
-        variants={"random_source": (5, 10)},
+        variants={"random": (5, 10)},
     )
 
     assert campaign.num_reports == 2
@@ -115,7 +115,7 @@ def test_run_benchmark_skips_scalar_only_allocators_on_vector_source() -> None:
     )
 
     assert campaign.num_reports == 1
-    assert campaign.reports[0].allocator_name == "greedy_allocator"
+    assert campaign.reports[0].allocator_name == "greedy"
 
 
 def test_run_benchmark_skips_unsupported_variants() -> None:

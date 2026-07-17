@@ -42,11 +42,10 @@ std::vector<size_t> initial_order(const std::vector<Allocation>& allocations) {
 
 std::vector<size_t> earlier_neighbors(
     const std::vector<size_t>& order, size_t target_pos,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps) {
+    const std::vector<Allocation>& allocations, const ConflictMap& conflicts) {
   std::vector<size_t> neighbors;
-  auto it = overlaps.find(allocations[order[target_pos]].id());
-  if (it != overlaps.end()) {
+  auto it = conflicts.find(allocations[order[target_pos]].id());
+  if (it != conflicts.end()) {
     for (size_t pos = 0; pos < target_pos; ++pos) {
       if (it->second.count(allocations[order[pos]].id())) {
         neighbors.push_back(pos);
@@ -62,12 +61,12 @@ std::vector<size_t> earlier_neighbors(
 
 std::optional<std::pair<size_t, size_t>> propose_peak_swap(
     const std::vector<size_t>& peaks, const std::vector<size_t>& order,
-    const std::vector<Allocation>& allocations,
-    const TemporalOverlaps& overlaps, std::mt19937_64& rng) {
+    const std::vector<Allocation>& allocations, const ConflictMap& conflicts,
+    std::mt19937_64& rng) {
   std::uniform_int_distribution<size_t> pick_peak(0, peaks.size() - 1);
   const size_t target_pos = peaks[pick_peak(rng)];
   const std::vector<size_t> neighbors =
-      earlier_neighbors(order, target_pos, allocations, overlaps);
+      earlier_neighbors(order, target_pos, allocations, conflicts);
   if (neighbors.empty()) {
     return std::nullopt;
   }

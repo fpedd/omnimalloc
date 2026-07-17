@@ -5,7 +5,7 @@
 import pytest
 from omnimalloc.allocators.genetic import HAS_DEAP, GeneticAllocator
 from omnimalloc.allocators.greedy import GreedyBySizeAllocator
-from omnimalloc.allocators.greedy_base import peak_memory
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(not HAS_DEAP, reason="deap not installed")
 
 
 def _fast_allocator(seed: int = 42) -> GeneticAllocator:
-    return GeneticAllocator(seed=seed, population_size=20, num_generations=5)
+    return GeneticAllocator(seed=seed, population_size=20, max_generations=5)
 
 
 def _allocs(count: int) -> tuple[Allocation, ...]:
@@ -41,8 +41,8 @@ def test_genetic_rejects_invalid_population_size() -> None:
 
 
 def test_genetic_rejects_negative_generations() -> None:
-    with pytest.raises(ValueError, match="num_generations must be non-negative"):
-        GeneticAllocator(num_generations=-1)
+    with pytest.raises(ValueError, match="max_generations must be non-negative"):
+        GeneticAllocator(max_generations=-1)
 
 
 def test_genetic_rejects_out_of_range_probabilities() -> None:
@@ -71,7 +71,7 @@ def test_genetic_rejects_duplicate_ids() -> None:
 def test_genetic_produces_valid_allocation() -> None:
     allocs = _allocs(20)
     result = _fast_allocator().allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
+    validate_allocation(Pool(id="test_pool", allocations=result))
     assert {a.id for a in result} == {a.id for a in allocs}
     assert all(a.offset is not None for a in result)
 
@@ -85,9 +85,9 @@ def test_genetic_deterministic_for_same_seed() -> None:
 
 def test_genetic_never_worse_than_greedy_by_size_seed() -> None:
     allocs = _allocs(30)
-    baseline = peak_memory(GreedyBySizeAllocator().allocate(allocs))
+    baseline = placement_pressure(GreedyBySizeAllocator().allocate(allocs))
     result = _fast_allocator().allocate(allocs)
-    assert peak_memory(result) <= baseline
+    assert placement_pressure(result) <= baseline
 
 
 def test_genetic_improves_or_matches_adversarial_insertion_order() -> None:
@@ -101,9 +101,9 @@ def test_genetic_improves_or_matches_adversarial_insertion_order() -> None:
         for i in range(30)
     )
     result = _fast_allocator().allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
-    baseline = peak_memory(GreedyBySizeAllocator().allocate(allocs))
-    assert peak_memory(result) <= baseline
+    validate_allocation(Pool(id="test_pool", allocations=result))
+    baseline = placement_pressure(GreedyBySizeAllocator().allocate(allocs))
+    assert placement_pressure(result) <= baseline
 
 
 def test_genetic_preserves_global_random_state() -> None:

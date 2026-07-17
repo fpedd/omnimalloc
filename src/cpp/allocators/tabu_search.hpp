@@ -13,8 +13,8 @@
 namespace omnimalloc {
 
 // Neighborhood size, iteration budget, and tabu memory for
-// `TabuSearchAllocator`. Defaults live in the Python `TabuSearchConfig`
-// dataclass; every field must be set explicitly.
+// `tabu_search_place`. Policy defaults live on the Python
+// `TabuSearchAllocator`; every field crosses the boundary explicitly.
 struct TabuSearchConfig {
   uint64_t seed{};
   int max_iterations{};
@@ -35,16 +35,8 @@ struct TabuSearchConfig {
 // being immediately reversed for `tabu_tenure` iterations, which lets the
 // search climb out of local optima without cycling between the same two
 // orders. Runs entirely in C++ for the same reason as
-// `SimulatedAnnealingAllocator`: no Python round trip per candidate.
-class TabuSearchAllocator {
- public:
-  explicit TabuSearchAllocator(TabuSearchConfig config);
-
-  [[nodiscard]] std::vector<Allocation> allocate(
-      const std::vector<Allocation>& allocations) const;
-
- private:
-  TabuSearchConfig config_;
-};
+// `simulated_annealing_place`: no Python round trip per candidate.
+[[nodiscard]] std::vector<Allocation> tabu_search_place(
+    const std::vector<Allocation>& allocations, const TabuSearchConfig& config);
 
 }  // namespace omnimalloc

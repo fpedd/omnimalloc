@@ -85,12 +85,12 @@ def test_huggingface_source_caching(artifacts_dir: Path) -> None:
     assert allocations1 == allocations2
 
 
-def test_huggingface_source_buffer_kinds(artifacts_dir: Path) -> None:
-    """Test that allocations have appropriate buffer kinds."""
+def test_huggingface_source_allocation_kinds(artifacts_dir: Path) -> None:
+    """Test that allocations have appropriate allocation kinds."""
     source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
     allocations = source.get_allocations()
 
-    # Should have various buffer kinds
+    # Should have various allocation kinds
     kinds = {alloc.kind for alloc in allocations if alloc.kind is not None}
     # At least workspace or input/output/constant should be present
     assert len(kinds) > 0

@@ -12,9 +12,9 @@
 
 namespace omnimalloc {
 
-// Cooling schedule and iteration budget for `SimulatedAnnealingAllocator`.
-// Defaults live in the Python `SimulatedAnnealingConfig` dataclass; every
-// field must be set explicitly.
+// Cooling schedule and iteration budget for `simulated_annealing_place`.
+// Policy defaults live on the Python `SimulatedAnnealingAllocator`; every
+// field crosses the boundary explicitly.
 struct SimulatedAnnealingConfig {
   uint64_t seed{};
   int max_iterations{};
@@ -35,15 +35,8 @@ struct SimulatedAnnealingConfig {
 // entire search runs natively (no Python round trip per candidate), so it can
 // evaluate far more candidate placements per second than an
 // equivalent Python-orchestrated local search.
-class SimulatedAnnealingAllocator {
- public:
-  explicit SimulatedAnnealingAllocator(SimulatedAnnealingConfig config);
-
-  [[nodiscard]] std::vector<Allocation> allocate(
-      const std::vector<Allocation>& allocations) const;
-
- private:
-  SimulatedAnnealingConfig config_;
-};
+[[nodiscard]] std::vector<Allocation> simulated_annealing_place(
+    const std::vector<Allocation>& allocations,
+    const SimulatedAnnealingConfig& config);
 
 }  // namespace omnimalloc

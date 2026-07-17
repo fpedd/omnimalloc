@@ -10,7 +10,7 @@ from omnimalloc.benchmark.sources.generator import (
     SequentialSource,
     UniformSource,
 )
-from omnimalloc.primitives import BufferKind
+from omnimalloc.primitives import AllocationKind
 
 
 def test_random_source_basic_creation() -> None:
@@ -69,21 +69,21 @@ def test_random_source_duration_bounds() -> None:
     assert all(5 <= alloc.duration <= 10 for alloc in allocations)
 
 
-def test_random_source_buffer_kinds() -> None:
-    kinds = (BufferKind.WORKSPACE, BufferKind.CONSTANT)
+def test_random_source_allocation_kinds() -> None:
+    kinds = (AllocationKind.WORKSPACE, AllocationKind.CONSTANT)
     source = RandomSource(num_allocations=50, kinds=kinds, seed=42)
     allocations = source.get_allocations()
     assert all(alloc.kind in kinds for alloc in allocations)
 
 
-def test_random_source_buffer_kinds_with_weights() -> None:
-    kinds = (BufferKind.WORKSPACE, BufferKind.CONSTANT)
+def test_random_source_allocation_kinds_with_weights() -> None:
+    kinds = (AllocationKind.WORKSPACE, AllocationKind.CONSTANT)
     weights = (0.8, 0.2)
     source = RandomSource(
         num_allocations=100, kinds=kinds, kind_weights=weights, seed=42
     )
     allocations = source.get_allocations()
-    workspace_count = sum(1 for a in allocations if a.kind == BufferKind.WORKSPACE)
+    workspace_count = sum(1 for a in allocations if a.kind == AllocationKind.WORKSPACE)
     assert workspace_count > 60
 
 
@@ -127,7 +127,7 @@ def test_random_source_validation_kind_weights() -> None:
         ValueError, match="kinds and kind_weights must have same length"
     ):
         RandomSource(
-            kinds=(BufferKind.WORKSPACE,),
+            kinds=(AllocationKind.WORKSPACE,),
             kind_weights=(0.5, 0.5),
         )
 
@@ -237,7 +237,7 @@ def test_high_contention_source_high_contention() -> None:
     overlaps = 0
     for i, a1 in enumerate(allocations):
         for a2 in allocations[i + 1 :]:
-            if a1.overlaps_temporally(a2):
+            if a1.conflicts_with(a2):
                 overlaps += 1
     assert overlaps > 1000
 
@@ -279,7 +279,7 @@ def test_sequential_source_minimal_overlap() -> None:
     overlaps = 0
     for i, a1 in enumerate(allocations):
         for a2 in allocations[i + 1 :]:
-            if a1.overlaps_temporally(a2):
+            if a1.conflicts_with(a2):
                 overlaps += 1
     assert overlaps < 200
 

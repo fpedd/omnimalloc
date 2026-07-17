@@ -45,7 +45,7 @@ std::string to_string(const TimePoint& time) {
 
 Allocation::Allocation(IdType id, int64_t size, TimePoint start, TimePoint end,
                        std::optional<int64_t> offset,
-                       std::optional<BufferKind> kind)
+                       std::optional<AllocationKind> kind)
     : id_(std::move(id)),
       size_(size),
       start_(normalized(std::move(start))),
@@ -115,7 +115,7 @@ int64_t Allocation::vector_duration() const noexcept {
   return longest;
 }
 
-bool Allocation::overlaps_temporally(const Allocation& other) const {
+bool Allocation::conflicts_with(const Allocation& other) const {
   // Fast path: plain interval test, no variant probing in the O(n^2) callers
   if (is_scalar_time() && other.is_scalar_time()) {
     return std::get<int64_t>(start_) < std::get<int64_t>(other.end_) &&
@@ -123,8 +123,8 @@ bool Allocation::overlaps_temporally(const Allocation& other) const {
   }
   if (dim() != other.dim()) {
     throw std::invalid_argument(
-        "clock dimension mismatch: " + std::to_string(dim()) + " vs " +
-        std::to_string(other.dim()));
+        "allocations must share one clock dimension, got " +
+        std::to_string(dim()) + " and " + std::to_string(other.dim()));
   }
   return !happens_before(end_vec(), other.start_vec()) &&
          !happens_before(other.end_vec(), start_vec());
@@ -137,15 +137,11 @@ bool Allocation::overlaps_spatially(const Allocation& other) const noexcept {
 }
 
 bool Allocation::overlaps(const Allocation& other) const {
-  return overlaps_temporally(other) && overlaps_spatially(other);
+  return conflicts_with(other) && overlaps_spatially(other);
 }
 
 Allocation Allocation::with_offset(int64_t new_offset) const {
   return {id_, size_, start_, end_, new_offset, kind_};
-}
-
-Allocation Allocation::with_kind(BufferKind new_kind) const {
-  return {id_, size_, start_, end_, offset_, new_kind};
 }
 
 std::ostream& operator<<(std::ostream& os, const Allocation& a) {

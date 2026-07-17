@@ -17,6 +17,4 @@ from .sync_patterns import SYNC_PATTERNS as SYNC_PATTERNS
 from .sync_patterns import SyncPatternSource as SyncPatternSource
 from .tiling import TilingSource as TilingSource
 from .utils import DEFAULT_SOURCE as DEFAULT_SOURCE
-from .utils import get_available_sources as get_available_sources
-from .utils import get_default_source as get_default_source
-from .utils import get_source_by_name as get_source_by_name
+from .utils import available_sources as available_sources

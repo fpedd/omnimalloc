@@ -48,11 +48,11 @@ NUM_SYNCS = (0, 64, 1_024)
 # fall back to peak-bound sanity checks on larger instances
 VALIDATE_LIMIT = 2_000
 ALLOCATORS = (
-    "omni_allocator",
-    "greedy_by_all_allocator_cpp",
-    "greedy_allocator_cpp",
-    "best_fit_allocator",
-    "naive_allocator",
+    "omni",
+    "greedy_by_all",
+    "greedy",
+    "best_fit",
+    "naive",
 )
 
 SURFACE = "#fcfcfb"

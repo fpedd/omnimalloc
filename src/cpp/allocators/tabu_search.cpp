@@ -27,11 +27,9 @@ int64_t tabu_key(size_t a, size_t b, size_t num_allocations) {
 
 }  // namespace
 
-TabuSearchAllocator::TabuSearchAllocator(TabuSearchConfig config)
-    : config_(config) {}
-
-std::vector<Allocation> TabuSearchAllocator::allocate(
-    const std::vector<Allocation>& allocations) const {
+std::vector<Allocation> tabu_search_place(
+    const std::vector<Allocation>& allocations,
+    const TabuSearchConfig& config) {
   const FirstFitPlacer placer(allocations);
   std::vector<size_t> order = initial_order(allocations);
   if (allocations.size() < 2) {
@@ -45,12 +43,12 @@ std::vector<Allocation> TabuSearchAllocator::allocate(
   std::vector<Allocation> best_placed = current_placed;
   int64_t best_peak = current_peak;
 
-  std::mt19937_64 rng(config_.seed);
+  std::mt19937_64 rng(config.seed);
   std::unordered_map<int64_t, int> tabu_until;
 
-  const auto deadline = make_deadline(config_.timeout);
+  const auto deadline = make_deadline(config.timeout);
 
-  for (int iteration = 0; iteration < config_.max_iterations; ++iteration) {
+  for (int iteration = 0; iteration < config.max_iterations; ++iteration) {
     if (deadline_expired(deadline)) {
       break;
     }
@@ -69,9 +67,9 @@ std::vector<Allocation> TabuSearchAllocator::allocate(
     std::vector<Allocation> best_candidate_placed;
     bool best_is_tabu = false;
 
-    for (int sample = 0; sample < config_.neighborhood_size; ++sample) {
+    for (int sample = 0; sample < config.neighborhood_size; ++sample) {
       const auto proposal =
-          propose_peak_swap(peaks, order, allocations, placer.overlaps(), rng);
+          propose_peak_swap(peaks, order, allocations, placer.conflicts(), rng);
       if (!proposal) {
         continue;
       }
@@ -107,7 +105,7 @@ std::vector<Allocation> TabuSearchAllocator::allocate(
     current_peak = best_candidate_peak;
     if (!best_is_tabu) {
       tabu_until[tabu_key(order[best_p1], order[best_p2], n)] =
-          iteration + config_.tabu_tenure;
+          iteration + config.tabu_tenure;
     }
 
     if (current_peak < best_peak) {

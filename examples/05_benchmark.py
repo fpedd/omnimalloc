@@ -17,25 +17,25 @@ def main() -> None:
 
     # Define allocators, sources, and variants to benchmark
     allocators = (
-        "greedy_by_size_allocator",
-        "greedy_by_size_allocator_cpp",
-        "greedy_by_all_allocator_cpp",
-        "best_fit_allocator",
-        "telamalloc_allocator",
+        "greedy_by_size",
+        "greedy_by_all",
+        "omni",
+        "best_fit",
+        "telamalloc",
     )
     # minimalloc is an optional dependency that only builds on some platforms
     if HAS_MINIMALLOC:
-        allocators += ("minimalloc_allocator",)
+        allocators += ("minimalloc",)
     sources = (
-        "random_source",
-        "minimalloc_source",
-        "huggingface_source",
+        "random",
+        "minimalloc",
+        "huggingface",
     )
     # Counts for the parameterizable source, "first 5" for the fixed ones
     variants = {
-        "random_source": (10, 50, 100, 250, 500),
-        "minimalloc_source": 5,
-        "huggingface_source": 5,
+        "random": (10, 50, 100, 250, 500),
+        "minimalloc": 5,
+        "huggingface": 5,
     }
 
     # Run benchmark campaign

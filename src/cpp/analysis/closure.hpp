@@ -19,18 +19,23 @@ namespace omnimalloc {
 // joins of observed clocks span the consistent-cut lattice). Note that
 // pairwise-concurrent allocations need not share a cut, so this can sit
 // strictly below antichain_pressure; both soundly lower-bound any
-// placement's peak. nullopt once the closure exceeds `closure_cap`.
-[[nodiscard]] std::optional<int64_t> closure_pressure(
-    const std::vector<Allocation>& allocations, size_t closure_cap);
+// placement's peak. A set `closure_cap` bounds the enumeration, throwing
+// std::runtime_error once the closure exceeds it; nullopt enumerates
+// unbounded (memory grows with the closure).
+[[nodiscard]] int64_t closure_pressure(
+    const std::vector<Allocation>& allocations,
+    std::optional<size_t> closure_cap);
 
 // Exact realizable peak while each allocation is live, aligned with
 // `allocations`: the maximum total size at any join-closure cut where the
 // allocation is live (every allocation is live at its own birth cut). Can
-// sit elementwise strictly below per_allocation_antichain_pressure, since
+// sit elementwise strictly below antichain_pressure_per_allocation, since
 // pairwise-concurrent allocations need not share a cut; the maximum entry
-// equals closure_pressure. nullopt once the closure exceeds `closure_cap`.
-[[nodiscard]] std::optional<std::vector<int64_t>>
-per_allocation_closure_pressure(const std::vector<Allocation>& allocations,
-                                size_t closure_cap);
+// equals closure_pressure. A set `closure_cap` bounds the enumeration,
+// throwing std::runtime_error once the closure exceeds it; nullopt
+// enumerates unbounded (memory grows with the closure).
+[[nodiscard]] std::vector<int64_t> closure_pressure_per_allocation(
+    const std::vector<Allocation>& allocations,
+    std::optional<size_t> closure_cap);
 
 }  // namespace omnimalloc

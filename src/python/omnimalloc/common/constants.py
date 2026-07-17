@@ -4,11 +4,6 @@
 
 from typing import Final
 
-# Cross-cutting defaults, owned here and only here: the C++ boundary (_cpp)
-# takes every parameter explicitly, so a value can never drift between the
-# languages. Algorithm-specific knobs live as field defaults on the
-# allocator's own config dataclass instead.
-
 # Shared wall-clock budget for every time-bounded allocator (seconds);
 # None disables the budget.
 DEFAULT_TIMEOUT: Final[float] = 3.0
