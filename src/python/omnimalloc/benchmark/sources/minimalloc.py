@@ -2,14 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import csv
 import logging
-from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 
 from omnimalloc.common.directories import EXTERNAL_DIR
-from omnimalloc.primitives import Allocation, BufferKind, IdType, Pool
+from omnimalloc.io import load_allocation
+from omnimalloc.primitives import Allocation, IdType, Pool
 
 from .base import BaseSource
 
@@ -22,61 +20,6 @@ class MinimallocSubset(str, Enum):
     EXAMPLES = "examples"
     SMALL = "small"
     CHALLENGING = "challenging"
-
-
-@dataclass(frozen=True)
-class _MinimallocBuffer:
-    id: IdType
-    lower: int
-    upper: int
-    size: int
-
-    def __post_init__(self) -> None:
-        if isinstance(self.id, int) and self.id < 0:
-            raise ValueError(f"id must be non-negative, got {self.id}")
-        if self.size <= 0:
-            raise ValueError(f"size must be positive, got {self.size}")
-        if self.upper <= self.lower:
-            raise ValueError(f"upper ({self.upper}) <= lower ({self.lower})")
-
-
-def _read_minimalloc_csv(file_path: Path) -> list[_MinimallocBuffer]:
-    buffers = []
-    with Path.open(file_path, mode="r", newline="") as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            buffer = _MinimallocBuffer(
-                id=str(row["id"]),
-                lower=int(row["lower"]),
-                upper=int(row["upper"]),
-                size=int(row["size"]),
-            )
-            buffers.append(buffer)
-    return buffers
-
-
-def _from_minimalloc_csv(file_path: str | Path) -> Pool:
-    file_path_ = Path(file_path)
-    mm_buffers = _read_minimalloc_csv(file_path_)
-    allocations = []
-    for mm_buffer in mm_buffers:
-        allocation = Allocation(
-            id=mm_buffer.id,
-            size=mm_buffer.size,
-            start=mm_buffer.lower,
-            end=mm_buffer.upper,
-            offset=None,
-            kind=BufferKind.WORKSPACE,
-        )
-        allocations.append(allocation)
-
-    pool = Pool(
-        id=file_path_.stem,
-        allocations=tuple(allocations),
-        offset=None,
-    )
-
-    return pool
 
 
 class MinimallocSource(BaseSource):
@@ -106,7 +49,7 @@ class MinimallocSource(BaseSource):
             csv_dir = EXTERNAL_DIR / "minimalloc" / self.subset.value
             # Sort for a filesystem-independent, reproducible variant order
             self._cached_pools = [
-                _from_minimalloc_csv(f) for f in sorted(csv_dir.glob("*.csv"))
+                load_allocation(f) for f in sorted(csv_dir.glob("*.csv"))
             ]
         return self._cached_pools
 

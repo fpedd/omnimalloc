@@ -33,8 +33,8 @@ inline size_t checked_dim(const std::vector<Allocation>& allocations) {
   for (const Allocation& alloc : allocations) {
     if (alloc.dim() != dim) {
       throw std::invalid_argument(
-          "clock dimension mismatch: " + std::to_string(dim) + " vs " +
-          std::to_string(alloc.dim()));
+          "allocations must share one clock dimension, got " +
+          std::to_string(dim) + " and " + std::to_string(alloc.dim()));
     }
   }
   return dim;

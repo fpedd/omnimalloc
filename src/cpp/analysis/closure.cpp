@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -25,9 +27,9 @@ namespace omnimalloc {
 namespace {
 
 // The join-closure of the group birth clocks as a flat num_cuts x d arena,
-// or nullopt once it exceeds `closure_cap`.
+// or nullopt once it exceeds a set `closure_cap`.
 std::optional<std::vector<int64_t>> build_cut_arena(
-    const LifetimeGroups& groups, size_t d, size_t closure_cap) {
+    const LifetimeGroups& groups, size_t d, std::optional<size_t> closure_cap) {
   std::vector<int64_t> arena;
   const auto row = [&](size_t idx) { return arena.data() + idx * d; };
   const auto hash_row = [&](size_t idx) {
@@ -57,7 +59,7 @@ std::optional<std::vector<int64_t>> build_cut_arena(
   for (size_t i = 0; i < groups.count(); ++i) {
     arena.insert(arena.end(), groups.starts[i].begin(), groups.starts[i].end());
     if (insert_tail()) {
-      if (cuts.size() > closure_cap) {
+      if (closure_cap && cuts.size() > *closure_cap) {
         return std::nullopt;
       }
       births.push_back(arena.size() / d - 1);
@@ -75,7 +77,7 @@ std::optional<std::vector<int64_t>> build_cut_arena(
         arena[tail + t] = std::max(row(cut)[t], row(birth)[t]);
       }
       if (insert_tail()) {
-        if (cuts.size() > closure_cap) {
+        if (closure_cap && cuts.size() > *closure_cap) {
           return std::nullopt;
         }
         frontier.push_back(arena.size() / d - 1);
@@ -113,10 +115,22 @@ std::vector<std::pair<int64_t, int64_t>> scalar_times(
   return times;
 }
 
+// The arena, or the closure_cap throw shared by both entry points.
+std::vector<int64_t> checked_cut_arena(const LifetimeGroups& groups, size_t d,
+                                       std::optional<size_t> closure_cap) {
+  auto arena = build_cut_arena(groups, d, closure_cap);
+  if (!arena.has_value()) {
+    throw std::runtime_error(
+        "Join closure exceeded closure_cap; raise the cap or pass None for "
+        "the unbounded enumeration");
+  }
+  return std::move(*arena);
+}
+
 }  // namespace
 
-std::optional<int64_t> closure_pressure(
-    const std::vector<Allocation>& allocations, size_t closure_cap) {
+int64_t closure_pressure(const std::vector<Allocation>& allocations,
+                         std::optional<size_t> closure_cap) {
   if (allocations.empty()) {
     return 0;
   }
@@ -129,19 +143,17 @@ std::optional<int64_t> closure_pressure(
     return interval_peak(scalar_times(groups), groups.weights);
   }
 
-  const auto arena = build_cut_arena(groups, d, closure_cap);
-  if (!arena.has_value()) {
-    return std::nullopt;
-  }
-  const std::vector<int64_t> live = live_weights(*arena, groups, d);
+  const std::vector<int64_t> arena = checked_cut_arena(groups, d, closure_cap);
+  const std::vector<int64_t> live = live_weights(arena, groups, d);
   return *std::ranges::max_element(live);
 }
 
-std::optional<std::vector<int64_t>> per_allocation_closure_pressure(
-    const std::vector<Allocation>& allocations, size_t closure_cap) {
+std::vector<int64_t> closure_pressure_per_allocation(
+    const std::vector<Allocation>& allocations,
+    std::optional<size_t> closure_cap) {
   const size_t n = allocations.size();
   if (n == 0) {
-    return std::vector<int64_t>{};
+    return {};
   }
   const size_t d = checked_dim(allocations);
   const LifetimeGroups groups = group_lifetimes(allocations);
@@ -151,21 +163,19 @@ std::optional<std::vector<int64_t>> per_allocation_closure_pressure(
   if (d == 1) {
     per_group = interval_peaks(scalar_times(groups), groups.weights);
   } else {
-    const auto arena = build_cut_arena(groups, d, closure_cap);
-    if (!arena.has_value()) {
-      return std::nullopt;
-    }
-    const std::vector<int64_t> live = live_weights(*arena, groups, d);
+    const std::vector<int64_t> arena =
+        checked_cut_arena(groups, d, closure_cap);
+    const std::vector<int64_t> live = live_weights(arena, groups, d);
     // Peak per group: the heaviest cut where it is live; its own birth cut
     // always qualifies, so every entry is at least the group weight.
-    const size_t num_cuts = arena->size() / d;
+    const size_t num_cuts = arena.size() / d;
     per_group.resize(g);
     for_each_row_block(g, parallel_threads(g), [&](size_t i) {
       const int64_t* start = groups.starts[i].data();
       const int64_t* end = groups.ends[i].data();
       int64_t best = 0;
       for (size_t c = 0; c < num_cuts; ++c) {
-        const int64_t* cut = arena->data() + c * d;
+        const int64_t* cut = arena.data() + c * d;
         if (dominates(start, cut, d) && !dominates(end, cut, d)) {
           best = std::max(best, live[c]);
         }

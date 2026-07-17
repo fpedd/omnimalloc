@@ -3,6 +3,7 @@
 #
 
 import pytest
+from omnimalloc._cpp import FirstFitPlacer, first_fit_place
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
     GreedyByAllAllocator,
@@ -13,11 +14,8 @@ from omnimalloc.allocators.greedy import (
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
 )
-from omnimalloc.allocators.greedy_base import (
-    allocate_parallel,
-    compute_conflicts,
-    peak_memory,
-)
+from omnimalloc.allocators.greedy_base import allocate_parallel
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
 
 
@@ -122,41 +120,6 @@ def test_greedy_by_duration_allocates_correctly() -> None:
     result = allocator.allocate((short, long))
     assert result[0].offset == 0
     assert result[1].offset == 100
-
-
-def test_compute_conflicts_empty() -> None:
-    assert compute_conflicts(()) == {}
-
-
-def test_compute_conflicts_counts_overlaps() -> None:
-    alone = Allocation(id=1, size=10, start=0, end=5)
-    pair_a = Allocation(id=2, size=10, start=10, end=20)
-    pair_b = Allocation(id=3, size=10, start=15, end=25)
-    degrees = compute_conflicts((alone, pair_a, pair_b))
-    assert degrees[alone] == 0
-    assert degrees[pair_a] == 1
-    assert degrees[pair_b] == 1
-
-
-def test_compute_conflicts_touching_intervals_do_not_conflict() -> None:
-    first = Allocation(id=1, size=10, start=0, end=10)
-    second = Allocation(id=2, size=10, start=10, end=20)
-    degrees = compute_conflicts((first, second))
-    assert degrees[first] == 0
-    assert degrees[second] == 0
-
-
-def test_compute_conflicts_matches_bruteforce() -> None:
-    allocs = tuple(
-        Allocation(id=i, size=i + 1, start=(i * 7) % 23, end=(i * 7) % 23 + i % 6 + 1)
-        for i in range(50)
-    )
-    degrees = compute_conflicts(allocs)
-    for alloc in allocs:
-        expected = sum(
-            1 for other in allocs if other != alloc and alloc.overlaps_temporally(other)
-        )
-        assert degrees[alloc] == expected
 
 
 def test_greedy_by_conflict_empty() -> None:
@@ -388,7 +351,7 @@ def test_greedy_by_all_picks_best_peak() -> None:
         Allocation(id=5, size=300, start=2, end=4),
     )
     result = allocator.allocate(allocs)
-    peak = peak_memory(result)
+    peak = placement_pressure(result)
 
     variants = (
         GreedyAllocator(),
@@ -399,7 +362,7 @@ def test_greedy_by_all_picks_best_peak() -> None:
         GreedyByConflictSizeAllocator(),
         GreedyByStartAllocator(),
     )
-    best_variant_peak = min(peak_memory(v.allocate(allocs)) for v in variants)
+    best_variant_peak = min(placement_pressure(v.allocate(allocs)) for v in variants)
     assert peak == best_variant_peak
 
 
@@ -415,7 +378,7 @@ def test_greedy_by_all_deterministic() -> None:
 
 
 def test_allocate_parallel_empty() -> None:
-    result = allocate_parallel((GreedyAllocator(),), (), cores=2)
+    result = allocate_parallel((), (GreedyAllocator(),), num_threads=2)
     assert result == ()
 
 
@@ -436,8 +399,8 @@ def test_allocate_parallel_matches_serial() -> None:
         )
         for i in range(30)
     )
-    serial = allocate_parallel(variants, allocs, cores=1)
-    parallel = allocate_parallel(variants, allocs, cores=2)
+    serial = allocate_parallel(allocs, variants, num_threads=1)
+    parallel = allocate_parallel(allocs, variants, num_threads=2)
     assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
 
 
@@ -446,8 +409,8 @@ def test_allocate_parallel_matches_serial_order() -> None:
         Allocation(id="b", size=10, start=0, end=5),
         Allocation(id="a", size=20, start=3, end=8),
     )
-    serial = allocate_parallel((GreedyBySizeAllocator(),), allocs, cores=1)
-    parallel = allocate_parallel((GreedyBySizeAllocator(),), allocs, cores=2)
+    serial = allocate_parallel(allocs, (GreedyBySizeAllocator(),), num_threads=1)
+    parallel = allocate_parallel(allocs, (GreedyBySizeAllocator(),), num_threads=2)
     assert [a.id for a in parallel] == [a.id for a in serial] == ["a", "b"]
 
 
@@ -458,18 +421,33 @@ def test_allocate_parallel_tie_break_takes_first_variant() -> None:
     )
     variants = (GreedyAllocator(), GreedyBySizeAllocator())
     for result in (
-        allocate_parallel(variants, allocs, cores=1),
-        allocate_parallel(variants, allocs, cores=2),
+        allocate_parallel(allocs, variants, num_threads=1),
+        allocate_parallel(allocs, variants, num_threads=2),
     ):
         assert {a.id: a.offset for a in result} == {"a": 0, "b": 10}
-    flipped = allocate_parallel(variants[::-1], allocs, cores=2)
+    flipped = allocate_parallel(allocs, variants[::-1], num_threads=2)
     assert {a.id: a.offset for a in flipped} == {"a": 20, "b": 0}
 
 
-def test_allocate_parallel_rejects_configured_variant() -> None:
-    allocs = (Allocation(id=1, size=10, start=0, end=5),)
-    with pytest.raises(ValueError, match="default-configured"):
-        allocate_parallel((GreedyByAllAllocator(cores=2),), allocs, cores=2)
+def test_allocate_parallel_accepts_configured_variant() -> None:
+    allocs = (
+        Allocation(id="a", size=10, start=0, end=5),
+        Allocation(id="b", size=20, start=3, end=8),
+    )
+    variants = (GreedyBySizeAllocator(), GreedyByAllAllocator(num_threads=1))
+    result = allocate_parallel(allocs, variants, num_threads=2)
+    assert placement_pressure(result) == 30
+
+
+def test_allocate_parallel_rejects_non_positive_num_threads() -> None:
+    allocs = (Allocation(id="a", size=10, start=0, end=5),)
+    with pytest.raises(ValueError, match="num_threads must be positive"):
+        allocate_parallel(allocs, (GreedyAllocator(),), num_threads=0)
+
+
+def test_greedy_by_all_rejects_non_positive_num_threads() -> None:
+    with pytest.raises(ValueError, match="num_threads must be positive"):
+        GreedyByAllAllocator(num_threads=0)
 
 
 def test_greedy_by_all_default_matches_single_core() -> None:
@@ -478,14 +456,14 @@ def test_greedy_by_all_default_matches_single_core() -> None:
         for i in range(20)
     )
     default = GreedyByAllAllocator().allocate(allocs)
-    single = GreedyByAllAllocator(cores=1).allocate(allocs)
+    single = GreedyByAllAllocator(num_threads=1).allocate(allocs)
     assert {a.id: a.offset for a in default} == {a.id: a.offset for a in single}
 
 
 def test_allocate_parallel_serial_when_single_core() -> None:
     allocs = (Allocation(id="a", size=10, start=0, end=5),)
     variants = (GreedyAllocator(), GreedyBySizeAllocator())
-    result = allocate_parallel(variants, allocs, cores=1)
+    result = allocate_parallel(allocs, variants, num_threads=1)
     assert {a.id: a.offset for a in result} == {"a": 0}
 
 
@@ -494,18 +472,49 @@ def test_greedy_by_all_parallel_matches_serial() -> None:
         Allocation(id=i, size=(i % 5 + 1) * 100, start=i % 6, end=i % 6 + i % 7 + 1)
         for i in range(25)
     )
-    serial = GreedyByAllAllocator(cores=1).allocate(allocs)
-    parallel = GreedyByAllAllocator(cores=2).allocate(allocs)
+    serial = GreedyByAllAllocator(num_threads=1).allocate(allocs)
+    parallel = GreedyByAllAllocator(num_threads=2).allocate(allocs)
     assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
 
 
-def test_allocate_parallel_rejects_configured_dataclass_variant() -> None:
-    from omnimalloc.allocators.simulated_annealing import (
-        SimulatedAnnealingAllocator,
-        SimulatedAnnealingConfig,
-    )
+def test_allocate_parallel_configured_variant_keeps_kwargs() -> None:
+    from omnimalloc.allocators.simulated_annealing import SimulatedAnnealingAllocator
 
-    allocs = (Allocation(id=1, size=10, start=0, end=5),)
-    variant = SimulatedAnnealingAllocator(SimulatedAnnealingConfig(seed=123))
-    with pytest.raises(ValueError, match="default-configured"):
-        allocate_parallel((variant, variant), allocs, cores=2)
+    allocs = (
+        Allocation(id="a", size=10, start=0, end=5),
+        Allocation(id="b", size=20, start=3, end=8),
+    )
+    variant = SimulatedAnnealingAllocator(seed=123, max_iterations=5)
+    serial = allocate_parallel(allocs, (variant,), num_threads=1)
+    parallel = allocate_parallel(allocs, (variant, variant), num_threads=2)
+    assert {a.id: a.offset for a in parallel} == {a.id: a.offset for a in serial}
+
+
+def test_first_fit_placer_rejects_out_of_range_order() -> None:
+    placer = FirstFitPlacer([Allocation(id=1, size=10, start=0, end=5)])
+    with pytest.raises(ValueError, match="out of range"):
+        placer.place([1])
+
+
+def test_first_fit_placer_rejects_repeated_order_index() -> None:
+    placer = FirstFitPlacer(
+        [
+            Allocation(id=1, size=10, start=0, end=5),
+            Allocation(id=2, size=20, start=0, end=5),
+        ]
+    )
+    with pytest.raises(ValueError, match="more than once"):
+        placer.peak([0, 0])
+
+
+def test_first_fit_place_matches_greedy_across_orders() -> None:
+    allocs = tuple(
+        Allocation(id=i, size=(i % 4 + 1) * 10, start=i % 5, end=i % 5 + i % 3 + 1)
+        for i in range(30)
+    )
+    for order in (allocs, tuple(reversed(allocs))):
+        result = first_fit_place(order)
+        expected = GreedyAllocator().allocate(order)
+        assert [(a.id, a.offset) for a in result] == [
+            (a.id, a.offset) for a in expected
+        ]

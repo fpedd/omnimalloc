@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc._cpp import compute_temporal_overlaps, first_fit_place
+from omnimalloc._cpp import first_fit_place
+from omnimalloc.common.parallel import ensure_valid_num_threads
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -23,10 +24,9 @@ class GreedyAllocator(BaseAllocator):
     supports_vector_time = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        # Unbounded: placement needs the true conflict relation, never a degrade.
-        overlaps = compute_temporal_overlaps(allocations, None)
-        assert overlaps is not None
-        return tuple(first_fit_place(allocations, overlaps))
+        # The C++ kernel computes the conflict relation natively, unbudgeted:
+        # placement needs the true relation and never degrades.
+        return tuple(first_fit_place(allocations))
 
 
 class GreedyByDurationAllocator(GreedyAllocator):
@@ -72,10 +72,14 @@ class GreedyBySizeAllocator(GreedyAllocator):
 
 
 class GreedyByAllAllocator(GreedyAllocator):
-    """Greedy allocator that runs every variant and keeps the best result."""
+    """Greedy allocator that runs every variant and keeps the best result.
 
-    def __init__(self, cores: int | None = None) -> None:
-        self._cores = cores
+    `num_threads=None` uses all cores.
+    """
+
+    def __init__(self, *, num_threads: int | None = None) -> None:
+        ensure_valid_num_threads(num_threads)
+        self._num_threads = num_threads
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         variants: tuple[BaseAllocator, ...] = (
@@ -87,4 +91,4 @@ class GreedyByAllAllocator(GreedyAllocator):
             GreedyByConflictSizeAllocator(),
             GreedyByStartAllocator(),
         )
-        return allocate_parallel(variants, allocations, cores=self._cores)
+        return allocate_parallel(allocations, variants, num_threads=self._num_threads)

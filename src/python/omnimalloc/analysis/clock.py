@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from collections.abc import Sequence
+
 from omnimalloc.primitives.allocation import Allocation, TimePoint, VectorClock
 
 
@@ -12,7 +14,7 @@ def time_components(time_point: TimePoint) -> VectorClock:
     return (time_point,)
 
 
-def ensure_uniform_dim(allocations: tuple[Allocation, ...]) -> int:
+def uniform_dim(allocations: Sequence[Allocation]) -> int:
     """Return the shared clock dimension (1 if empty); raise on mixed dims."""
     dims = {alloc.dim for alloc in allocations}
     if len(dims) > 1:

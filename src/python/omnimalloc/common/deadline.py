@@ -5,12 +5,9 @@
 import math
 import time
 
-# Python mirror of the C++ deadline helpers (src/cpp/common/deadline.hpp):
-# one spelling of the shared timeout convention, where None disables the
-# budget. The work-budget validator lives here too — same None-disables shape.
-
 
 def ensure_valid_timeout(timeout: float | None) -> None:
+    """Raise ValueError if timeout is not positive or None (disabled)."""
     if timeout is not None and not (math.isfinite(timeout) and timeout > 0):
         raise ValueError(
             f"timeout must be positive or None, got {timeout}; "
@@ -19,6 +16,7 @@ def ensure_valid_timeout(timeout: float | None) -> None:
 
 
 def ensure_valid_budget(budget: int | None, name: str = "work_budget") -> None:
+    """Raise ValueError if budget is not non-negative or None (disabled)."""
     if budget is not None and budget < 0:
         raise ValueError(f"{name} must be non-negative, got {budget}")
 
@@ -34,4 +32,5 @@ def deadline_remaining(deadline: float | None) -> float | None:
 
 
 def deadline_expired(deadline: float | None) -> bool:
+    """Whether the budget has expired (False when disabled)."""
     return deadline is not None and time.monotonic() >= deadline

@@ -3,7 +3,7 @@
 #
 
 from .allocation import Allocation as Allocation
-from .allocation import BufferKind as BufferKind
+from .allocation import AllocationKind as AllocationKind
 from .allocation import IdType as IdType
 from .allocation import TimePoint as TimePoint
 from .allocation import VectorClock as VectorClock

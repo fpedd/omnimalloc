@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from omnimalloc.common.optional import require_optional
-from omnimalloc.primitives import BufferKind
+from omnimalloc.primitives import AllocationKind
 
 from .model import Buffer, Model, Op
 
@@ -56,13 +56,13 @@ def _from_onnx_model(onnx_model: onnx.ModelProto) -> Model:
         # Legacy IR re-lists initializers under graph inputs; those are constants.
         if inp.name in buffers:
             continue
-        _add_buffer(_value_info_to_buffer(inp, BufferKind.INPUT))
+        _add_buffer(_value_info_to_buffer(inp, AllocationKind.INPUT))
 
     for out in graph.output:
-        _add_buffer(_value_info_to_buffer(out, BufferKind.OUTPUT))
+        _add_buffer(_value_info_to_buffer(out, AllocationKind.OUTPUT))
 
     for val in graph.value_info:
-        _add_buffer(_value_info_to_buffer(val, BufferKind.WORKSPACE))
+        _add_buffer(_value_info_to_buffer(val, AllocationKind.WORKSPACE))
 
     ops = {}
     for idx, node in enumerate(graph.node):
@@ -88,11 +88,13 @@ def _tensor_proto_to_buffer(tensor: onnx.TensorProto) -> Buffer:
         id=tensor.name,
         shape=shape,
         dtype=onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type),
-        kind=BufferKind.CONSTANT,
+        kind=AllocationKind.CONSTANT,
     )
 
 
-def _value_info_to_buffer(value_info: onnx.ValueInfoProto, kind: BufferKind) -> Buffer:
+def _value_info_to_buffer(
+    value_info: onnx.ValueInfoProto, kind: AllocationKind
+) -> Buffer:
     tt = value_info.type.tensor_type
     original_shape = tuple(int(dim.dim_value) for dim in tt.shape.dim)
     shape = tuple(dim for dim in original_shape if dim > 0)

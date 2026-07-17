@@ -4,14 +4,14 @@
 
 import pytest
 from omnimalloc.allocators.greedy import GreedyBySizeAllocator
-from omnimalloc.allocators.greedy_base import peak_memory
-from omnimalloc.allocators.telamalloc import TelamallocAllocator, TelamallocConfig
+from omnimalloc.allocators.telamalloc import TelamallocAllocator
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation, Pool
 from omnimalloc.validate import validate_allocation
 
 
-def _is_valid(result: tuple[Allocation, ...]) -> bool:
-    return validate_allocation(Pool(id="test_pool", allocations=result))
+def _assert_valid(result: tuple[Allocation, ...]) -> None:
+    validate_allocation(Pool(id="test_pool", allocations=result))
 
 
 def test_telamalloc_empty() -> None:
@@ -30,12 +30,12 @@ def test_telamalloc_single() -> None:
 
 def test_telamalloc_rejects_negative_backtracks() -> None:
     with pytest.raises(ValueError, match="max_backtracks must be non-negative"):
-        TelamallocConfig(max_backtracks=-1)
+        TelamallocAllocator(max_backtracks=-1)
 
 
 def test_telamalloc_rejects_negative_seconds() -> None:
     with pytest.raises(ValueError, match="timeout must be positive or None"):
-        TelamallocConfig(timeout=-1.0)
+        TelamallocAllocator(timeout=-1.0)
 
 
 def test_telamalloc_no_temporal_overlap_shares_offset() -> None:
@@ -73,21 +73,20 @@ def test_telamalloc_all_overlap_stacks_sequentially() -> None:
     allocator = TelamallocAllocator()
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
-    assert peak_memory(result) == 500
+    _assert_valid(result)
+    assert placement_pressure(result) == 500
 
 
 def test_telamalloc_overlapping_reach_lower_bound() -> None:
-    config = TelamallocConfig(timeout=None)
-    result = TelamallocAllocator(config).allocate(
+    result = TelamallocAllocator(timeout=None).allocate(
         (
             Allocation(id=1, size=100, start=0, end=10),
             Allocation(id=2, size=50, start=5, end=15),
             Allocation(id=3, size=25, start=0, end=15),
         )
     )
-    assert _is_valid(result)
-    assert peak_memory(result) == 175
+    _assert_valid(result)
+    assert placement_pressure(result) == 175
 
 
 def test_telamalloc_independent_phases_share_address_space() -> None:
@@ -95,8 +94,8 @@ def test_telamalloc_independent_phases_share_address_space() -> None:
     early = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(3))
     late = tuple(Allocation(id=10 + i, size=100, start=20, end=30) for i in range(3))
     result = allocator.allocate(early + late)
-    assert _is_valid(result)
-    assert peak_memory(result) == 300
+    _assert_valid(result)
+    assert placement_pressure(result) == 300
     offsets = sorted(a.offset for a in result if a.id >= 10)
     assert offsets == [0, 100, 200]
 
@@ -106,9 +105,8 @@ def test_telamalloc_deterministic_without_deadline() -> None:
         Allocation(id=i, size=(i % 5 + 1) * 100, start=i % 3, end=i % 3 + i % 7 + 1)
         for i in range(20)
     )
-    config = TelamallocConfig(timeout=None)
-    result1 = TelamallocAllocator(config).allocate(allocs)
-    result2 = TelamallocAllocator(config).allocate(allocs)
+    result1 = TelamallocAllocator(timeout=None).allocate(allocs)
+    result2 = TelamallocAllocator(timeout=None).allocate(allocs)
     assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
 
 
@@ -124,7 +122,7 @@ def test_telamalloc_produces_valid_allocation_on_dense_overlap() -> None:
         for i in range(30)
     )
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
+    _assert_valid(result)
     assert {a.id for a in result} == {a.id for a in allocs}
 
 
@@ -138,16 +136,15 @@ def test_telamalloc_matches_or_beats_single_pass_greedy() -> None:
         )
         for i in range(40)
     )
-    greedy_peak = peak_memory(GreedyBySizeAllocator().allocate(allocs))
-    config = TelamallocConfig(timeout=None)
-    result = TelamallocAllocator(config).allocate(allocs)
-    assert _is_valid(result)
-    assert peak_memory(result) <= greedy_peak
+    greedy_peak = placement_pressure(GreedyBySizeAllocator().allocate(allocs))
+    result = TelamallocAllocator(timeout=None).allocate(allocs)
+    _assert_valid(result)
+    assert placement_pressure(result) <= greedy_peak
 
 
 def test_telamalloc_rejects_int64_overflow_inputs() -> None:
     huge = tuple(
         Allocation(id=i, size=(2**63 - 1) // 4, start=0, end=10) for i in range(3)
     )
-    with pytest.raises(OverflowError):
+    with pytest.raises(ValueError, match="int64"):
         TelamallocAllocator().allocate(huge)

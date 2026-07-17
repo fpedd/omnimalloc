@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc._cpp import OmniAllocatorCpp as _OmniAllocatorCpp
+from omnimalloc._cpp import omni_place
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
 from omnimalloc.common.deadline import ensure_valid_budget
 from omnimalloc.primitives import Allocation
@@ -23,10 +23,9 @@ class OmniAllocator(BaseAllocator):
 
     supports_vector_time = True
 
-    def __init__(self, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
+    def __init__(self, *, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
         ensure_valid_budget(linearize_budget, name="linearize_budget")
         self._linearize_budget = linearize_budget
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        cpp_allocator = _OmniAllocatorCpp(self._linearize_budget)
-        return tuple(cpp_allocator.allocate(list(allocations)))
+        return tuple(omni_place(allocations, self._linearize_budget))

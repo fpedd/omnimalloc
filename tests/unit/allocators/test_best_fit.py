@@ -4,13 +4,13 @@
 
 from omnimalloc.allocators.best_fit import BestFitAllocator
 from omnimalloc.allocators.greedy import GreedyAllocator
-from omnimalloc.allocators.greedy_base import peak_memory
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation, Pool
 from omnimalloc.validate import validate_allocation
 
 
-def _is_valid(result: tuple[Allocation, ...]) -> bool:
-    return validate_allocation(Pool(id="test_pool", allocations=result))
+def _assert_valid(result: tuple[Allocation, ...]) -> None:
+    validate_allocation(Pool(id="test_pool", allocations=result))
 
 
 def test_best_fit_empty() -> None:
@@ -41,8 +41,8 @@ def test_best_fit_all_overlap_stacks_sequentially() -> None:
     allocator = BestFitAllocator()
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
-    assert peak_memory(result) == 500
+    _assert_valid(result)
+    assert placement_pressure(result) == 500
 
 
 def test_best_fit_preserves_allocations() -> None:
@@ -82,10 +82,10 @@ def test_best_fit_chooses_tighter_gap_than_first_fit() -> None:
 
     assert first_fit["t"] == 10
     assert best_fit["t"] == 45
-    assert _is_valid(BestFitAllocator().allocate(allocs))
-    assert peak_memory(tuple(BestFitAllocator().allocate(allocs))) == peak_memory(
-        tuple(GreedyAllocator().allocate(allocs))
-    )
+    _assert_valid(BestFitAllocator().allocate(allocs))
+    assert placement_pressure(
+        tuple(BestFitAllocator().allocate(allocs))
+    ) == placement_pressure(tuple(GreedyAllocator().allocate(allocs)))
 
 
 def test_best_fit_complex_overlap_produces_valid_allocation() -> None:
@@ -98,4 +98,4 @@ def test_best_fit_complex_overlap_produces_valid_allocation() -> None:
         Allocation(id=5, size=300, start=2, end=4),
     )
     result = allocator.allocate(allocs)
-    assert _is_valid(result)
+    _assert_valid(result)

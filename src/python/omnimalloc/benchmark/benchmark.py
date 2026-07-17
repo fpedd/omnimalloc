@@ -4,13 +4,13 @@
 
 import logging
 
-from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.allocators import BaseAllocator, get_available_allocators
+from omnimalloc import allocate, validate_allocation
+from omnimalloc.allocators import BaseAllocator, available_allocators
 from omnimalloc.primitives import IdType, Pool
 
 from .results import BenchmarkCampaign, BenchmarkReport, BenchmarkResult
 from .results.utils import get_date_time_snake_case
-from .sources import BaseSource, get_default_source
+from .sources import DEFAULT_SOURCE, BaseSource
 from .timer import Timer
 from .utils import tqdm
 
@@ -82,7 +82,7 @@ def _benchmark_result(
     validate: bool,
 ) -> BenchmarkResult:
     with Timer() as timer:
-        allocated_pool = run_allocation(pool, allocator, validate=False)
+        allocated_pool = allocate(pool, allocator, validate=False)
 
     if validate:
         validate_allocation(allocated_pool)
@@ -166,7 +166,7 @@ def run_benchmark(
                  - (10, 100, 1000): Test with multiple sizes (parameterizable)
                  - ("model1", "model2"): Test specific models (fixed sources)
                  - 5: Test first 5 models (fixed sources)
-                 - {"random_source": (10, 100), "minimalloc_source": 5}:
+                 - {"random": (10, 100), "minimalloc": 5}:
                    per-source variants (sources without an entry use defaults)
                  - None: Use defaults (all models for fixed, 100 for parameterizable)
         campaign_id: Unique identifier for this campaign.
@@ -176,8 +176,8 @@ def run_benchmark(
     Returns:
         BenchmarkCampaign containing all reports.
     """
-    allocators = allocators or get_available_allocators()
-    sources = sources or (get_default_source(),)
+    allocators = allocators or available_allocators()
+    sources = sources or (DEFAULT_SOURCE,)
     campaign_id = campaign_id or "campaign_" + get_date_time_snake_case()
 
     reports = []

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from .analysis.clock import ensure_uniform_dim
+from .analysis.clock import uniform_dim
 from .primitives import Allocation, IdType, Memory, Pool, System
 
 
@@ -16,22 +16,18 @@ def _check_unique_ids(entities: tuple[Memory | Pool | Allocation, ...]) -> None:
         seen[entity.id] = idx
 
 
-def _check_overlaps(
-    entities: tuple[Pool | Allocation, ...], require_allocated: bool
-) -> None:
+def _check_overlaps(entities: tuple[Pool | Allocation, ...]) -> None:
     if not entities:
         return
 
     entity_name = str(type(entities[0]).__name__).lower()
 
-    if require_allocated:
-        for entity in entities:
-            if not entity.is_allocated:
-                raise ValueError(f"{entity_name} {entity.id!r} is not allocated")
+    for entity in entities:
+        if not entity.is_allocated:
+            raise ValueError(f"{entity_name} {entity.id!r} is not allocated")
 
-    allocated = [e for e in entities if e.is_allocated]
-    for i, entity_a in enumerate(allocated):
-        for entity_b in allocated[i + 1 :]:
+    for i, entity_a in enumerate(entities):
+        for entity_b in entities[i + 1 :]:
             if entity_a.overlaps(entity_b):  # type: ignore[arg-type]
                 raise ValueError(
                     f"{entity_name} {entity_a.id!r} overlaps with "
@@ -39,73 +35,59 @@ def _check_overlaps(
                 )
 
 
-def _validate_allocations(
-    allocations: tuple[Allocation, ...], require_allocated: bool
-) -> None:
+def _validate_allocations(allocations: tuple[Allocation, ...]) -> None:
     _check_unique_ids(allocations)
-    ensure_uniform_dim(allocations)
-    _check_overlaps(allocations, require_allocated)
+    uniform_dim(allocations)
+    _check_overlaps(allocations)
 
 
-def _validate_pools(pools: tuple[Pool, ...], require_allocated: bool) -> None:
+def _validate_pools(pools: tuple[Pool, ...]) -> None:
     _check_unique_ids(pools)
-    _check_overlaps(pools, require_allocated)
+    _check_overlaps(pools)
     for pool in pools:
         try:
-            _validate_allocations(pool.allocations, require_allocated)
+            _validate_allocations(pool.allocations)
         except ValueError as e:
             raise ValueError(f"in pool {pool.id!r}, {e}") from e
 
 
 def _check_capacity(memory: Memory) -> None:
-    if memory.size is None or not memory.is_allocated:
+    if memory.capacity is None or not memory.is_allocated:
         return
-    if memory.used_size > memory.size:
+    if memory.used_size > memory.capacity:
         raise ValueError(
-            f"used size {memory.used_size} exceeds memory size {memory.size}"
+            f"used size {memory.used_size} exceeds capacity {memory.capacity}"
         )
 
 
-def _validate_memories(memories: tuple[Memory, ...], require_allocated: bool) -> None:
+def _validate_memories(memories: tuple[Memory, ...]) -> None:
     _check_unique_ids(memories)
     for memory in memories:
         try:
-            _validate_pools(memory.pools, require_allocated)
+            _validate_pools(memory.pools)
             _check_capacity(memory)
         except ValueError as e:
             raise ValueError(f"in memory {memory.id!r}, {e}") from e
 
 
-def validate_allocation(
-    entity: System | Memory | Pool,
-    raise_on_error: bool = True,
-    require_allocated: bool = True,
-) -> bool:
-    """Validate the given allocated entity (System, Memory, or Pool).
+def validate_allocation(entity: System | Memory | Pool) -> None:
+    """Raise ValueError unless the entity is fully placed with no collisions.
 
-    Args:
-        entity: The entity to validate.
-        raise_on_error: If True, raise ValueError on validation failure.
-        require_allocated: If True, require all allocations to be allocated.
-
-    Returns:
-        True if valid, False otherwise.
+    Checks unique ids, that every allocation and pool carries an offset,
+    that no placed rectangles collide, and that each memory's used size
+    stays within its declared capacity.
     """
     try:
         if isinstance(entity, System):
-            _validate_memories(entity.memories, require_allocated)
+            _validate_memories(entity.memories)
         elif isinstance(entity, Memory):
-            _validate_pools(entity.pools, require_allocated)
+            _validate_pools(entity.pools)
             _check_capacity(entity)
         elif isinstance(entity, Pool):
-            _validate_allocations(entity.allocations, require_allocated)
+            _validate_allocations(entity.allocations)
         else:
             raise TypeError(f"Unsupported entity type: {type(entity)!r}")
     except ValueError as e:
-        if raise_on_error:
-            raise ValueError(
-                f"Validation of {type(entity).__name__} {entity.id!r} failed, {e}."
-            ) from e
-        return False
-
-    return True
+        raise ValueError(
+            f"Validation of {type(entity).__name__} {entity.id!r} failed, {e}."
+        ) from e

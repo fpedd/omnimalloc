@@ -3,8 +3,8 @@
 #
 
 import pytest
-from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc import allocate, validate_allocation
+from omnimalloc.analysis import pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 from omnimalloc.primitives import Allocation
@@ -15,8 +15,8 @@ def _signatures(allocations: tuple[Allocation, ...]) -> list[tuple[int, int, int
 
 
 def test_tiling_source_is_registered() -> None:
-    assert "tiling_source" in BaseSource.registry()
-    assert BaseSource.get("tiling_source") is TilingSource
+    assert "tiling" in BaseSource.registry()
+    assert BaseSource.get("tiling") is TilingSource
 
 
 def test_tiling_source_produces_requested_count() -> None:
@@ -30,7 +30,7 @@ def test_tiling_optimum_is_tight(num: int) -> None:
     capacity = 1024 * 1024
     source = TilingSource(num_allocations=num, capacity=capacity)
     allocations = source.get_allocations()
-    assert get_pressure(allocations) == capacity
+    assert pressure(allocations) == capacity
 
 
 def test_tiling_allocations_fit_within_makespan() -> None:
@@ -129,5 +129,5 @@ def test_tiling_no_allocator_beats_the_optimum() -> None:
     capacity = 1024 * 1024
     source = TilingSource(num_allocations=150, capacity=capacity)
     pool = source.get_pool()
-    allocated = run_allocation(pool, "greedy_by_size_allocator_cpp", validate=True)
+    allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity

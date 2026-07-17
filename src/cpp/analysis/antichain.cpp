@@ -164,8 +164,8 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
   const size_t m = ends.count();
   if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
     throw std::runtime_error(
-        "Antichain flow work exceeds work_budget; rerun without a budget "
-        "for the unbounded exact query");
+        "Antichain flow work exceeds work_budget; pass None to always "
+        "compute the exact pressure");
   }
 
   // Dominance edges end row -> start row, pruned to the suffix with
@@ -260,7 +260,7 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
                        std::numeric_limits<unsigned>::max(), work_budget);
 }
 
-std::vector<int64_t> per_allocation_antichain_pressure(
+std::vector<int64_t> antichain_pressure_per_allocation(
     const std::vector<Allocation>& allocations,
     std::optional<uint64_t> work_budget) {
   const size_t n = allocations.size();

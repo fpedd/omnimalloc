@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "partition.hpp"
+#include "supermalloc.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -34,6 +34,18 @@
 namespace omnimalloc {
 
 namespace {
+
+// Placed allocations from an index-aligned offset vector; the Solution shape.
+std::vector<Allocation> apply_offsets(
+    const std::vector<Allocation>& allocations,
+    const std::vector<int64_t>& offsets) {
+  std::vector<Allocation> placed;
+  placed.reserve(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    placed.push_back(allocations[i].with_offset(offsets[i]));
+  }
+  return placed;
+}
 
 constexpr int kExitEvent = 0;
 constexpr int kEnterEvent = 1;
@@ -498,7 +510,7 @@ Solution Partition::first_fit(const std::vector<int>& order) const {
     offsets[i] = offset;
     height = std::max(height, offset + size);
   }
-  return Solution{data_->allocations, std::move(offsets), height};
+  return Solution{apply_offsets(data_->allocations, offsets), height};
 }
 
 Solution Partition::greedy_pack(const std::string& heuristic) const {
@@ -695,18 +707,15 @@ struct SearchCtx {
 };
 
 // Concatenate sub-part solutions; the sub-parts are disjoint by construction.
-Solution merge_solutions(std::vector<Solution> subs, int64_t height) {
+Solution merge_solutions(std::vector<Solution> subs, int64_t peak) {
   size_t total = 0;
   for (const Solution& s : subs) total += s.allocations.size();
 
-  Solution merged{{}, {}, height};
+  Solution merged{{}, peak};
   merged.allocations.reserve(total);
-  merged.offsets.reserve(total);
   for (Solution& s : subs) {
     std::move(s.allocations.begin(), s.allocations.end(),
               std::back_inserter(merged.allocations));
-    merged.offsets.insert(merged.offsets.end(), s.offsets.begin(),
-                          s.offsets.end());
   }
   return merged;
 }
@@ -740,7 +749,7 @@ void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
         std::optional<Solution> sub_best;
         solve_dfs(sub_parts[i], 0, 0, ctx, sub_best, nullptr);
         if (!sub_best) return;  // no packing below the bound: merge is final
-        sub_heights[i] = sub_best->height;
+        sub_heights[i] = sub_best->peak;
         sub_solutions[i] = std::move(*sub_best);
       }
       merged_height = std::max(merged_height, sub_heights[i]);
@@ -769,7 +778,7 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
   if (node.is_allocated()) {
     const int64_t h = node.height();
     if (h < node.best_height()) {
-      best = Solution{node.allocations(), node.offsets(), h};
+      best = Solution{apply_offsets(node.allocations(), node.offsets()), h};
       node.set_best_height(h);
       lower_shared(shared, h);
     }
@@ -956,11 +965,12 @@ std::chrono::steady_clock::time_point compute_deadline(
 
 }  // namespace
 
-Solution greedy_many(const Partition& partition,
-                     const std::vector<std::string>& heuristics,
-                     std::optional<double> timeout, int num_threads) {
+Solution greedy_pack_portfolio(const Partition& partition,
+                               const std::vector<std::string>& heuristics,
+                               std::optional<double> timeout, int num_threads) {
   if (heuristics.empty()) {
-    throw std::invalid_argument("greedy_many requires at least one heuristic");
+    throw std::invalid_argument(
+        "greedy_pack_portfolio requires at least one heuristic");
   }
   validate_heuristics(heuristics);
 
@@ -982,18 +992,20 @@ Solution greedy_many(const Partition& partition,
 
   std::optional<Solution> best;
   for (auto& r : results) {
-    if (r && (!best || r->height < best->height)) best = std::move(*r);
+    if (r && (!best || r->peak < best->peak)) best = std::move(*r);
   }
   return std::move(*best);
 }
 
-std::optional<Solution> solve_many(const std::vector<Partition>& partitions,
-                                   int64_t node_limit,
-                                   std::optional<double> timeout,
-                                   int64_t best_bound, SearchOptions options,
-                                   int num_threads) {
+std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,
+                                       int64_t best_bound,
+                                       std::optional<int64_t> max_nodes,
+                                       SearchOptions options,
+                                       std::optional<double> timeout,
+                                       int num_threads) {
   if (partitions.empty()) return std::nullopt;
 
+  const int64_t node_limit = max_nodes.value_or(INT64_MAX);
   const auto deadline = compute_deadline(timeout);
   std::atomic<int64_t> shared_best{best_bound};
   std::vector<std::optional<Solution>> results(partitions.size());
@@ -1015,7 +1027,7 @@ std::optional<Solution> solve_many(const std::vector<Partition>& partitions,
 
   std::optional<Solution> best;
   for (auto& r : results) {
-    if (r && (!best || r->height < best->height)) best = std::move(*r);
+    if (r && (!best || r->peak < best->peak)) best = std::move(*r);
   }
   return best;
 }

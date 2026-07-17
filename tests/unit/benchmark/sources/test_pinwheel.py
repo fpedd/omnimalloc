@@ -3,8 +3,8 @@
 #
 
 import pytest
-from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.analysis.pressure import get_pressure
+from omnimalloc import allocate, validate_allocation
+from omnimalloc.analysis import pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.primitives import Allocation, Pool
@@ -32,8 +32,8 @@ def _has_guillotine_cut(pool: Pool) -> bool:
 
 
 def test_pinwheel_source_is_registered() -> None:
-    assert "pinwheel_source" in BaseSource.registry()
-    assert BaseSource.get("pinwheel_source") is PinwheelSource
+    assert "pinwheel" in BaseSource.registry()
+    assert BaseSource.get("pinwheel") is PinwheelSource
 
 
 def test_pinwheel_count_rounds_up_to_pinwheel_size() -> None:
@@ -47,7 +47,7 @@ def test_pinwheel_optimum_is_tight(num: int) -> None:
     capacity = 1024 * 1024
     source = PinwheelSource(num_allocations=num, capacity=capacity)
     allocations = source.get_allocations()
-    assert get_pressure(allocations) == capacity
+    assert pressure(allocations) == capacity
 
 
 def test_pinwheel_allocations_fit_within_makespan() -> None:
@@ -119,5 +119,5 @@ def test_pinwheel_no_allocator_beats_the_optimum() -> None:
     capacity = 1024 * 1024
     source = PinwheelSource(num_allocations=150, capacity=capacity)
     pool = source.get_pool()
-    allocated = run_allocation(pool, "greedy_by_size_allocator_cpp", validate=True)
+    allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity

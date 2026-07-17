@@ -4,7 +4,7 @@
 
 
 import pytest
-from omnimalloc import run_allocation
+from omnimalloc import allocate
 from omnimalloc.allocators import GreedyAllocator
 from omnimalloc.benchmark.results import (
     BenchmarkCampaign,
@@ -18,7 +18,7 @@ def test_benchmark_campaign_creation() -> None:
     """Test basic benchmark campaign creation."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
@@ -40,7 +40,7 @@ def test_benchmark_campaign_duplicate_report_ids_raises_error() -> None:
     """Test that duplicate report IDs raise ValueError."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result1 = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
@@ -60,7 +60,7 @@ def test_benchmark_campaign_properties() -> None:
     """Test campaign properties."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     results = tuple(
         BenchmarkResult(
@@ -82,7 +82,7 @@ def test_benchmark_campaign_finalize_metadata() -> None:
     """Test finalize_metadata method."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5

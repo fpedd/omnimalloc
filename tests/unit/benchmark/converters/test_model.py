@@ -14,76 +14,82 @@ from omnimalloc.benchmark.converters.model import (
     model_to_pools,
     model_to_system,
 )
-from omnimalloc.primitives import BufferKind
+from omnimalloc.primitives import AllocationKind
 
 # Buffer tests
 
 
 def test_buffer_basic_creation_int_id() -> None:
     buffer = Buffer(
-        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     assert buffer.id == 0
     assert buffer.shape == (10, 20)
     assert buffer.dtype == np.dtype(np.float32)
-    assert buffer.kind == BufferKind.WORKSPACE
+    assert buffer.kind == AllocationKind.WORKSPACE
 
 
 def test_buffer_basic_creation_str_id() -> None:
     buffer = Buffer(
-        id="buf_0", shape=(10,), dtype=np.dtype(np.int8), kind=BufferKind.CONSTANT
+        id="buf_0", shape=(10,), dtype=np.dtype(np.int8), kind=AllocationKind.CONSTANT
     )
     assert buffer.id == "buf_0"
     assert buffer.shape == (10,)
     assert buffer.dtype == np.dtype(np.int8)
-    assert buffer.kind == BufferKind.CONSTANT
+    assert buffer.kind == AllocationKind.CONSTANT
 
 
 def test_buffer_ndim_1d() -> None:
     buffer = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     assert buffer.ndim == 1
 
 
 def test_buffer_ndim_2d() -> None:
     buffer = Buffer(
-        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     assert buffer.ndim == 2
 
 
 def test_buffer_ndim_4d() -> None:
     buffer = Buffer(
-        id=0, shape=(1, 3, 224, 224), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=0,
+        shape=(1, 3, 224, 224),
+        dtype=np.dtype(np.float32),
+        kind=AllocationKind.INPUT,
     )
     assert buffer.ndim == 4
 
 
 def test_buffer_size_float32() -> None:
     buffer = Buffer(
-        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10, 20), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     assert buffer.size == 10 * 20 * 4
 
 
 def test_buffer_size_int8() -> None:
     buffer = Buffer(
-        id=0, shape=(100,), dtype=np.dtype(np.int8), kind=BufferKind.WORKSPACE
+        id=0, shape=(100,), dtype=np.dtype(np.int8), kind=AllocationKind.WORKSPACE
     )
     assert buffer.size == 100
 
 
 def test_buffer_size_float64() -> None:
     buffer = Buffer(
-        id=0, shape=(5, 5), dtype=np.dtype(np.float64), kind=BufferKind.WORKSPACE
+        id=0, shape=(5, 5), dtype=np.dtype(np.float64), kind=AllocationKind.WORKSPACE
     )
     assert buffer.size == 5 * 5 * 8
 
 
 def test_buffer_size_complex_shape() -> None:
     buffer = Buffer(
-        id=0, shape=(2, 3, 4, 5), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0,
+        shape=(2, 3, 4, 5),
+        dtype=np.dtype(np.float32),
+        kind=AllocationKind.WORKSPACE,
     )
     assert buffer.size == 2 * 3 * 4 * 5 * 4
 
@@ -91,14 +97,20 @@ def test_buffer_size_complex_shape() -> None:
 def test_buffer_invalid_shape_zero() -> None:
     with pytest.raises(ValueError, match="shape dimensions must be positive integers"):
         Buffer(
-            id=0, shape=(10, 0), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+            id=0,
+            shape=(10, 0),
+            dtype=np.dtype(np.float32),
+            kind=AllocationKind.WORKSPACE,
         )
 
 
 def test_buffer_invalid_shape_negative() -> None:
     with pytest.raises(ValueError, match="shape dimensions must be positive integers"):
         Buffer(
-            id=0, shape=(10, -5), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+            id=0,
+            shape=(10, -5),
+            dtype=np.dtype(np.float32),
+            kind=AllocationKind.WORKSPACE,
         )
 
 
@@ -108,12 +120,12 @@ def test_buffer_invalid_shape_float() -> None:
             id=0,
             shape=(10.5, 20),  # type: ignore[arg-type]
             dtype=np.dtype(np.float32),
-            kind=BufferKind.WORKSPACE,
+            kind=AllocationKind.WORKSPACE,
         )
 
 
 def test_buffer_various_kinds() -> None:
-    for kind in BufferKind:
+    for kind in AllocationKind:
         buffer = Buffer(id=0, shape=(10,), dtype=np.dtype(np.float32), kind=kind)
         assert buffer.kind == kind
 
@@ -138,10 +150,10 @@ def test_op_basic_creation_str_id() -> None:
 
 def test_op_with_inputs_and_outputs() -> None:
     buf_in = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_out = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op = Op(id=0, inputs={buf_in}, outputs={buf_out})
     assert buf_in in op.inputs
@@ -160,7 +172,7 @@ def test_op_invalid_id_type() -> None:
 
 def test_op_duplicate_buffer_ids_input_output() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     with pytest.raises(ValueError, match="buffer ids must be unique"):
         Op(id=0, inputs={buf}, outputs={buf})
@@ -168,10 +180,10 @@ def test_op_duplicate_buffer_ids_input_output() -> None:
 
 def test_op_duplicate_buffer_ids_multiple_inputs() -> None:
     buf1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf2 = Buffer(
-        id=0, shape=(20,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(20,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     with pytest.raises(ValueError, match="buffer ids must be unique"):
         Op(id=0, inputs={buf1, buf2})
@@ -179,10 +191,10 @@ def test_op_duplicate_buffer_ids_multiple_inputs() -> None:
 
 def test_op_unique_buffer_ids_different_buffers() -> None:
     buf1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf2 = Buffer(
-        id=1, shape=(20,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(20,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, inputs={buf1}, outputs={buf2})
     assert len(op.inputs) == 1
@@ -191,16 +203,16 @@ def test_op_unique_buffer_ids_different_buffers() -> None:
 
 def test_op_multiple_inputs_outputs() -> None:
     buf_in1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_in2 = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_out1 = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     buf_out2 = Buffer(
-        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op = Op(id=0, inputs={buf_in1, buf_in2}, outputs={buf_out1, buf_out2})
     assert len(op.inputs) == 2
@@ -224,7 +236,7 @@ def test_model_basic_creation_str_id() -> None:
 
 def test_model_with_ops_and_buffers() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -246,10 +258,10 @@ def test_model_duplicate_op_ids() -> None:
 
 def test_model_duplicate_buffer_ids() -> None:
     buf1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf2 = Buffer(
-        id=0, shape=(20,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(20,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     with pytest.raises(ValueError, match="buffer ids must be unique"):
         Model(id=0, buffers={0: buf1, 1: buf2})
@@ -264,10 +276,10 @@ def test_model_unique_op_ids() -> None:
 
 def test_model_unique_buffer_ids() -> None:
     buf1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf2 = Buffer(
-        id=1, shape=(20,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(20,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     model = Model(id=0, buffers={0: buf1, 1: buf2})
     assert len(model.buffers) == 2
@@ -278,10 +290,10 @@ def test_model_unique_buffer_ids() -> None:
 
 def test_compute_buffer_lifetimes_basic() -> None:
     buf1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf2 = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op1 = Op(id=0, outputs={buf1})
     op2 = Op(id=1, inputs={buf1}, outputs={buf2})
@@ -298,10 +310,10 @@ def test_compute_buffer_lifetimes_basic() -> None:
 
 def test_compute_buffer_lifetimes_const_inf_lifetime() -> None:
     buf_const = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_work = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op1 = Op(id=0, outputs={buf_const})
     op2 = Op(id=1, inputs={buf_const}, outputs={buf_work})
@@ -318,10 +330,10 @@ def test_compute_buffer_lifetimes_const_inf_lifetime() -> None:
 
 def test_compute_buffer_lifetimes_io_inf_lifetime() -> None:
     buf_input = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op1 = Op(id=0, inputs={buf_input}, outputs={buf_output})
     model = Model(id=0, ops={0: op1}, buffers={0: buf_input, 1: buf_output})
@@ -337,7 +349,7 @@ def test_compute_buffer_lifetimes_io_inf_lifetime() -> None:
 
 def test_compute_buffer_lifetimes_multiple_uses() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op1 = Op(id=0, outputs={buf})
     op2 = Op(id=1, inputs={buf})
@@ -353,16 +365,16 @@ def test_compute_buffer_lifetimes_multiple_uses() -> None:
 
 def test_compute_buffer_lifetimes_all_kinds() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_input = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op = Op(id=0, inputs={buf_input, buf_const}, outputs={buf_work, buf_output})
     model = Model(
@@ -389,7 +401,7 @@ def test_compute_buffer_lifetimes_all_kinds() -> None:
 
 def test_create_allocations_basic() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -408,15 +420,15 @@ def test_create_allocations_basic() -> None:
     assert allocations[0].size == 40
     assert allocations[0].start == 0
     assert allocations[0].end == 1
-    assert allocations[0].kind == BufferKind.WORKSPACE
+    assert allocations[0].kind == AllocationKind.WORKSPACE
 
 
 def test_create_allocations_exclude_const() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     model = Model(id=0, buffers={0: buf_work, 1: buf_const})
     first_index = {buf_work: 0, buf_const: 0}
@@ -430,18 +442,18 @@ def test_create_allocations_exclude_const() -> None:
         buffer_to_last_index=last_index,
     )
     assert len(allocations) == 1
-    assert allocations[0].kind == BufferKind.WORKSPACE
+    assert allocations[0].kind == AllocationKind.WORKSPACE
 
 
 def test_create_allocations_exclude_io() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     model = Model(id=0, buffers={0: buf_work, 1: buf_input, 2: buf_output})
     first_index = {buf_work: 0, buf_input: 0, buf_output: 0}
@@ -455,21 +467,21 @@ def test_create_allocations_exclude_io() -> None:
         buffer_to_last_index=last_index,
     )
     assert len(allocations) == 1
-    assert allocations[0].kind == BufferKind.WORKSPACE
+    assert allocations[0].kind == AllocationKind.WORKSPACE
 
 
 def test_create_allocations_include_all() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_input = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     model = Model(
         id=0, buffers={0: buf_work, 1: buf_const, 2: buf_input, 3: buf_output}
@@ -489,10 +501,10 @@ def test_create_allocations_include_all() -> None:
 
 def test_create_allocations_exclude_all() -> None:
     buf_const = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     model = Model(id=0, buffers={0: buf_const, 1: buf_input})
     first_index = {buf_const: 0, buf_input: 0}
@@ -510,7 +522,7 @@ def test_create_allocations_exclude_all() -> None:
 
 def test_create_allocations_end_index_increment() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     model = Model(id=0, buffers={0: buf})
     first_index = {buf: 5}
@@ -532,7 +544,7 @@ def test_create_allocations_end_index_increment() -> None:
 
 def test_model_to_allocations_basic() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -544,25 +556,25 @@ def test_model_to_allocations_basic() -> None:
 
 def test_model_to_allocations_exclude_const() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op = Op(id=0, inputs={buf_const}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_const})
 
     allocations = model_to_allocations(model, include_const=False)
     assert len(allocations) == 1
-    assert all(a.kind != BufferKind.CONSTANT for a in allocations)
+    assert all(a.kind != AllocationKind.CONSTANT for a in allocations)
 
 
 def test_model_to_allocations_include_const() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op = Op(id=0, inputs={buf_const}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_const})
@@ -573,10 +585,10 @@ def test_model_to_allocations_include_const() -> None:
 
 def test_model_to_allocations_exclude_io() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op = Op(id=0, inputs={buf_input}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_input})
@@ -588,10 +600,10 @@ def test_model_to_allocations_exclude_io() -> None:
 
 def test_model_to_allocations_include_io() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op = Op(id=0, inputs={buf_input}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_input})
@@ -602,7 +614,7 @@ def test_model_to_allocations_include_io() -> None:
 
 def test_model_to_allocations_const_inf_lifetime() -> None:
     buf_const = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op1 = Op(id=0, outputs={buf_const})
     op2 = Op(id=1)
@@ -619,7 +631,7 @@ def test_model_to_allocations_const_inf_lifetime() -> None:
 
 def test_model_to_allocations_io_inf_lifetime() -> None:
     buf_input = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op1 = Op(id=0, inputs={buf_input})
     op2 = Op(id=1)
@@ -632,14 +644,18 @@ def test_model_to_allocations_io_inf_lifetime() -> None:
 
 
 def test_model_to_allocations_complex_model() -> None:
-    buf1 = Buffer(id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT)
+    buf1 = Buffer(
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
+    )
     buf2 = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf3 = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
-    buf4 = Buffer(id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT)
+    buf4 = Buffer(
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
+    )
     op1 = Op(id=0, inputs={buf1}, outputs={buf2})
     op2 = Op(id=1, inputs={buf2}, outputs={buf3})
     op3 = Op(id=2, inputs={buf3}, outputs={buf4})
@@ -658,7 +674,7 @@ def test_model_to_allocations_complex_model() -> None:
 
 def test_model_to_pools_basic() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -670,13 +686,13 @@ def test_model_to_pools_basic() -> None:
 
 def test_model_to_pools_grouped_by_kind() -> None:
     buf_work1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_work2 = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op = Op(id=0, inputs={buf_const}, outputs={buf_work1, buf_work2})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work1, 1: buf_work2, 2: buf_const})
@@ -690,16 +706,16 @@ def test_model_to_pools_grouped_by_kind() -> None:
 
 def test_model_to_pools_all_kinds() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_input = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op = Op(id=0, inputs={buf_input, buf_const}, outputs={buf_work, buf_output})
     model = Model(
@@ -719,10 +735,10 @@ def test_model_to_pools_all_kinds() -> None:
 
 def test_model_to_pools_include_const_true() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op = Op(id=0, inputs={buf_const}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_const})
@@ -734,10 +750,10 @@ def test_model_to_pools_include_const_true() -> None:
 
 def test_model_to_pools_include_const_false() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     op = Op(id=0, inputs={buf_const}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_const})
@@ -749,10 +765,10 @@ def test_model_to_pools_include_const_false() -> None:
 
 def test_model_to_pools_include_io_true() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op = Op(id=0, inputs={buf_input}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_input})
@@ -764,10 +780,10 @@ def test_model_to_pools_include_io_true() -> None:
 
 def test_model_to_pools_include_io_false() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_input = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op = Op(id=0, inputs={buf_input}, outputs={buf_work})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work, 1: buf_input})
@@ -779,13 +795,13 @@ def test_model_to_pools_include_io_false() -> None:
 
 def test_model_to_pools_allocations_count_per_pool() -> None:
     buf_work1 = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_work2 = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_work3 = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf_work1, buf_work2, buf_work3})
     model = Model(id=0, ops={0: op}, buffers={0: buf_work1, 1: buf_work2, 2: buf_work3})
@@ -800,7 +816,7 @@ def test_model_to_pools_allocations_count_per_pool() -> None:
 
 def test_model_to_system_basic() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -812,7 +828,7 @@ def test_model_to_system_basic() -> None:
 
 def test_model_to_system_model_id_preserved() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id="resnet50", ops={0: op}, buffers={0: buf})
@@ -823,7 +839,7 @@ def test_model_to_system_model_id_preserved() -> None:
 
 def test_model_to_system_memory_structure() -> None:
     buf = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     op = Op(id=0, outputs={buf})
     model = Model(id=0, ops={0: op}, buffers={0: buf})
@@ -836,16 +852,16 @@ def test_model_to_system_memory_structure() -> None:
 
 def test_model_to_system_pools_included() -> None:
     buf_work = Buffer(
-        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id=0, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.WORKSPACE
     )
     buf_const = Buffer(
-        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.CONSTANT
+        id=1, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.CONSTANT
     )
     buf_input = Buffer(
-        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id=2, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     buf_output = Buffer(
-        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.OUTPUT
+        id=3, shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.OUTPUT
     )
     op = Op(id=0, inputs={buf_input, buf_const}, outputs={buf_work, buf_output})
     model = Model(
@@ -873,10 +889,13 @@ def test_model_to_system_empty_model() -> None:
 
 def test_model_to_pools_skips_unreferenced_buffers() -> None:
     used = Buffer(
-        id="used", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id="used",
+        shape=(10,),
+        dtype=np.dtype(np.float32),
+        kind=AllocationKind.WORKSPACE,
     )
     unused = Buffer(
-        id="unused", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id="unused", shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     op = Op(id=0, outputs={used})
     model = Model(id=0, ops={0: op}, buffers={"used": used, "unused": unused})
@@ -889,10 +908,16 @@ def test_model_to_pools_skips_unreferenced_buffers() -> None:
 
 def test_model_to_allocations_skips_unreferenced_buffers() -> None:
     used = Buffer(
-        id="used", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id="used",
+        shape=(10,),
+        dtype=np.dtype(np.float32),
+        kind=AllocationKind.WORKSPACE,
     )
     unused = Buffer(
-        id="unused", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.WORKSPACE
+        id="unused",
+        shape=(10,),
+        dtype=np.dtype(np.float32),
+        kind=AllocationKind.WORKSPACE,
     )
     op = Op(id=0, outputs={used})
     model = Model(id=0, ops={0: op}, buffers={"used": used, "unused": unused})
@@ -904,7 +929,7 @@ def test_model_to_allocations_skips_unreferenced_buffers() -> None:
 
 def test_model_to_allocations_handles_model_without_ops() -> None:
     buf = Buffer(
-        id="io", shape=(10,), dtype=np.dtype(np.float32), kind=BufferKind.INPUT
+        id="io", shape=(10,), dtype=np.dtype(np.float32), kind=AllocationKind.INPUT
     )
     model = Model(id=0, buffers={"io": buf})
 

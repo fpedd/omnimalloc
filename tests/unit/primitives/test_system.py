@@ -168,8 +168,8 @@ def test_complex_system_structure() -> None:
     pool1 = Pool(id=211, allocations=(alloc1, alloc2))
     pool2 = Pool(id=212, allocations=(alloc3,))
     pool3 = Pool(id=213, allocations=(alloc4,))
-    memory1 = Memory(id=311, pools=(pool1, pool2), size=500)
-    memory2 = Memory(id=312, pools=(pool3,), size=300)
+    memory1 = Memory(id=311, pools=(pool1, pool2), capacity=500)
+    memory2 = Memory(id=312, pools=(pool3,), capacity=300)
     system = System(id=401, memories=(memory1, memory2))
     assert len(system.memories) == 2
     assert system.is_allocated is True
@@ -193,7 +193,7 @@ def test_single_memory_system() -> None:
     """Test system with single memory."""
     alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
     pool = Pool(id=211, allocations=(alloc,))
-    memory = Memory(id=311, pools=(pool,), size=1000)
+    memory = Memory(id=311, pools=(pool,), capacity=1000)
     system = System(id=401, memories=(memory,))
     assert len(system.memories) == 1
     assert system.is_allocated is True
@@ -221,8 +221,8 @@ def test_large_system() -> None:
     alloc2 = Allocation(id=102, size=10**11, start=0, end=100, offset=0)
     pool1 = Pool(id=211, allocations=(alloc1,))
     pool2 = Pool(id=212, allocations=(alloc2,))
-    memory1 = Memory(id=311, pools=(pool1,), size=10**15)
-    memory2 = Memory(id=312, pools=(pool2,), size=10**14)
+    memory1 = Memory(id=311, pools=(pool1,), capacity=10**15)
+    memory2 = Memory(id=312, pools=(pool2,), capacity=10**14)
     system = System(id=999, memories=(memory1, memory2))
     assert memory1.used_size == 10**12
     assert memory2.used_size == 10**11
@@ -237,8 +237,8 @@ def test_allocate_with_allocator() -> None:
     alloc3 = Allocation(id=103, size=75, start=10, end=20)
     pool1 = Pool(id=211, allocations=(alloc1,))
     pool2 = Pool(id=212, allocations=(alloc2, alloc3))
-    memory1 = Memory(id=311, pools=(pool1,), size=1000)
-    memory2 = Memory(id=312, pools=(pool2,), size=500)
+    memory1 = Memory(id=311, pools=(pool1,), capacity=1000)
+    memory2 = Memory(id=312, pools=(pool2,), capacity=500)
     system = System(id=401, memories=(memory1, memory2))
     assert system.is_allocated is False
 

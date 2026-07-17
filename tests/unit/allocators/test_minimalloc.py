@@ -3,8 +3,8 @@
 #
 
 import pytest
-from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC, MinimallocAllocator
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -49,7 +49,7 @@ def test_minimalloc_no_temporal_overlap_shares_offset() -> None:
         Allocation(id=2, size=100, start=10, end=20),
     )
     result = MinimallocAllocator().allocate(allocs)
-    assert peak_memory(result) == 100
+    assert placement_pressure(result) == 100
 
 
 def test_minimalloc_produces_valid_allocation() -> None:
@@ -58,7 +58,7 @@ def test_minimalloc_produces_valid_allocation() -> None:
         for i in range(20)
     )
     result = MinimallocAllocator().allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
+    validate_allocation(Pool(id="test_pool", allocations=result))
     assert {a.id for a in result} == {a.id for a in allocs}
 
 
@@ -70,5 +70,5 @@ def test_minimalloc_finds_optimal_packing() -> None:
         Allocation(id=4, size=50, start=0, end=10),
     )
     result = MinimallocAllocator().allocate(allocs)
-    assert validate_allocation(Pool(id="test_pool", allocations=result))
-    assert peak_memory(result) == 250
+    validate_allocation(Pool(id="test_pool", allocations=result))
+    assert placement_pressure(result) == 250

@@ -4,7 +4,7 @@
 
 
 import pytest
-from omnimalloc import run_allocation
+from omnimalloc import allocate
 from omnimalloc.allocators import GreedyAllocator, NaiveAllocator
 from omnimalloc.benchmark.results import BenchmarkReport, BenchmarkResult
 from omnimalloc.benchmark.sources.generator import RandomSource
@@ -14,7 +14,7 @@ def test_benchmark_report_creation() -> None:
     """Test basic benchmark report creation."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
     result = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
     )
@@ -34,7 +34,7 @@ def test_benchmark_report_duplicate_ids_raises_error() -> None:
     """Test that duplicate result IDs raise ValueError."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result1 = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
@@ -51,7 +51,7 @@ def test_benchmark_report_statistics() -> None:
     """Test report statistics with multiple results."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     results = tuple(
         BenchmarkResult(
@@ -72,8 +72,8 @@ def test_benchmark_report_allocator_mismatch_raises_error() -> None:
     allocator1 = GreedyAllocator()
     allocator2 = NaiveAllocator()
 
-    pool1 = run_allocation(source.get_pool(), allocator1)
-    pool2 = run_allocation(source.get_pool(), allocator2)
+    pool1 = allocate(source.get_pool(), allocator1)
+    pool2 = allocate(source.get_pool(), allocator2)
 
     result1 = BenchmarkResult(
         id=0, allocator=allocator1, source=source, entity=pool1, duration=0.5
@@ -90,7 +90,7 @@ def test_benchmark_report_with_results() -> None:
     """Test with_results method."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
-    pool = run_allocation(source.get_pool(), allocator)
+    pool = allocate(source.get_pool(), allocator)
 
     result1 = BenchmarkResult(
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5

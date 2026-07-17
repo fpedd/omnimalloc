@@ -5,7 +5,7 @@
 from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
-from omnimalloc.analysis.clock import ensure_uniform_dim
+from omnimalloc.analysis.clock import uniform_dim
 from omnimalloc.common.registry import Registered
 from omnimalloc.primitives.utils import ensure_unique_ids
 
@@ -16,17 +16,27 @@ if TYPE_CHECKING:
 class BaseAllocator(Registered):
     """Base class for allocators with automatic registry."""
 
+    # Registry keys drop the class-role token: GreedyBySizeAllocator
+    # registers as "greedy_by_size".
+    _strip_suffix: ClassVar[str] = "Allocator"
+
     # True for allocators that consume only the pairwise conflict relation and
     # thus accept vector-clock lifetimes. Subclasses that add logic reading
     # scalar start/end directly must declare this False again.
     supports_vector_time: ClassVar[bool] = False
+
+    def __repr__(self) -> str:
+        kwargs = ", ".join(
+            f"{key.lstrip('_')}={value!r}" for key, value in vars(self).items()
+        )
+        return f"{type(self).__name__}({kwargs})"
 
     def allocate(
         self, allocations: tuple["Allocation", ...]
     ) -> tuple["Allocation", ...]:
         """Validate shared preconditions, then run the allocator."""
         ensure_unique_ids(allocations)
-        ensure_uniform_dim(allocations)
+        uniform_dim(allocations)
         self.ensure_supported(allocations)
         if not allocations:
             return allocations
@@ -37,10 +47,6 @@ class BaseAllocator(Registered):
         self, allocations: tuple["Allocation", ...]
     ) -> tuple["Allocation", ...]:
         """Place the validated, non-empty allocations. Implemented by subclasses."""
-        ...
-
-    def reset(self) -> None:
-        """Optional: reset allocator state/config. Override if needed."""
         ...
 
     def supports(self, allocations: tuple["Allocation", ...]) -> bool:

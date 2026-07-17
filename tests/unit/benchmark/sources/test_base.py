@@ -145,7 +145,7 @@ def test_base_source_get_pool() -> None:
     source = RandomSource(num_allocations=5, seed=42)
     pool = source.get_pool()
 
-    assert pool.id == "random_source_pool_0"
+    assert pool.id == "random_pool_0"
     assert len(pool.allocations) == 5
 
 
@@ -156,9 +156,9 @@ def test_base_source_get_pools() -> None:
 
     assert len(pools) == 3
     assert all(len(pool.allocations) == 5 for pool in pools)
-    assert pools[0].id == "random_source_pool_0"
-    assert pools[1].id == "random_source_pool_1"
-    assert pools[2].id == "random_source_pool_2"
+    assert pools[0].id == "random_pool_0"
+    assert pools[1].id == "random_pool_1"
+    assert pools[2].id == "random_pool_2"
 
 
 def test_base_source_get_memory() -> None:
@@ -166,7 +166,7 @@ def test_base_source_get_memory() -> None:
     source = RandomSource(num_allocations=5, seed=42)
     memory = source.get_memory()
 
-    assert memory.id == "random_source_memory_0"
+    assert memory.id == "random_memory_0"
     assert len(memory.pools) == 1
 
 
@@ -176,8 +176,8 @@ def test_base_source_get_memories() -> None:
     memories = source.get_memories(num_memories=2)
 
     assert len(memories) == 2
-    assert memories[0].id == "random_source_memory_0"
-    assert memories[1].id == "random_source_memory_1"
+    assert memories[0].id == "random_memory_0"
+    assert memories[1].id == "random_memory_1"
 
 
 def test_base_source_get_system() -> None:
@@ -185,7 +185,7 @@ def test_base_source_get_system() -> None:
     source = RandomSource(num_allocations=5, seed=42)
     system = source.get_system()
 
-    assert system.id == "random_source_system_0"
+    assert system.id == "random_system_0"
     assert len(system.memories) == 1
 
 
@@ -195,8 +195,8 @@ def test_base_source_get_systems() -> None:
     systems = source.get_systems(num_systems=2)
 
     assert len(systems) == 2
-    assert systems[0].id == "random_source_system_0"
-    assert systems[1].id == "random_source_system_1"
+    assert systems[0].id == "random_system_0"
+    assert systems[1].id == "random_system_1"
 
 
 def test_base_source_get_variant_with_int() -> None:

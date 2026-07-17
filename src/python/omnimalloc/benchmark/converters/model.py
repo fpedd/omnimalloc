@@ -6,7 +6,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from omnimalloc.primitives import Allocation, BufferKind, IdType, Memory, Pool, System
+from omnimalloc.primitives import (
+    Allocation,
+    AllocationKind,
+    IdType,
+    Memory,
+    Pool,
+    System,
+)
 
 
 @dataclass(frozen=True)
@@ -14,7 +21,7 @@ class Buffer:
     id: IdType
     shape: tuple[int, ...]
     dtype: np.dtype[np.generic]
-    kind: BufferKind
+    kind: AllocationKind
 
     def __post_init__(self) -> None:
         if not all(isinstance(dim, int) and dim > 0 for dim in self.shape):
@@ -80,7 +87,7 @@ def _compute_buffer_lifetimes(
     # Apply infinite lifetime constraints (at least one step for op-less models)
     max_index = max(len(model.ops) - 1, 0)
     for buffer in model.buffers.values():
-        if (buffer.kind == BufferKind.CONSTANT and const_inf_lifetime) or (
+        if (buffer.kind == AllocationKind.CONSTANT and const_inf_lifetime) or (
             buffer.kind.is_io and io_inf_lifetime
         ):
             buffer_to_first_index[buffer] = 0
@@ -107,7 +114,7 @@ def _create_allocations(
         )
         for buffer in model.buffers.values()
         if (
-            (include_const or buffer.kind != BufferKind.CONSTANT)
+            (include_const or buffer.kind != AllocationKind.CONSTANT)
             and (include_io or not buffer.kind.is_io)
             # Buffers referenced by no op have no lifetime and need no memory
             and buffer in buffer_to_first_index
@@ -148,9 +155,9 @@ def model_to_pools(
     )
 
     # Group allocations by kind
-    allocations_by_kind: dict[BufferKind, list[Allocation]] = {}
+    allocations_by_kind: dict[AllocationKind, list[Allocation]] = {}
     for alloc in allocations:
-        kind = alloc.kind if alloc.kind is not None else BufferKind.WORKSPACE
+        kind = alloc.kind if alloc.kind is not None else AllocationKind.WORKSPACE
         allocations_by_kind.setdefault(kind, []).append(alloc)
 
     return tuple(

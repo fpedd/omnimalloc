@@ -17,20 +17,22 @@
 
 namespace omnimalloc {
 
-// Per-rule toggles for the branch-and-bound pruning rules; all default on.
+// Per-rule toggles for the branch-and-bound pruning rules. Default-free:
+// every field crosses the binding boundary explicitly (the Python face
+// always enables all five; ablations set them through _cpp.try_solve_many).
 struct SearchOptions {
-  bool canonical = true;
-  bool dominance = true;
-  bool floor_inference = true;
-  bool monotonic_floor = true;
-  bool decompose = true;
+  bool canonical;
+  bool dominance;
+  bool floor_inference;
+  bool monotonic_floor;
+  bool decompose;
 };
 
-// Search result; `offsets` is index-aligned with `allocations`.
+// Search result: the placed allocations (offsets applied) and their peak,
+// the placement's max height.
 struct Solution {
   std::vector<Allocation> allocations;
-  std::vector<int64_t> offsets;
-  int64_t height;
+  int64_t peak;
 };
 
 // A temporal allocation problem: immutable structural data (sections,
@@ -213,19 +215,19 @@ class Partition {
 // skipped, except the first, so a packing always exists (nullopt disables
 // the deadline). Throws std::invalid_argument when `heuristics` is empty or
 // contains an unknown sort key.
-[[nodiscard]] Solution greedy_many(const Partition& partition,
-                                   const std::vector<std::string>& heuristics,
-                                   std::optional<double> timeout,
-                                   int num_threads);
+[[nodiscard]] Solution greedy_pack_portfolio(
+    const Partition& partition, const std::vector<std::string>& heuristics,
+    std::optional<double> timeout, int num_threads);
 
 // Run `partitions` (typically the same problem under different heuristic
 // orderings) as an independent-search portfolio across `num_threads`, sharing
 // one atomic best bound so a solution found by any search prunes the others.
-// `node_limit` caps each member's search independently. Returns the lowest
-// solution found, or nullopt if none beats `best_bound`.
-[[nodiscard]] std::optional<Solution> solve_many(
-    const std::vector<Partition>& partitions, int64_t node_limit,
-    std::optional<double> timeout, int64_t best_bound, SearchOptions options,
-    int num_threads);
+// `max_nodes` caps each member's search independently (nullopt = unbounded).
+// Returns the lowest solution found, or nullopt if none beats `best_bound` —
+// a valid answer, hence the try_ prefix.
+[[nodiscard]] std::optional<Solution> try_solve_many(
+    const std::vector<Partition>& partitions, int64_t best_bound,
+    std::optional<int64_t> max_nodes, SearchOptions options,
+    std::optional<double> timeout, int num_threads);
 
 }  // namespace omnimalloc

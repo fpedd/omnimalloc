@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter, MultipleLocator
-from omnimalloc import run_allocation, validate_allocation
+from omnimalloc import allocate, validate_allocation
 from omnimalloc.allocators import BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.timer import Timer
@@ -61,53 +61,53 @@ ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 # Allocator display metadata: registry name -> (label, palette role).
 ALLOCATORS: dict[str, tuple[str, str]] = {
-    "naive_allocator": ("naive", "baseline"),
-    "random_allocator": ("random search", "baseline"),
-    "greedy_by_size_allocator_cpp": ("greedy (size)", "greedy"),
-    "greedy_by_all_allocator_cpp": ("greedy (all)", "greedy"),
-    "best_fit_allocator": ("best-fit", "greedy_alt"),
-    "omni_allocator": ("omni", "omni"),
-    "hill_climb_allocator": ("hill climbing", "search_alt"),
-    "genetic_allocator": ("genetic", "search_alt"),
-    "simulated_annealing_allocator": ("simulated annealing", "search"),
-    "tabu_search_allocator": ("tabu search", "search"),
-    "telamalloc_allocator": ("telamalloc", "telamalloc"),
-    "minimalloc_allocator": ("minimalloc", "minimalloc"),
-    "supermalloc_allocator": ("supermalloc", "exact"),
+    "naive": ("naive", "baseline"),
+    "random": ("random search", "baseline"),
+    "greedy_by_size": ("greedy (size)", "greedy"),
+    "greedy_by_all": ("greedy (all)", "greedy"),
+    "best_fit": ("best-fit", "greedy_alt"),
+    "omni": ("omni", "omni"),
+    "hill_climb": ("hill climbing", "search_alt"),
+    "genetic": ("genetic", "search_alt"),
+    "simulated_annealing": ("simulated annealing", "search"),
+    "tabu_search": ("tabu search", "search"),
+    "telamalloc": ("telamalloc", "telamalloc"),
+    "minimalloc": ("minimalloc", "minimalloc"),
+    "supermalloc": ("supermalloc", "exact"),
 }
 
 HERO_ALLOCATORS = (
-    "random_allocator",
-    "greedy_by_size_allocator_cpp",
-    "greedy_by_all_allocator_cpp",
-    "best_fit_allocator",
-    "omni_allocator",
-    "hill_climb_allocator",
-    "genetic_allocator",
-    "simulated_annealing_allocator",
-    "tabu_search_allocator",
-    "telamalloc_allocator",
-    "minimalloc_allocator",
-    "supermalloc_allocator",
+    "random",
+    "greedy_by_size",
+    "greedy_by_all",
+    "best_fit",
+    "omni",
+    "hill_climb",
+    "genetic",
+    "simulated_annealing",
+    "tabu_search",
+    "telamalloc",
+    "minimalloc",
+    "supermalloc",
 )
 QUALITY_ALLOCATORS = (
-    "greedy_by_size_allocator_cpp",
-    "best_fit_allocator",
-    "omni_allocator",
-    "tabu_search_allocator",
-    "telamalloc_allocator",
-    "minimalloc_allocator",
-    "supermalloc_allocator",
+    "greedy_by_size",
+    "best_fit",
+    "omni",
+    "tabu_search",
+    "telamalloc",
+    "minimalloc",
+    "supermalloc",
 )
 # best-fit is omitted: its curve coincides with greedy (size) at every size.
 SCALING_ALLOCATORS = (
-    "naive_allocator",
-    "greedy_by_size_allocator_cpp",
-    "omni_allocator",
-    "hill_climb_allocator",
-    "telamalloc_allocator",
-    "minimalloc_allocator",
-    "supermalloc_allocator",
+    "naive",
+    "greedy_by_size",
+    "omni",
+    "hill_climb",
+    "telamalloc",
+    "minimalloc",
+    "supermalloc",
 )
 
 QUALITY_PROBLEMS = ("mm-A", "mm-C", "mm-H", "mm-K", "pinwheel", "tiling", "random")
@@ -124,31 +124,31 @@ PROBLEM_LABELS = {
 
 # Direct-label offsets in points, tuned per hero point: (dx, dy, ha).
 HERO_LABEL_OFFSETS: dict[str, tuple[float, float, str]] = {
-    "random_allocator": (0, -11, "center"),
-    "greedy_by_size_allocator_cpp": (8, 0, "left"),
-    "greedy_by_all_allocator_cpp": (0, -11, "center"),
-    "best_fit_allocator": (8, 0, "left"),
-    "omni_allocator": (8, 0, "left"),
-    "hill_climb_allocator": (0, -11, "center"),
-    "genetic_allocator": (8, -6, "left"),
-    "simulated_annealing_allocator": (-8, 3, "right"),
-    "tabu_search_allocator": (-8, 0, "right"),
-    "telamalloc_allocator": (0, -11, "center"),
-    "minimalloc_allocator": (8, 0, "left"),
-    "supermalloc_allocator": (-10, 0, "right"),
+    "random": (0, -11, "center"),
+    "greedy_by_size": (8, 0, "left"),
+    "greedy_by_all": (0, -11, "center"),
+    "best_fit": (8, 0, "left"),
+    "omni": (8, 0, "left"),
+    "hill_climb": (0, -11, "center"),
+    "genetic": (8, -6, "left"),
+    "simulated_annealing": (-8, 3, "right"),
+    "tabu_search": (-8, 0, "right"),
+    "telamalloc": (0, -11, "center"),
+    "minimalloc": (8, 0, "left"),
+    "supermalloc": (-10, 0, "right"),
 }
 
 # Direct-label offsets in points: (dx, dy, ha). minimalloc's line ends early
 # (no 10k point), so its label anchors left, away from the 10k label cluster;
 # the four lines that converge on the 3 s budget at 10k get staggered dy.
 SCALING_LABEL_OFFSETS = {
-    "naive_allocator": (4, -2, "left"),
-    "greedy_by_size_allocator_cpp": (4, -4, "left"),
-    "omni_allocator": (4, 4, "left"),
-    "hill_climb_allocator": (4, 3, "left"),
-    "telamalloc_allocator": (4, -11, "left"),
-    "minimalloc_allocator": (0, 9, "center"),
-    "supermalloc_allocator": (4, 10, "left"),
+    "naive": (4, -2, "left"),
+    "greedy_by_size": (4, -4, "left"),
+    "omni": (4, 4, "left"),
+    "hill_climb": (4, 3, "left"),
+    "telamalloc": (4, -11, "left"),
+    "minimalloc": (0, 9, "center"),
+    "supermalloc": (4, 10, "left"),
 }
 
 
@@ -228,7 +228,7 @@ def _solve(
 ) -> tuple[float, float, Pool]:
     """Time the solve alone; validation is quadratic and would skew timings."""
     with Timer() as timer:
-        solved = run_allocation(pool, allocator=allocator)
+        solved = allocate(pool, allocator=allocator)
     if validate:
         validate_allocation(solved)
     return timer.elapsed_s, solved.efficiency, solved
@@ -237,12 +237,12 @@ def _solve(
 def _hard_suite() -> dict[str, Pool]:
     """Real minimalloc benchmarks plus adversarial synthetic patterns."""
     suite: dict[str, Pool] = {}
-    minimalloc = BaseSource.get("minimalloc_source")()
+    minimalloc = BaseSource.get("minimalloc")()
     for variant in minimalloc.get_available_variants():
         suite[f"mm-{variant.split('.')[0]}"] = minimalloc.get_variant(variant)
-    suite["pinwheel"] = BaseSource.get("pinwheel_source")().get_variant(101)
-    suite["tiling"] = BaseSource.get("tiling_source")().get_variant(100)
-    suite["random"] = BaseSource.get("random_source")().get_variant(250)
+    suite["pinwheel"] = BaseSource.get("pinwheel")().get_variant(101)
+    suite["tiling"] = BaseSource.get("tiling")().get_variant(100)
+    suite["random"] = BaseSource.get("random")().get_variant(250)
     return suite
 
 
@@ -262,7 +262,7 @@ def collect_data() -> dict[str, Any]:
         runs[name] = {}
         for problem in problems:
             seconds, efficiency, solved = _solve(suite[problem], allocator)
-            if name == "supermalloc_allocator":
+            if name == "supermalloc":
                 supermalloc_pools[problem] = solved
             runs[name][problem] = (seconds, efficiency)
             print(f"{name:38s} {problem:10s} {seconds:8.3f}s  {efficiency:7.2%}")
@@ -281,12 +281,12 @@ def collect_data() -> dict[str, Any]:
 
     # Scaling: solve time vs. problem size on the random source. Skip validation
     # here: it is quadratic in pure Python and would dwarf the fast solves at 10k.
-    source = BaseSource.get("random_source")()
+    source = BaseSource.get("random")()
     scaling: dict[str, list[list[float]]] = {}
     for name in SCALING_ALLOCATORS:
         allocator = BaseAllocator.resolve(name)
         # minimalloc can't solve 10k within the budget and would error out.
-        capped = name == "minimalloc_allocator"
+        capped = name == "minimalloc"
         sizes = SCALING_SIZES_SLOW if capped else SCALING_SIZES
         scaling[name] = []
         for size in sizes:
@@ -299,7 +299,7 @@ def collect_data() -> dict[str, Any]:
     solved = supermalloc_pools[ALLOCATION_PROBLEM]
     allocation = {
         "problem": PROBLEM_LABELS.get(ALLOCATION_PROBLEM, ALLOCATION_PROBLEM),
-        "efficiency": runs["supermalloc_allocator"][ALLOCATION_PROBLEM][1],
+        "efficiency": runs["supermalloc"][ALLOCATION_PROBLEM][1],
         "size": solved.size,
         "rects": [[a.start, a.duration, a.offset, a.size] for a in solved.allocations],
     }
@@ -458,7 +458,7 @@ def render_hero(data: dict[str, Any], theme: Theme, preview: Path | None) -> Non
     for name, (seconds, efficiency) in points.items():
         label, role = ALLOCATORS[name]
         color = theme.role[role]
-        emphasis = name == "supermalloc_allocator"
+        emphasis = name == "supermalloc"
         ax.scatter(
             seconds,
             efficiency,
@@ -522,7 +522,7 @@ def render_quality(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
             solid_capstyle="round",
         )
         for name, value in zip(QUALITY_ALLOCATORS, values, strict=True):
-            emphasis = name == "supermalloc_allocator"
+            emphasis = name == "supermalloc"
             ax.scatter(
                 value,
                 y,
@@ -559,7 +559,7 @@ def render_scaling(data: dict[str, Any], theme: Theme, preview: Path | None) -> 
         label, role = ALLOCATORS[name]
         sizes, seconds = zip(*data[name], strict=True)
         color = theme.role[role]
-        emphasis = name == "supermalloc_allocator"
+        emphasis = name == "supermalloc"
         ax.plot(
             sizes,
             seconds,

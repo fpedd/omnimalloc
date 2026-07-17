@@ -5,12 +5,12 @@
 from random import Random
 
 import pytest
-from omnimalloc.analysis.conflicts import get_conflict_degrees, get_conflicts
+from omnimalloc.analysis import conflict_degrees, conflicts
 from omnimalloc.primitives import Allocation
 
 
 def test_conflicts_empty() -> None:
-    assert get_conflicts(()) == {}
+    assert conflicts(()) == {}
 
 
 def test_conflicts_scalar_overlap() -> None:
@@ -19,7 +19,7 @@ def test_conflicts_scalar_overlap() -> None:
         Allocation(id=2, size=8, start=2, end=6),
         Allocation(id=3, size=8, start=6, end=8),
     )
-    assert get_conflicts(allocations) == {1: {2}, 2: {1}, 3: set()}
+    assert conflicts(allocations) == {1: {2}, 2: {1}, 3: set()}
 
 
 def test_conflicts_touching_intervals_do_not_conflict() -> None:
@@ -27,7 +27,7 @@ def test_conflicts_touching_intervals_do_not_conflict() -> None:
         Allocation(id=1, size=8, start=0, end=4),
         Allocation(id=2, size=8, start=4, end=6),
     )
-    assert get_conflicts(allocations) == {1: set(), 2: set()}
+    assert conflicts(allocations) == {1: set(), 2: set()}
 
 
 def test_conflicts_vector_concurrent() -> None:
@@ -35,7 +35,7 @@ def test_conflicts_vector_concurrent() -> None:
         Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
         Allocation(id="b", size=8, start=(0, 0), end=(0, 1)),
     )
-    assert get_conflicts(allocations) == {"a": {"b"}, "b": {"a"}}
+    assert conflicts(allocations) == {"a": {"b"}, "b": {"a"}}
 
 
 def test_conflicts_vector_ordered_do_not_conflict() -> None:
@@ -43,7 +43,7 @@ def test_conflicts_vector_ordered_do_not_conflict() -> None:
         Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
         Allocation(id="b", size=8, start=(1, 0), end=(2, 0)),
     )
-    assert get_conflicts(allocations) == {"a": set(), "b": set()}
+    assert conflicts(allocations) == {"a": set(), "b": set()}
 
 
 def test_conflicts_rejects_duplicate_ids() -> None:
@@ -52,7 +52,7 @@ def test_conflicts_rejects_duplicate_ids() -> None:
         Allocation(id=1, size=8, start=1, end=3),
     )
     with pytest.raises(ValueError, match="unique"):
-        get_conflicts(duplicated)
+        conflicts(duplicated)
 
 
 def test_conflicts_rejects_mixed_dimensions() -> None:
@@ -61,26 +61,27 @@ def test_conflicts_rejects_mixed_dimensions() -> None:
         Allocation(id=2, size=8, start=(0, 0), end=(1, 1)),
     )
     with pytest.raises(ValueError, match="dimension"):
-        get_conflicts(mixed)
+        conflicts(mixed)
 
 
-def test_conflicts_over_budget_give_up() -> None:
+def test_conflicts_over_budget_raise() -> None:
     allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    assert get_conflicts(allocations, work_budget=1) is None
+    with pytest.raises(RuntimeError, match="work_budget"):
+        conflicts(allocations, work_budget=1)
 
 
 def test_conflicts_unbounded_budget_always_computes() -> None:
     allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(2))
-    assert get_conflicts(allocations, work_budget=None) == {0: {1}, 1: {0}}
+    assert conflicts(allocations, work_budget=None) == {0: {1}, 1: {0}}
 
 
 def test_conflicts_reject_negative_budget() -> None:
     with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        get_conflicts((), work_budget=-1)
+        conflicts((), work_budget=-1)
 
 
 def test_conflict_degrees_empty() -> None:
-    assert get_conflict_degrees(()) == []
+    assert conflict_degrees(()) == []
 
 
 def test_conflict_degrees_align_with_input_order() -> None:
@@ -89,7 +90,7 @@ def test_conflict_degrees_align_with_input_order() -> None:
         Allocation(id=2, size=8, start=2, end=6),
         Allocation(id=3, size=8, start=6, end=8),
     )
-    assert get_conflict_degrees(allocations) == [1, 1, 0]
+    assert conflict_degrees(allocations) == [1, 1, 0]
 
 
 def test_conflict_degrees_allow_duplicate_ids() -> None:
@@ -97,22 +98,30 @@ def test_conflict_degrees_allow_duplicate_ids() -> None:
         Allocation(id=1, size=8, start=0, end=2),
         Allocation(id=1, size=8, start=1, end=3),
     )
-    assert get_conflict_degrees(duplicated) == [1, 1]
+    assert conflict_degrees(duplicated) == [1, 1]
 
 
-def test_conflict_degrees_over_budget_give_up() -> None:
+def test_conflict_degrees_over_budget_raise() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(0, 0), end=(10, 10)) for i in range(4)
+    )
+    with pytest.raises(RuntimeError, match="work_budget"):
+        conflict_degrees(allocations, work_budget=1)
+
+
+def test_conflict_degrees_scalar_ignores_budget() -> None:
     allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    assert get_conflict_degrees(allocations, work_budget=1) is None
+    assert conflict_degrees(allocations, work_budget=1) == [3, 3, 3, 3]
 
 
 def test_conflict_degrees_unbounded_budget_always_counts() -> None:
     allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    assert get_conflict_degrees(allocations, work_budget=None) == [3, 3, 3, 3]
+    assert conflict_degrees(allocations, work_budget=None) == [3, 3, 3, 3]
 
 
 def test_conflict_degrees_reject_negative_budget() -> None:
     with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        get_conflict_degrees((), work_budget=-1)
+        conflict_degrees((), work_budget=-1)
 
 
 def _random_instance(rng: Random) -> tuple[Allocation, ...]:
@@ -135,11 +144,11 @@ def test_conflicts_match_pairwise_overlaps() -> None:
     rng = Random(5)
     for _ in range(100):
         allocations = _random_instance(rng)
-        conflicts = get_conflicts(allocations)
+        conflict_map = conflicts(allocations)
         for alloc in allocations:
             expected = {
                 other.id
                 for other in allocations
-                if other.id != alloc.id and alloc.overlaps_temporally(other)
+                if other.id != alloc.id and alloc.conflicts_with(other)
             }
-            assert conflicts[alloc.id] == expected
+            assert conflict_map[alloc.id] == expected

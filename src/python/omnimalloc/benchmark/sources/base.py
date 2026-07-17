@@ -3,6 +3,7 @@
 #
 
 from abc import abstractmethod
+from typing import ClassVar
 
 from omnimalloc.common.registry import Registered
 from omnimalloc.primitives import Allocation, IdType, Memory, Pool, System
@@ -10,6 +11,9 @@ from omnimalloc.primitives import Allocation, IdType, Memory, Pool, System
 
 class BaseSource(Registered):
     """Base class for benchmark allocation sources with automatic registry.
+
+    Registry keys drop the class-role token: RandomSource registers as
+    "random".
 
     Sources provide workloads at different abstraction levels.
     Subclasses must implement `get_allocations()`. Higher-level methods
@@ -22,6 +26,8 @@ class BaseSource(Registered):
     - Fixed: Have predetermined models/pools with fixed allocation counts
       (e.g., Huggingface)
     """
+
+    _strip_suffix: ClassVar[str] = "Source"
 
     def __init__(
         self,

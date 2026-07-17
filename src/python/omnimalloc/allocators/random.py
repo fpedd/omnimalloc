@@ -6,6 +6,7 @@ import random
 
 from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.common.constants import DEFAULT_SEED
+from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives import Allocation
 
 from .greedy import GreedyAllocator
@@ -14,9 +15,8 @@ from .greedy import GreedyAllocator
 class RandomAllocator(GreedyAllocator):
     """Randomized allocator that tries multiple random orders and picks the best."""
 
-    def __init__(self, num_trials: int = 100, seed: int = DEFAULT_SEED) -> None:
-        if num_trials < 0:
-            raise ValueError(f"num_trials must be non-negative, got {num_trials}")
+    def __init__(self, *, num_trials: int = 100, seed: int = DEFAULT_SEED) -> None:
+        ensure_non_negative(num_trials, "num_trials")
         self._seed = seed
         self._num_trials = num_trials
 
@@ -26,14 +26,14 @@ class RandomAllocator(GreedyAllocator):
 
         # Fresh RNG per call: repeated calls on one instance are deterministic
         rng = random.Random(self._seed)
-        placer = FirstFitPlacer(list(allocations))
+        placer = FirstFitPlacer(allocations)
         order = list(range(len(allocations)))
         best_order: list[int] | None = None
         best_peak = 0
 
         for _ in range(self._num_trials):
             rng.shuffle(order)
-            peak = placer.evaluate(order)
+            peak = placer.peak(order)
             if best_order is None or peak < best_peak:
                 best_order, best_peak = list(order), peak
 

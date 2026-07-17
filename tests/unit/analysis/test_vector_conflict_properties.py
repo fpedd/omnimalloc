@@ -88,32 +88,32 @@ def test_pairwise_overlap_matches_oracle(dim: int) -> None:
         a = make_allocation(0, start_a, end_a)
         b = make_allocation(1, start_b, end_b)
         expected = oracle_conflict(start_a, end_a, start_b, end_b)
-        assert a.overlaps_temporally(b) == expected
-        assert b.overlaps_temporally(a) == expected
+        assert a.conflicts_with(b) == expected
+        assert b.conflicts_with(a) == expected
 
 
 def test_equal_end_start_boundary_is_safe() -> None:
     a = make_allocation(0, (2, 3), (5, 7))
     b = make_allocation(1, (5, 7), (6, 8))
-    assert not a.overlaps_temporally(b)
+    assert not a.conflicts_with(b)
 
 
 def test_single_earlier_component_conflicts() -> None:
     a = make_allocation(0, (2, 3), (5, 7))
     b = make_allocation(1, (5, 6), (6, 8))
-    assert a.overlaps_temporally(b)
+    assert a.conflicts_with(b)
 
 
 def test_incomparable_clocks_conflict() -> None:
     a = make_allocation(0, (2, 3), (5, 7))
     b = make_allocation(1, (4, 8), (9, 9))
-    assert a.overlaps_temporally(b)
+    assert a.conflicts_with(b)
 
 
 def test_dominated_lifetime_is_safe() -> None:
     a = make_allocation(0, (2, 3), (5, 7))
     b = make_allocation(1, (6, 7), (7, 8))
-    assert not a.overlaps_temporally(b)
+    assert not a.conflicts_with(b)
 
 
 @pytest.mark.parametrize("hi", [3, 6, 20])
@@ -126,7 +126,7 @@ def test_conflict_graph_matches_oracle(hi: int) -> None:
         allocations = [
             make_allocation(i, start, end) for i, (start, end) in enumerate(lifetimes)
         ]
-        graph = _cpp.compute_temporal_overlaps(allocations, None)
+        graph = _cpp.conflicts(allocations, None)
         for i, j in itertools.combinations(range(count), 2):
             expected = oracle_conflict(*lifetimes[i], *lifetimes[j])
             assert (j in graph.get(i, set())) == expected
@@ -136,15 +136,14 @@ def test_conflict_graph_matches_oracle(hi: int) -> None:
 def test_same_offset_reuse_across_happens_before_passes() -> None:
     first = make_allocation(0, (0, 0), (2, 1), offset=0)
     second = make_allocation(1, (2, 1), (3, 3), offset=0)
-    assert validate_allocation(Pool(id=0, allocations=(first, second)))
+    validate_allocation(Pool(id=0, allocations=(first, second)))
 
 
 def test_one_flipped_component_fails_validation() -> None:
     first = make_allocation(0, (0, 0), (2, 1), offset=0)
     second = make_allocation(1, (2, 0), (3, 3), offset=0)
-    assert not validate_allocation(
-        Pool(id=0, allocations=(first, second)), raise_on_error=False
-    )
+    with pytest.raises(ValueError, match="overlaps"):
+        validate_allocation(Pool(id=0, allocations=(first, second)))
 
 
 @pytest.mark.parametrize("pattern", sorted(SYNC_PATTERNS))
@@ -154,19 +153,19 @@ def test_validator_catches_corrupted_placements(pattern: str) -> None:
         num_allocations=200, num_threads=6, pattern=pattern, seed=13
     ).get_allocations()
     placed = list(OmniAllocator().allocate(allocations))
-    assert validate_allocation(Pool(id=0, allocations=tuple(placed)))
-    conflicts = _cpp.compute_temporal_overlaps(placed, None)
+    validate_allocation(Pool(id=0, allocations=tuple(placed)))
+    conflict_map = _cpp.conflicts(placed, None)
     index_by_id = {p.id: k for k, p in enumerate(placed)}
+    conflicting = sorted(a for a, neighbors in conflict_map.items() if neighbors)
     for _ in range(5):
-        i = rng.choice(sorted(conflicts))
-        j = rng.choice(sorted(conflicts[i]))
+        i = rng.choice(conflicting)
+        j = rng.choice(sorted(conflict_map[i]))
         corrupted = list(placed)
         corrupted[index_by_id[j]] = placed[index_by_id[j]].with_offset(
             placed[index_by_id[i]].offset
         )
-        assert not validate_allocation(
-            Pool(id=0, allocations=tuple(corrupted)), raise_on_error=False
-        )
+        with pytest.raises(ValueError, match="overlaps"):
+            validate_allocation(Pool(id=0, allocations=tuple(corrupted)))
 
 
 def test_vector_clock_order_equals_causal_reachability() -> None:
@@ -206,7 +205,7 @@ def test_overlap_equals_possible_co_liveness_in_executions() -> None:
             causally_ordered = (
                 free_a in ancestors[alloc_b] or free_b in ancestors[alloc_a]
             )
-            assert a.overlaps_temporally(b) == (not causally_ordered)
+            assert a.conflicts_with(b) == (not causally_ordered)
             if not causally_ordered:
                 down_closure = ancestors[alloc_a] | ancestors[alloc_b]
                 assert free_a not in down_closure

@@ -2,41 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from dataclasses import dataclass
-
-from omnimalloc._cpp import TelamallocAllocatorCpp as _TelamallocAllocatorCpp
-from omnimalloc._cpp import TelamallocConfig as _TelamallocConfig
+from omnimalloc._cpp import telamalloc_place
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import ensure_valid_timeout
+from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
-
-
-@dataclass(frozen=True)
-class TelamallocConfig:
-    """Search budgets for TelamallocAllocator."""
-
-    seed: int = DEFAULT_SEED
-    # Eviction (backtrack) budget per capacity attempt; an attempt that
-    # exhausts it reports the capacity as unreachable.
-    max_backtracks: int = 10000
-    # Wall-clock budget in seconds; None disables it.
-    timeout: float | None = DEFAULT_TIMEOUT
-
-    def __post_init__(self) -> None:
-        if self.max_backtracks < 0:
-            raise ValueError(
-                f"max_backtracks must be non-negative, got {self.max_backtracks}"
-            )
-        ensure_valid_timeout(self.timeout)
-
-    def to_cpp_config(self) -> _TelamallocConfig:
-        return _TelamallocConfig(
-            seed=self.seed,
-            max_backtracks=self.max_backtracks,
-            timeout=self.timeout,
-        )
 
 
 class TelamallocAllocator(BaseAllocator):
@@ -47,23 +19,41 @@ class TelamallocAllocator(BaseAllocator):
     conflict-directed backtracking; it ships in Google's TPUv4 and Pixel 6.
     No reference implementation is public, so this is an adaptation that
     minimizes peak memory instead of testing satisfiability: independent
-    phases (connected components of the temporal-overlap graph) are each
-    packed in the paper's tiered order (longest lifetime, then largest size)
-    with min-conflict eviction as minor backtracking and squeaky-wheel
-    restarts as major backtracking, while a binary search drives each phase's
-    capacity from a first-fit incumbent down toward its load lower bound. An
-    occasional seeded random-walk repair breaks min-conflict cycles; results
-    are deterministic for a fixed `seed`, and setting `timeout` (default
-    3s) to 0 makes them reproducible across machines via `max_backtracks`
-    alone.
+    phases (connected components of the conflict graph) are each packed in
+    the paper's tiered order (longest lifetime, then largest size) with
+    min-conflict eviction as minor backtracking and squeaky-wheel restarts
+    as major backtracking, while a binary search drives each phase's
+    capacity from a first-fit incumbent down toward its load lower bound.
+    `max_backtracks` is the eviction budget per capacity attempt; an attempt
+    that exhausts it reports the capacity as unreachable. An occasional
+    seeded random-walk repair breaks min-conflict cycles; results are
+    deterministic for a fixed `seed`, and `timeout=None` (default 3s)
+    makes them reproducible across machines via `max_backtracks` alone.
     """
 
     # The phase decomposition and load bounds sweep a linear timeline
     supports_vector_time = False
 
-    def __init__(self, config: TelamallocConfig | None = None) -> None:
-        self._config = config or TelamallocConfig()
+    def __init__(
+        self,
+        *,
+        seed: int = DEFAULT_SEED,
+        max_backtracks: int = 10000,
+        timeout: float | None = DEFAULT_TIMEOUT,
+    ) -> None:
+        ensure_non_negative(max_backtracks, "max_backtracks")
+        ensure_valid_timeout(timeout)
+
+        self._seed = seed
+        self._max_backtracks = max_backtracks
+        self._timeout = timeout
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        cpp_allocator = _TelamallocAllocatorCpp(self._config.to_cpp_config())
-        return tuple(cpp_allocator.allocate(list(allocations)))
+        return tuple(
+            telamalloc_place(
+                allocations,
+                seed=self._seed,
+                max_backtracks=self._max_backtracks,
+                timeout=self._timeout,
+            )
+        )

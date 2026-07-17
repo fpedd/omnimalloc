@@ -2,15 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from omnimalloc import run_allocation
+import pytest
+from omnimalloc import allocate
 from omnimalloc.allocators import GreedyAllocator
 from omnimalloc.benchmark.results.campaign import BenchmarkCampaign
 from omnimalloc.benchmark.results.report import BenchmarkReport
 from omnimalloc.benchmark.results.result import BenchmarkResult
 from omnimalloc.benchmark.results.visualize import (
+    HAS_MATPLOTLIB,
     _canonicalize_artifact,
     _format_metadata,
     _get_allocator_color,
+    plot_benchmark,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
 
@@ -48,7 +51,7 @@ def test_canonicalize_artifact() -> None:
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = source.get_pool()
-    allocated_pool = run_allocation(pool, allocator)
+    allocated_pool = allocate(pool, allocator)
 
     result = BenchmarkResult(
         id=0,
@@ -72,3 +75,24 @@ def test_canonicalize_artifact() -> None:
     campaign_from_campaign = _canonicalize_artifact(campaign)
     assert isinstance(campaign_from_campaign, BenchmarkCampaign)
     assert campaign_from_campaign is campaign
+
+
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+def test_plot_benchmark_without_path_shows_figure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import matplotlib.pyplot as plt
+
+    source = RandomSource(num_allocations=10, seed=42)
+    allocator = GreedyAllocator()
+    result = BenchmarkResult(
+        id=0,
+        allocator=allocator,
+        source=source,
+        entity=allocate(source.get_pool(), allocator),
+        duration=0.5,
+    )
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(True))
+    plot_benchmark(result)
+    assert shown == [True]

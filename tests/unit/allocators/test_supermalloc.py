@@ -5,19 +5,45 @@
 from typing import cast
 
 import pytest
-from omnimalloc.allocators.greedy_base import peak_memory
+from omnimalloc._cpp import Partition, try_solve_many
 from omnimalloc.allocators.supermalloc import (
     Heuristic,
     SortKey,
     SupermallocAllocator,
-    SupermallocConfig,
 )
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation, Pool
 from omnimalloc.validate import validate_allocation
 
 
 def _assert_valid(result: tuple[Allocation, ...]) -> None:
-    assert validate_allocation(Pool(id="pool", allocations=result))
+    validate_allocation(Pool(id="test_pool", allocations=result))
+
+
+def _ablation_solve(
+    allocations: tuple[Allocation, ...],
+    canonical: bool = True,
+    dominance: bool = True,
+    floor_inference: bool = True,
+    monotonic_floor: bool = True,
+    decompose: bool = True,
+) -> tuple[Allocation, ...]:
+    partition = Partition.from_allocations(allocations)
+    bound = sum(a.size for a in allocations) + 1
+    solution = try_solve_many(
+        [partition.with_bound(bound)],
+        bound,
+        None,
+        canonical,
+        dominance,
+        floor_inference,
+        monotonic_floor,
+        decompose,
+        2.0,
+        1,
+    )
+    assert solution is not None
+    return tuple(solution.allocations)
 
 
 def test_empty() -> None:
@@ -51,7 +77,7 @@ def test_overlapping_reach_lower_bound() -> None:
         )
     )
     _assert_valid(result)
-    assert peak_memory(result) == 175
+    assert placement_pressure(result) == 175
 
 
 def test_preserves_ids_and_sizes() -> None:
@@ -67,47 +93,45 @@ def test_preserves_ids_and_sizes() -> None:
     ["canonical", "dominance", "floor_inference", "monotonic_floor", "decompose"],
 )
 def test_ablation_flags_still_valid(flag: str) -> None:
-    config = SupermallocConfig(timeout=2.0, **{flag: False})
     allocations = tuple(
         Allocation(id=i, size=100 + i, start=i % 4, end=4 + i % 5) for i in range(8)
     )
-    result = SupermallocAllocator(config).allocate(allocations)
-    _assert_valid(result)
+    placed = _ablation_solve(allocations, **{flag: False})
+    _assert_valid(placed)
 
 
 def test_deterministic_single_threaded() -> None:
-    config = SupermallocConfig(cores=1)
     allocations = tuple(
         Allocation(id=i, size=50 + 7 * i, start=i % 3, end=5 + i % 4) for i in range(10)
     )
-    first = SupermallocAllocator(config).allocate(allocations)
-    second = SupermallocAllocator(config).allocate(allocations)
+    first = SupermallocAllocator(num_threads=1).allocate(allocations)
+    second = SupermallocAllocator(num_threads=1).allocate(allocations)
     assert [(a.id, a.offset) for a in first] == [(a.id, a.offset) for a in second]
 
 
-def test_custom_heuristics_config() -> None:
-    config = SupermallocConfig(
-        heuristics=((SortKey.SIZE,), (SortKey.AREA, SortKey.WIDTH))
+def test_custom_heuristics() -> None:
+    allocator = SupermallocAllocator(
+        heuristics=((SortKey.SIZE,), (SortKey.AREA, SortKey.DURATION))
     )
     allocations = tuple(
         Allocation(id=i, size=10 * (i + 1), start=i % 3, end=3 + i % 4)
         for i in range(6)
     )
-    result = SupermallocAllocator(config).allocate(allocations)
+    result = allocator.allocate(allocations)
     _assert_valid(result)
 
 
 def test_empty_heuristics_rejected() -> None:
     with pytest.raises(ValueError, match="at least one heuristic"):
-        SupermallocConfig(heuristics=())
+        SupermallocAllocator(heuristics=())
 
 
 def test_invalid_sort_key_rejected() -> None:
-    config = SupermallocConfig(heuristics=cast("tuple[Heuristic, ...]", (("X",),)))
+    allocator = SupermallocAllocator(
+        heuristics=cast("tuple[Heuristic, ...]", (("X",),))
+    )
     with pytest.raises(ValueError, match="Unknown sort key"):
-        SupermallocAllocator(config).allocate(
-            (Allocation(id=1, size=10, start=0, end=5),)
-        )
+        allocator.allocate((Allocation(id=1, size=10, start=0, end=5),))
 
 
 def test_total_size_overflow_rejected() -> None:
@@ -115,7 +139,7 @@ def test_total_size_overflow_rejected() -> None:
         Allocation(id=1, size=2**62, start=0, end=5),
         Allocation(id=2, size=2**62, start=0, end=5),
     )
-    with pytest.raises(OverflowError):
+    with pytest.raises(ValueError, match="int64"):
         SupermallocAllocator().allocate(allocations)
 
 
@@ -127,7 +151,7 @@ def test_perfect_tiling_stack() -> None:
     )
     result = SupermallocAllocator().allocate(allocations)
     _assert_valid(result)
-    assert peak_memory(result) == 256
+    assert placement_pressure(result) == 256
 
 
 def test_interleaved_lifetimes() -> None:
@@ -140,4 +164,4 @@ def test_interleaved_lifetimes() -> None:
     )
     result = SupermallocAllocator().allocate(allocations)
     _assert_valid(result)
-    assert peak_memory(result) == 300
+    assert placement_pressure(result) == 300
