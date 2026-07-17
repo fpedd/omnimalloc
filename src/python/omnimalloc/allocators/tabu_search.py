@@ -6,20 +6,25 @@ from dataclasses import dataclass
 
 from omnimalloc._cpp import TabuSearchAllocatorCpp as _TabuSearchAllocatorCpp
 from omnimalloc._cpp import TabuSearchConfig as _TabuSearchConfig
+from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import ensure_valid_timeout
 from omnimalloc.primitives import Allocation
 
-from .base import DEFAULT_TIMEOUT, BaseAllocator
+from .base import BaseAllocator
 
 
 @dataclass(frozen=True)
 class TabuSearchConfig:
     """Neighborhood size, iteration budget, and tabu memory for TabuSearchAllocator."""
 
-    seed: int = 42
+    seed: int = DEFAULT_SEED
     max_iterations: int = 500
+    # Candidate swaps sampled per iteration
     neighborhood_size: int = 20
+    # Iterations a reversed swap stays forbidden
     tabu_tenure: int = 15
-    timeout: float = DEFAULT_TIMEOUT
+    # Wall-clock budget in seconds; None disables it.
+    timeout: float | None = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:
         if self.max_iterations <= 0:
@@ -32,8 +37,7 @@ class TabuSearchConfig:
             )
         if self.tabu_tenure <= 0:
             raise ValueError(f"tabu_tenure must be positive, got {self.tabu_tenure}")
-        if self.timeout < 0:
-            raise ValueError(f"timeout must be non-negative, got {self.timeout}")
+        ensure_valid_timeout(self.timeout)
 
     def to_cpp_config(self) -> _TabuSearchConfig:
         return _TabuSearchConfig(

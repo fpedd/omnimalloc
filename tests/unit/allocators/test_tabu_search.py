@@ -3,6 +3,7 @@
 #
 
 import pytest
+from omnimalloc._cpp import TabuSearchAllocatorCpp
 from omnimalloc.allocators.greedy import GreedyBySizeAllocator
 from omnimalloc.allocators.greedy_base import peak_memory
 from omnimalloc.allocators.tabu_search import TabuSearchAllocator, TabuSearchConfig
@@ -41,6 +42,18 @@ def test_tabu_search_rejects_non_positive_neighborhood_size() -> None:
 def test_tabu_search_rejects_non_positive_tabu_tenure() -> None:
     with pytest.raises(ValueError, match="tabu_tenure must be positive"):
         TabuSearchConfig(tabu_tenure=0)
+
+
+def test_tabu_search_cpp_boundary_rejects_zero_timeout() -> None:
+    config = TabuSearchConfig().to_cpp_config()
+    config.timeout = 0.0
+    allocator = TabuSearchAllocatorCpp(config)
+    allocations = [
+        Allocation(id=1, size=100, start=0, end=10),
+        Allocation(id=2, size=100, start=5, end=15),
+    ]
+    with pytest.raises(ValueError, match="timeout must be positive"):
+        allocator.allocate(allocations)
 
 
 def test_tabu_search_preserves_allocations() -> None:

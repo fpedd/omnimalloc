@@ -5,6 +5,7 @@
 import random
 
 from omnimalloc._cpp import FirstFitPlacer
+from omnimalloc.common.constants import DEFAULT_SEED
 from omnimalloc.primitives import Allocation
 
 from .greedy import GreedyAllocator
@@ -13,7 +14,7 @@ from .greedy import GreedyAllocator
 class RandomAllocator(GreedyAllocator):
     """Randomized allocator that tries multiple random orders and picks the best."""
 
-    def __init__(self, num_trials: int = 100, seed: int = 42) -> None:
+    def __init__(self, num_trials: int = 100, seed: int = DEFAULT_SEED) -> None:
         if num_trials < 0:
             raise ValueError(f"num_trials must be non-negative, got {num_trials}")
         self._seed = seed

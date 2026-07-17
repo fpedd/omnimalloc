@@ -39,7 +39,7 @@ def test_hillclimb_rejects_negative_temperature() -> None:
 
 
 def test_hillclimb_rejects_negative_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout must be non-negative"):
+    with pytest.raises(ValueError, match="timeout must be positive or None"):
         HillClimbAllocator(timeout=-1.0)
 
 

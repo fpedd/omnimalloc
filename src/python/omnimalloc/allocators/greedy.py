@@ -23,9 +23,10 @@ class GreedyAllocator(BaseAllocator):
     supports_vector_time = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        return tuple(
-            first_fit_place(allocations, compute_temporal_overlaps(allocations))
-        )
+        # Unbounded: placement needs the true conflict relation, never a degrade.
+        overlaps = compute_temporal_overlaps(allocations, None)
+        assert overlaps is not None
+        return tuple(first_fit_place(allocations, overlaps))
 
 
 class GreedyByDurationAllocator(GreedyAllocator):

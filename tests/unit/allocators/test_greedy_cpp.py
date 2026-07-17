@@ -393,7 +393,7 @@ def test_cpp_first_fit_place_reuses_overlaps_across_orders() -> None:
         Allocation(id=i, size=(i % 4 + 1) * 10, start=i % 5, end=i % 5 + i % 3 + 1)
         for i in range(30)
     )
-    overlaps = compute_temporal_overlaps(allocs)
+    overlaps = compute_temporal_overlaps(allocs, None)
     for order in (allocs, tuple(reversed(allocs))):
         result = first_fit_place(order, overlaps)
         expected = GreedyAllocator().allocate(order)

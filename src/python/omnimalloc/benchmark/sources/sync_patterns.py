@@ -6,6 +6,7 @@ import random
 from math import isqrt
 from typing import Final
 
+from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation, VectorClock
 
 from .base import BaseSource
@@ -52,10 +53,10 @@ class SyncPatternSource(BaseSource):
         steps: int | None = None,
         sync_period: int = 8,
         group_size: int | None = None,
-        size_min: int = 1024,
-        size_max: int = 1024 * 1024,
+        size_min: int = KB,
+        size_max: int = MB,
         max_lifetime: int | None = None,
-        seed: int | None = 42,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         if num_threads <= 0:
             raise ValueError("num_threads must be positive")

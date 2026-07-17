@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from .allocation import Allocation, TimePoint, VectorClock
+from omnimalloc.primitives.allocation import Allocation, TimePoint, VectorClock
 
 
 def time_components(time_point: TimePoint) -> VectorClock:

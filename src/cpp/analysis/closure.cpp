@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "clock_rows.hpp"
+#include "clock.hpp"
 #include "common/parallel.hpp"
 
 // Join-closure enumeration of the cut lattice. Cuts live in a flat row

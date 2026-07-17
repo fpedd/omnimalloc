@@ -7,9 +7,9 @@ import os
 from bisect import bisect_left, bisect_right
 from concurrent.futures import ProcessPoolExecutor
 
-from omnimalloc._cpp import compute_conflict_degrees
+from omnimalloc.analysis.clock import ensure_uniform_dim
+from omnimalloc.analysis.conflicts import get_conflict_degrees
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.vector_clock import ensure_uniform_dim
 
 from .base import BaseAllocator
 
@@ -23,8 +23,10 @@ def compute_conflicts(allocations: tuple[Allocation, ...]) -> dict[Allocation, i
     """Count temporally overlapping allocations for each allocation."""
     if ensure_uniform_dim(allocations) > 1:
         # No linear timeline to bisect over; count conflicts pairwise (with
-        # multiplicity, matching the scalar sweep even under duplicate ids)
-        degrees = compute_conflict_degrees(allocations)
+        # multiplicity, matching the scalar sweep even under duplicate ids).
+        # Unbounded: the sort order must not degrade on large instances.
+        degrees = get_conflict_degrees(allocations, work_budget=None)
+        assert degrees is not None
         return dict(zip(allocations, degrees, strict=True))
     starts = sorted(alloc.start for alloc in allocations)
     ends = sorted(alloc.end for alloc in allocations)

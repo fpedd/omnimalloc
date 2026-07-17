@@ -5,8 +5,8 @@
 import pickle
 
 import pytest
+from omnimalloc.analysis.pressure import get_pressure
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.pressure import get_pressure
 
 
 def test_vector_creation() -> None:

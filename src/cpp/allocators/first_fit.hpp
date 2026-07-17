@@ -6,38 +6,18 @@
 
 #include <cstdint>
 #include <optional>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "analysis/conflicts.hpp"
 #include "primitives/allocation.hpp"
-#include "primitives/clock_rows.hpp"
-#include "primitives/id_type.hpp"
 
 namespace omnimalloc {
-
-// Temporal overlap adjacency: allocation id -> ids of overlapping allocations
-using TemporalOverlaps =
-    std::unordered_map<IdType, std::unordered_set<IdType, IdTypeHash>,
-                       IdTypeHash>;
-
-// Index-based temporal adjacency: position i -> positions overlapping i
-using OverlapIndices = std::vector<std::vector<size_t>>;
 
 // Throw unless every allocation has scalar (interval) lifetimes; `who` names
 // the rejecting entry point in the message.
 void require_scalar_time(const std::vector<Allocation>& allocations,
                          const char* who);
-
-// Map each allocation id to the ids of temporally overlapping allocations
-[[nodiscard]] TemporalOverlaps compute_temporal_overlaps(
-    const std::vector<Allocation>& allocations);
-
-// Map each allocation index to the indices of temporally overlapping
-// allocations
-[[nodiscard]] OverlapIndices compute_overlap_indices(
-    const std::vector<Allocation>& allocations);
 
 // Occupied (offset, end) spans of the already-placed neighbors of one
 // allocation, sorted by offset so the gap scans can go left-to-right
@@ -49,16 +29,6 @@ void gather_spans(const std::vector<size_t>& neighbors,
 // First-fit: lowest offset where `size` fits between the sorted spans
 [[nodiscard]] int64_t first_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans);
-
-// Per-allocation count of temporally overlapping allocations, aligned with
-// `allocations`. Counts with multiplicity, so duplicate ids stay distinct.
-[[nodiscard]] std::vector<int64_t> compute_conflict_degrees(
-    const std::vector<Allocation>& allocations);
-
-// Pairwise happens-before conflict adjacency over the pruned vector sweep;
-// handles scalar and vector-clock lifetimes alike.
-[[nodiscard]] CsrAdjacency build_conflict_adjacency(
-    const std::vector<Allocation>& allocations);
 
 // Offsets (aligned with `allocations`) and peak of the winning placement.
 struct PortfolioPlacement {

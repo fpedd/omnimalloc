@@ -46,10 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 from omnimalloc import OmniAllocator
-from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
-from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
-from omnimalloc.benchmark.timer import Timer
-from omnimalloc.primitives import (
+from omnimalloc.analysis import (
     get_closure_pressure,
     get_per_allocation_closure_pressure,
     get_per_allocation_placement_pressure,
@@ -57,6 +54,9 @@ from omnimalloc.primitives import (
     get_placement_pressure,
     get_pressure,
 )
+from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
+from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
+from omnimalloc.benchmark.timer import Timer
 
 if TYPE_CHECKING:
     from collections.abc import Callable

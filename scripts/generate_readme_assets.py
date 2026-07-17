@@ -41,10 +41,10 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 from omnimalloc import run_allocation, validate_allocation
-from omnimalloc.allocators import DEFAULT_TIMEOUT, BaseAllocator
+from omnimalloc.allocators import BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.timer import Timer
-from omnimalloc.common.units import MB
+from omnimalloc.common.constants import DEFAULT_TIMEOUT, MB
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes

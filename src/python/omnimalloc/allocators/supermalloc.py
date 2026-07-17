@@ -5,7 +5,6 @@
 import logging
 import os
 import sys
-import time
 from dataclasses import dataclass
 from enum import Enum
 
@@ -16,7 +15,14 @@ from omnimalloc._cpp import (
     greedy_many,
     solve_many,
 )
-from omnimalloc.allocators.base import DEFAULT_TIMEOUT, BaseAllocator
+from omnimalloc.allocators.base import BaseAllocator
+from omnimalloc.common.constants import DEFAULT_TIMEOUT
+from omnimalloc.common.deadline import (
+    deadline_expired,
+    deadline_remaining,
+    ensure_valid_timeout,
+    make_deadline,
+)
 from omnimalloc.primitives.allocation import Allocation
 
 logger = logging.getLogger(__name__)
@@ -60,7 +66,9 @@ GREEDY_HEURISTICS: tuple[Heuristic, ...] = (
 class SupermallocConfig:
     """Configuration for the SupermallocAllocator."""
 
-    timeout: float = DEFAULT_TIMEOUT
+    # Wall-clock budget in seconds for greedy + search (problem setup is not
+    # counted against it); None lets the search run to optimality.
+    timeout: float | None = DEFAULT_TIMEOUT
     heuristics: tuple[Heuristic, ...] = DEFAULT_HEURISTICS
     cores: int | None = None
     canonical: bool = True
@@ -70,6 +78,7 @@ class SupermallocConfig:
     decompose: bool = True
 
     def __post_init__(self) -> None:
+        ensure_valid_timeout(self.timeout)
         if not self.heuristics:
             raise ValueError("SupermallocConfig requires at least one heuristic")
 
@@ -95,15 +104,30 @@ class _Portfolio:
     partitions: list[Partition]
     options: SearchOptions
     threads: int
-    deadline: float
+    # Absolute time.monotonic() deadline; None means the search is unbounded.
+    deadline: float | None
 
-    def solve(self, bounds: tuple[int, ...], timeout: float) -> Solution | None:
-        """Run one portfolio round: each heuristic searches below each bound."""
+    def remaining(self) -> float | None:
+        """Seconds left on the budget (0.0 once expired), or None when unbounded."""
+        return deadline_remaining(self.deadline)
+
+    def expired(self) -> bool:
+        return deadline_expired(self.deadline)
+
+    def solve(self, bounds: tuple[int, ...]) -> Solution | None:
+        """Run one portfolio round, or None once the budget has expired.
+
+        The budget is read once per round so the expiry check and the round's
+        timeout always agree.
+        """
+        remaining = self.remaining()
+        if remaining is not None and remaining <= 0:
+            return None
         members = [p.with_bound(b) for b in bounds for p in self.partitions]
         return solve_many(
             members,
             sys.maxsize,
-            timeout,
+            remaining,
             max(bounds),
             self.options,
             self.threads,
@@ -123,15 +147,12 @@ def _search(portfolio: _Portfolio, low: int, height: int) -> Solution | None:
     best: Solution | None = None
     rungs = max(1, portfolio.threads // len(portfolio.partitions))
     while height > low:
-        remaining = portfolio.deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        result = portfolio.solve(_bound_ladder(low, height, rungs), remaining)
+        result = portfolio.solve(_bound_ladder(low, height, rungs))
         if result is None:
             break
         best, height = result, result.height
 
-    if height > low and time.monotonic() >= portfolio.deadline:
+    if height > low and portfolio.expired():
         logger.debug("Supermalloc timed out above lower bound: %d > %d", height, low)
 
     return best
@@ -148,7 +169,6 @@ class SupermallocAllocator(BaseAllocator):
         self._config = config or SupermallocConfig()
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        deadline = time.monotonic() + self._config.timeout
         threads = self._config.num_threads()
         base = Partition.from_allocations(allocations)
         heuristics = self._config.heuristics
@@ -157,15 +177,16 @@ class SupermallocAllocator(BaseAllocator):
             "".join(h) for h in GREEDY_HEURISTICS if h not in heuristics
         ]
 
-        budget = max(0.0, deadline - time.monotonic())
-        incumbent = greedy_many(base, greedy_codes, budget, threads)
         portfolio = _Portfolio(
             partitions=[base.reorder(code) for code in heuristic_codes],
             options=self._config.search_options(),
             threads=threads,
-            deadline=deadline,
+            # Deliberately started after partition construction and the
+            # reorders above: the budget covers greedy + search only.
+            deadline=make_deadline(self._config.timeout),
         )
 
+        incumbent = greedy_many(base, greedy_codes, portfolio.remaining(), threads)
         best = _search(portfolio, base.lower_bound, incumbent.height)
         if best is None:
             best = incumbent

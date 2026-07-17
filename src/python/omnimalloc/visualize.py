@@ -5,11 +5,24 @@
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal, NamedTuple
 
+from omnimalloc.analysis import (
+    ensure_uniform_dim,
+    get_conflict_degrees,
+    get_pressure,
+    time_components,
+    try_linearize,
+)
 from omnimalloc.common.optional import require_optional
-from omnimalloc.primitives import Allocation, BufferKind, IdType, Memory, Pool, System
-from omnimalloc.primitives.vector_clock import ensure_uniform_dim, time_components
+from omnimalloc.primitives import (
+    Allocation,
+    BufferKind,
+    IdType,
+    Memory,
+    Pool,
+    System,
+)
 
 try:
     import matplotlib.pyplot as plt
@@ -68,9 +81,15 @@ KIND_COLOR_MAP: Final[dict[BufferKind, str]] = {
 }
 
 LANE_CAVEAT: Final[str] = (
-    "Lanes show each thread's local timeline: overlaps within a lane are real "
-    "conflicts, but cross-thread conflicts may not be visible anywhere; "
-    "validate_allocation() is the authority."
+    "Lanes show each thread's local timeline: temporal overlaps within a lane "
+    "are real conflicts, but cross-thread conflicts may not be visible "
+    "anywhere; validate_allocation() is the authority."
+)
+
+PANEL_CAVEAT: Final[str] = (
+    "Virtual global time is a linear extension of happens-before: visible "
+    "temporal overlaps are always real conflicts, but concurrent allocations "
+    "may be drawn apart; validate_allocation() is the authority."
 )
 
 
@@ -95,16 +114,110 @@ def _lane_extent(alloc: Allocation, lane: int) -> tuple[int, int]:
     return time_components(alloc.start)[lane], time_components(alloc.end)[lane]
 
 
-def _get_x_limits(system: System) -> dict[int, tuple[int, int]]:
-    """Per-lane x-limits, shared across memories so aligned lanes compare."""
-    max_ends: dict[int, int] = {}
-    for memory in system.memories:
-        for pool in memory.pools:
-            for alloc in pool.allocations:
-                for lane, end in enumerate(time_components(alloc.end)):
-                    max_ends[lane] = max(max_ends.get(lane, 0), end)
-    # Clamp to at least 1 so empty lanes keep a non-degenerate x-axis
-    return {lane: (0, max(end, 1)) for lane, end in max_ends.items()}
+def _sum_extent(alloc: Allocation) -> tuple[int, int]:
+    """Project an allocation's lifetime onto the monotone clock-component sum."""
+    return sum(time_components(alloc.start)), sum(time_components(alloc.end))
+
+
+class _Panel(NamedTuple):
+    """One subplot: a memory drawn over one projection of its lifetimes."""
+
+    memory: Memory
+    extents: dict[int, tuple[int, int]]  # id(allocation) -> projected lifetime
+    xlabel: str
+    title: str | None = None
+    note: str | None = None
+
+    @property
+    def x_limits(self) -> tuple[int, int]:
+        """X-limits covering the panel's extents; empty panels keep a (0, 1) axis."""
+        return 0, max((end for _, end in self.extents.values()), default=1)
+
+
+def _memory_allocations(memory: Memory) -> list[Allocation]:
+    return [alloc for pool in memory.pools for alloc in pool.allocations]
+
+
+def _projected(alloc: Allocation, extent: tuple[int, int]) -> Allocation:
+    """Scalar stand-in carrying the allocation's size over a projected extent."""
+    return Allocation(id=alloc.id, size=alloc.size, start=extent[0], end=extent[1])
+
+
+def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
+    """Projected lifetimes for one memory's panel; True when conflict-exact."""
+    allocations = _memory_allocations(memory)
+    if len({alloc.dim for alloc in allocations}) == 1:
+        linearized = try_linearize(tuple(allocations))
+        if linearized is not None:
+            return {
+                id(alloc): (lin.start, lin.end)
+                for alloc, lin in zip(allocations, linearized, strict=True)
+            }, True
+    return {id(alloc): _sum_extent(alloc) for alloc in allocations}, False
+
+
+def _overlap_pairs(allocations: tuple[Allocation, ...]) -> int | None:
+    """Count temporally overlapping allocation pairs, or None once over budget."""
+    degrees = get_conflict_degrees(allocations)
+    return None if degrees is None else sum(degrees) // 2
+
+
+def _conflict_visibility(
+    memory: Memory, extents: dict[int, tuple[int, int]]
+) -> tuple[int, int] | None:
+    """Same-pool conflict pairs (visible under the projection, total), or None.
+
+    Counting conflict pairs is quadratic in the worst case; the default work
+    budget gives up (None) rather than stall rendering on huge memories.
+    """
+    visible = total = 0
+    for pool in memory.pools:
+        projected = tuple(_projected(a, extents[id(a)]) for a in pool.allocations)
+        pool_visible = _overlap_pairs(projected)
+        pool_total = _overlap_pairs(pool.allocations)
+        if pool_visible is None or pool_total is None:
+            return None
+        visible += pool_visible
+        total += pool_total
+    return visible, total
+
+
+def _visible_lane_extents(
+    allocations: list[Allocation], lane: int
+) -> list[tuple[Allocation, tuple[int, int]]]:
+    """Allocations visible in one lane, with their local-time extents."""
+    visible = []
+    for alloc in allocations:
+        if lane >= alloc.dim:
+            continue  # Lower-dim allocation in a mixed memory; no such lane
+        start, end = _lane_extent(alloc, lane)
+        if start == end:
+            continue  # No local time on this thread; not visible in this lane
+        visible.append((alloc, (start, end)))
+    return visible
+
+
+def _lane_peaks(allocations: list[Allocation], dim: int) -> list[int]:
+    """Definite-occupancy peak per lane: pressure of its projected extents."""
+    peaks = []
+    for lane in range(dim):
+        projected = tuple(
+            _projected(alloc, extent)
+            for alloc, extent in _visible_lane_extents(allocations, lane)
+        )
+        peaks.append(get_pressure(projected))
+    return peaks
+
+
+def _select_lanes(
+    allocations: list[Allocation], dim: int, max_lanes: int | None
+) -> list[int]:
+    """Lanes to draw: all, or the top-k by definite-occupancy peak."""
+    if max_lanes is None or dim <= max_lanes:
+        return list(range(dim))
+    peaks = _lane_peaks(allocations, dim)
+    ranked = sorted(range(dim), key=lambda lane: (-peaks[lane], lane))
+    return sorted(ranked[:max_lanes])
 
 
 def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
@@ -151,15 +264,15 @@ def _get_y_offsets(system: System) -> dict[Memory, dict[Pool, int]]:
 
 
 def _draw_allocation(
-    ax: Axes, alloc: Allocation, offset: int, color: str, lane: int
+    ax: Axes,
+    alloc: Allocation,
+    offset: int,
+    color: str,
+    extent: tuple[int, int],
 ) -> None:
-    """Draw a single allocation rectangle, projected onto the given lane."""
+    """Draw a single allocation rectangle over its projected lifetime."""
     assert alloc.offset is not None
-    if lane >= alloc.dim:
-        return  # Lower-dim allocation in a mixed memory; no such thread lane
-    start, end = _lane_extent(alloc, lane)
-    if start == end:
-        return  # No local time on this thread; not visible in this lane
+    start, end = extent
     y_pos = offset + alloc.offset
     rect = Rectangle(
         xy=(start, y_pos),
@@ -233,19 +346,72 @@ def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
     ax.set_ylabel(f"Memory ({unit})")
 
 
-def _set_axes_labels(
-    ax: Axes,
-    memory: Memory,
-    memory_size: int | None,
-    num_pools: int,
-    lane: int,
-    dim: int,
-) -> None:
-    size_str = _format_bytes(memory_size) if memory_size is not None else "Unknown Size"
-    threads_str = f", {dim} threads" if dim > 1 else ""
-    if lane == 0:
-        ax.set_title(f"{memory.id} ({size_str}, {num_pools} pools{threads_str})")
-    ax.set_xlabel("Time (Step)" if dim == 1 else f"Thread {lane} Time (Step)")
+def _memory_title(memory: Memory, threads: str) -> str:
+    size = memory.size
+    size_str = _format_bytes(size) if size is not None else "Unknown Size"
+    return f"{memory.id} ({size_str}, {len(memory.pools)} pools{threads})"
+
+
+def _lane_panels(
+    system: System, max_lanes: int | None
+) -> tuple[list[_Panel], str | None]:
+    """One panel per (memory, thread): each thread's local-time projection."""
+    dims = {memory: _memory_dim(memory) for memory in system.memories}
+    panels = []
+    for memory in system.memories:
+        dim = dims[memory]
+        allocations = _memory_allocations(memory)
+        lanes = _select_lanes(allocations, dim, max_lanes)
+        threads = f", {dim} threads" if dim > 1 else ""
+        if len(lanes) < dim:
+            threads = f", top {len(lanes)} of {dim} threads"
+        for index, lane in enumerate(lanes):
+            extents = {
+                id(alloc): extent
+                for alloc, extent in _visible_lane_extents(allocations, lane)
+            }
+            panels.append(
+                _Panel(
+                    memory=memory,
+                    extents=extents,
+                    xlabel="Time (Step)" if dim == 1 else f"Thread {lane} Time (Step)",
+                    title=_memory_title(memory, threads) if index == 0 else None,
+                )
+            )
+    caveat = LANE_CAVEAT if any(dim > 1 for dim in dims.values()) else None
+    return panels, caveat
+
+
+def _projection_panels(system: System) -> tuple[list[_Panel], str | None]:
+    """One panel per memory over a happens-before-monotone virtual time."""
+    panels = []
+    caveat = None
+    for memory in system.memories:
+        dim = _memory_dim(memory)
+        extents, exact = _panel_extents(memory)
+        if dim == 1:
+            threads, xlabel, note = "", "Time (Step)", None
+        elif exact:
+            threads = f", {dim} threads, linearized"
+            xlabel, note = "Virtual Time (Step)", None
+        else:
+            threads, xlabel = f", {dim} threads", "Virtual Global Time (Step)"
+            note = None
+            visibility = _conflict_visibility(memory, extents)
+            if visibility is not None:
+                visible, total = visibility
+                note = f"{visible}/{total} conflicts visible" if total else None
+            caveat = PANEL_CAVEAT
+        panels.append(
+            _Panel(
+                memory=memory,
+                extents=extents,
+                xlabel=xlabel,
+                title=_memory_title(memory, threads),
+                note=note,
+            )
+        )
+    return panels, caveat
 
 
 def _set_axes_limits(
@@ -287,60 +453,94 @@ def _add_legend(fig: Figure) -> None:
 # TODO(fpedd): Add a pools size descriptor on the right side of each pool
 
 
+def _draw_panel(
+    ax: Axes,
+    panel: _Panel,
+    y_limits: tuple[int, int],
+    y_offsets: dict[Pool, int],
+    memory_limits: dict[str, dict[IdType, int]],
+) -> None:
+    memory = panel.memory
+    if panel.title is not None:
+        ax.set_title(panel.title)
+    ax.set_xlabel(panel.xlabel)
+    _set_axes_limits(ax, panel.x_limits, y_limits, memory.size)
+    _set_axes_ticks(ax, y_limits[1])
+    if panel.note is not None:
+        ax.text(
+            0.98,
+            0.98,
+            panel.note,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+            alpha=0.7,
+        )
+
+    for pool in memory.pools:
+        y_offset = y_offsets[pool]
+
+        colors: set[str] = set()
+        for alloc in pool.allocations:
+            color = _get_allocation_color(alloc.kind)
+            colors.add(color)
+            extent = panel.extents.get(id(alloc))
+            if extent is not None:
+                _draw_allocation(ax, alloc, y_offset, color, extent)
+        _draw_pool_background(ax, y_offset, pool.size, colors)
+
+    # Draw memory limit lines
+    limits: dict[str, int] = {"used": memory.used_size}
+    if memory.size is not None:
+        limits["size"] = memory.size
+    for limit_type, memory_id_to_limit in memory_limits.items():
+        if memory.id in memory_id_to_limit:
+            limits[limit_type] = memory_id_to_limit[memory.id]
+
+    _draw_limit_lines(ax, limits)
+
+
 def _visualize_system(
     system: System,
     file_path: Path | str | None,
     show_inline: bool,
     memory_limits: dict[str, dict[IdType, int]],
+    view: Literal["panel", "lanes"],
+    max_lanes: int | None,
 ) -> Path | None:
-    dims = {memory: _memory_dim(memory) for memory in system.memories}
-    lanes = [
-        (memory, lane) for memory in system.memories for lane in range(dims[memory])
-    ]
-    fig_height = max(9, len(lanes) * 6)
+    if view == "lanes":
+        panels, caveat = _lane_panels(system, max_lanes)
+    else:
+        panels, caveat = _projection_panels(system)
+    if not panels:
+        raise ValueError(f"Nothing to plot: system {system.id!r} has no memories")
+    fig_height = max(9, len(panels) * 6)
     fig_width = 12
     fig, axs = plt.subplots(
-        nrows=len(lanes),
+        nrows=len(panels),
         ncols=1,
         figsize=(fig_width, fig_height),
         layout="constrained",
     )
-    axs = [axs] if len(lanes) == 1 else axs
+    axs = [axs] if len(panels) == 1 else axs
 
-    x_limits = _get_x_limits(system)
     y_limits = _get_y_limits(system)
     y_offsets = _get_y_offsets(system)
 
-    for ax, (memory, lane) in zip(axs, lanes, strict=True):
-        memory_y_limits = y_limits[memory]
-        _set_axes_labels(ax, memory, memory.size, len(memory.pools), lane, dims[memory])
-        _set_axes_limits(ax, x_limits.get(lane, (0, 1)), memory_y_limits, memory.size)
-        _set_axes_ticks(ax, memory_y_limits[1])
+    for ax, panel in zip(axs, panels, strict=True):
+        _draw_panel(
+            ax,
+            panel,
+            y_limits[panel.memory],
+            y_offsets[panel.memory],
+            memory_limits,
+        )
 
-        for pool in memory.pools:
-            y_offset = y_offsets[memory][pool]
-
-            colors: set[str] = set()
-            for alloc in pool.allocations:
-                color = _get_allocation_color(alloc.kind)
-                _draw_allocation(ax, alloc, y_offset, color, lane)
-                colors.add(color)
-            _draw_pool_background(ax, y_offset, pool.size, colors)
-
-        # Draw memory limit lines
-        limits: dict[str, int] = {"used": memory.used_size}
-        if memory.size is not None:
-            limits["size"] = memory.size
-        for limit_type, memory_id_to_limit in memory_limits.items():
-            if memory.id in memory_id_to_limit:
-                limits[limit_type] = memory_id_to_limit[memory.id]
-
-        _draw_limit_lines(ax, limits)
-
-    if any(dim > 1 for dim in dims.values()):
-        # Lanes are per-thread projections of a partial order: same-lane
-        # collisions are real, but cross-thread conflicts need not be visible.
-        fig.suptitle(LANE_CAVEAT, fontsize=8)
+    if caveat is not None:
+        # Both projections of a partial order are sound but lossy: visible
+        # collisions are real, but some conflicts need not be visible.
+        fig.suptitle(caveat, fontsize=8)
     _add_legend(fig)
 
     if show_inline:
@@ -417,6 +617,8 @@ def plot_allocation(
     show_inline: bool = False,
     canonicalize: bool = False,
     memory_limits: dict[str, dict[IdType, int]] | None = None,
+    view: Literal["panel", "lanes"] = "panel",
+    max_lanes: int | None = None,
 ) -> Path | None:
     """Plot an allocated entity (System, Memory, or Pool).
 
@@ -427,10 +629,27 @@ def plot_allocation(
         canonicalize: Whether to canonicalize IDs for cleaner visualization.
         memory_limits: Optional dict specifying custom memory limits
                        for each memory in the system.
+        view: "panel" draws each memory once over a happens-before-monotone
+              virtual time (exact for scalar or linearizable lifetimes, else
+              a sound clock-component-sum projection annotated with its
+              conflict coverage on modestly sized memories)
+              "lanes" draws one subplot per thread showing its local-time
+              projection. Both views only ever show genuine conflicts as
+              temporal overlaps; scalar entities render identically under
+              either.
+        max_lanes: Lanes view only (rejected under other views): cap each
+                   memory to its top-k threads by peak definitely-live
+                   occupancy.
 
     Returns:
         Path to the saved file, or None if not saved.
     """
+    if view not in ("panel", "lanes"):
+        raise ValueError(f'view must be "panel" or "lanes", got {view!r}')
+    if max_lanes is not None and max_lanes < 1:
+        raise ValueError(f"max_lanes must be positive, got {max_lanes}")
+    if max_lanes is not None and view != "lanes":
+        raise ValueError('max_lanes requires view="lanes"')
     if not HAS_MATPLOTLIB:
         require_optional("matplotlib", "visualization")
 
@@ -448,4 +667,6 @@ def plot_allocation(
         file_path=file_path,
         show_inline=show_inline,
         memory_limits=memory_limits or {},
+        view=view,
+        max_lanes=max_lanes,
     )

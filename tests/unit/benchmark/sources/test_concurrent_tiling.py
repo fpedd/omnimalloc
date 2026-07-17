@@ -4,10 +4,10 @@
 
 import pytest
 from omnimalloc import run_allocation, validate_allocation
+from omnimalloc.analysis.pressure import get_pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.pressure import get_pressure
 
 
 def _signatures(

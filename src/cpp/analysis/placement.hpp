@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "allocation.hpp"
+#include "primitives/allocation.hpp"
 
 namespace omnimalloc {
 

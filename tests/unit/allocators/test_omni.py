@@ -5,11 +5,12 @@
 import random
 
 import pytest
+from omnimalloc._cpp import OmniAllocatorCpp
 from omnimalloc.allocators import BaseAllocator, NaiveAllocator, OmniAllocator
+from omnimalloc.analysis.pressure import get_placement_pressure, get_pressure
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation, Pool
-from omnimalloc.primitives.pressure import get_placement_pressure, get_pressure
 from omnimalloc.validate import validate_allocation
 
 
@@ -41,6 +42,16 @@ def _two_plus_two() -> tuple[Allocation, ...]:
 def test_omni_is_registered_and_supports_vector_time() -> None:
     assert BaseAllocator.get("omni_allocator") is OmniAllocator
     assert OmniAllocator.supports_vector_time is True
+
+
+def test_omni_rejects_negative_linearize_budget() -> None:
+    with pytest.raises(ValueError, match="linearize_budget"):
+        OmniAllocator(linearize_budget=-1)
+
+
+def test_omni_cpp_repr_includes_budget() -> None:
+    assert repr(OmniAllocatorCpp(100)) == "OmniAllocator(linearize_budget=100)"
+    assert repr(OmniAllocatorCpp(None)) == "OmniAllocator(linearize_budget=None)"
 
 
 def test_omni_empty_returns_empty() -> None:
