@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -22,7 +24,9 @@
 // occupies disjoint address ranges below the neighborhood's top, so the
 // top certifies an upper bound without any search. Interval orders take
 // one single-timeline sweep with range-max queries; genuinely partial
-// orders take the pruned pairwise conflict sweep.
+// orders take the pruned pairwise conflict sweep. A set work budget bounds
+// the linearize attempt (which falls through silently) and the fallback
+// sweep (which throws), so huge vector-clock instances fail fast.
 
 namespace omnimalloc {
 
@@ -73,10 +77,9 @@ std::vector<int64_t> scalar_peaks(
   return peaks;
 }
 
-std::vector<int64_t> vector_peaks(const ClockSpans& spans,
+std::vector<int64_t> vector_peaks(const ConflictSweep& sweep,
                                   const std::vector<int64_t>& heights) {
-  const size_t n = spans.starts.size();
-  const ConflictSweep sweep(spans.starts, spans.ends, spans.dim);
+  const size_t n = heights.size();
   std::vector<std::atomic<int64_t>> top(n);
   for (size_t i = 0; i < n; ++i) {
     top[i].store(heights[i], std::memory_order_relaxed);
@@ -95,7 +98,8 @@ std::vector<int64_t> vector_peaks(const ClockSpans& spans,
 }  // namespace
 
 std::vector<int64_t> placement_pressure_per_allocation(
-    const std::vector<Allocation>& allocations) {
+    const std::vector<Allocation>& allocations,
+    std::optional<uint64_t> work_budget) {
   const size_t n = allocations.size();
   if (n == 0) {
     return {};
@@ -111,10 +115,16 @@ std::vector<int64_t> placement_pressure_per_allocation(
   }
   // Linearization preserves the conflict relation exactly, so neighborhood
   // tops transfer verbatim to the surrogate timeline.
-  if (const auto times = linearize_times(allocations, std::nullopt)) {
+  if (const auto times = linearize_times(allocations, work_budget)) {
     return scalar_peaks(*times, heights);
   }
-  return vector_peaks(spans, heights);
+  const ConflictSweep sweep(spans.starts, spans.ends, spans.dim);
+  if (work_budget && sweep.sweep_work() > *work_budget) {
+    throw std::runtime_error(
+        "Conflict sweep work exceeds work_budget; pass None to always "
+        "compute the placement pressure");
+  }
+  return vector_peaks(sweep, heights);
 }
 
 }  // namespace omnimalloc

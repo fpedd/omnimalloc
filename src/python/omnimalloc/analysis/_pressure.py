@@ -111,17 +111,20 @@ def closure_pressure_per_allocation(
 
 
 def placement_pressure_per_allocation(
-    allocations: Sequence[Allocation],
+    allocations: Sequence[Allocation], work_budget: int | None = DEFAULT_WORK_BUDGET
 ) -> dict[IdType, int]:
     """Placement-certified peak over each allocation's lifetime, keyed by id.
 
     Read off assigned offsets: the highest occupied address among each
     allocation and its conflict neighbors, an upper bound on every exact
     per-allocation pressure whose max entry equals `placement_pressure`.
-    Raises `ValueError` on unplaced input.
+    Raises `ValueError` on unplaced input and `RuntimeError` once the
+    vector-clock conflict sweep exceeds `work_budget` (which also bounds
+    the internal linearize attempt); pass `None` to always compute.
     """
+    ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations)
-    peaks = _placement_pressure_per_allocation(allocations)
+    peaks = _placement_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
 
 
