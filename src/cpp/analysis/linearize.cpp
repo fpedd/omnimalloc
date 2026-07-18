@@ -48,10 +48,42 @@ int64_t dominated_weight(const DedupedRows& ends,
   return count;
 }
 
-// Random 2+2 witnesses: ends e1, e2 and starts s1, s2 with e1 dominated by
-// s1 but not s2 and e2 dominated by s2 but not s1 prove two incomparable
+// A predecessor of `yes` that is not a predecessor of `no`, probed among
+// the `window` end rows just below the component-0 boundary: rows ascend on
+// component 0, and near-boundary ends are the likeliest to split two
+// predecessor sets apart.
+bool split_witness(const DedupedRows& ends, const int64_t* yes,
+                   const int64_t* no, size_t window) noexcept {
+  const size_t d = ends.dim;
+  size_t lo = 0;
+  size_t hi = ends.count();
+  while (lo < hi) {
+    const size_t mid = lo + (hi - lo) / 2;
+    if (ends.row(mid)[0] <= yes[0]) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  const size_t begin = lo > window ? lo - window : 0;
+  for (size_t j = lo; j-- > begin;) {
+    if (dominates(ends.row(j), yes, d) && !dominates(ends.row(j), no, d)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 2+2 witnesses: ends e1, e2 and starts s1, s2 with e1 dominated by s1 but
+// not s2 and e2 dominated by s2 but not s1 prove two incomparable
 // predecessor sets, so genuinely concurrent (non-linearizable) instances
-// bail here in microseconds. Deterministic seed keeps callers reproducible.
+// bail here instead of paying the full O(k * m * d) chain test. A random
+// global pass catches coarse concurrency in microseconds; concurrency in
+// realistic workloads is temporally local, so a deterministic
+// O(k * (log m + d)) pass then probes every lexicographically adjacent
+// start-row pair against the end windows just below them. Every hit is a
+// genuine 2+2; a miss just falls through to the exact chain test.
+// Deterministic seed keeps callers reproducible.
 bool find_incomparability_witness(const DedupedRows& starts,
                                   const DedupedRows& ends) {
   if (starts.count() < 2 || ends.count() < 2) {
@@ -69,6 +101,15 @@ bool find_incomparability_witness(const DedupedRows& starts,
     const int64_t* e2 = ends.row(pick_end(rng));
     if (dominates(e1, s1, d) && !dominates(e1, s2, d) && dominates(e2, s2, d) &&
         !dominates(e2, s1, d)) {
+      return true;
+    }
+  }
+  constexpr size_t kWindow = 16;
+  for (size_t p = 0; p + 1 < starts.count(); ++p) {
+    const int64_t* s1 = starts.row(p);
+    const int64_t* s2 = starts.row(p + 1);
+    if (split_witness(ends, s1, s2, kWindow) &&
+        split_witness(ends, s2, s1, kWindow)) {
       return true;
     }
   }
@@ -100,12 +141,13 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   const size_t k = starts.count();
   const size_t m = ends.count();
 
-  if (find_incomparability_witness(starts, ends)) {
+  // Dominance counting costs O(k * m * d) before pruning; under a set
+  // budget, give up undecided instead of stalling the caller (and before
+  // spending the witness scan on an instance already refused).
+  if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
     return std::nullopt;
   }
-  // Dominance counting costs O(k * m * d) before pruning; under a set
-  // budget, give up undecided instead of stalling the caller.
-  if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
+  if (find_incomparability_witness(starts, ends)) {
     return std::nullopt;
   }
 

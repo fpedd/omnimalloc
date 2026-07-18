@@ -144,8 +144,8 @@ NB_MODULE(_cpp, m) {
         "allocations"_a, "closure_cap"_a.none(),
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("placement_pressure_per_allocation", &placement_pressure_per_allocation,
-        "allocations"_a, nb::call_guard<nb::gil_scoped_release>(),
-        nb::rv_policy::move);
+        "allocations"_a, "work_budget"_a.none(),
+        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("first_fit_place", &first_fit_place, "allocations"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 

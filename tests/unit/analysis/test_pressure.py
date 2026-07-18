@@ -329,6 +329,29 @@ def test_per_allocation_placement_pressure_max_equals_peak() -> None:
     assert max(peaks.values()) == 55
 
 
+def test_per_allocation_placement_pressure_budget_raises() -> None:
+    placed = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0), offset=96),
+        Allocation(id="b", size=16, start=(1, 0), end=(2, 0), offset=96),
+        Allocation(id="c", size=32, start=(0, 0), end=(0, 1), offset=0),
+        Allocation(id="d", size=64, start=(0, 1), end=(0, 2), offset=32),
+    )
+    with pytest.raises(RuntimeError, match="work_budget"):
+        placement_pressure_per_allocation(placed, work_budget=1)
+
+
+def test_per_allocation_placement_pressure_unbounded_budget_computes() -> None:
+    placed = (
+        Allocation(id="a", size=8, start=(0, 0), end=(1, 0), offset=96),
+        Allocation(id="b", size=16, start=(1, 0), end=(2, 0), offset=96),
+        Allocation(id="c", size=32, start=(0, 0), end=(0, 1), offset=0),
+        Allocation(id="d", size=64, start=(0, 1), end=(0, 2), offset=32),
+    )
+    expected = {"a": 104, "b": 112, "c": 112, "d": 112}
+    assert placement_pressure_per_allocation(placed, work_budget=None) == expected
+    assert placement_pressure_per_allocation(placed) == expected
+
+
 def _brute_antichain(allocations: tuple[Allocation, ...]) -> int:
     best = 0
     for count in range(1, len(allocations) + 1):
