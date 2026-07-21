@@ -77,7 +77,7 @@ def test_visualize_memory_with_multiple_pools(artifacts_dir: Path) -> None:
     pool2 = Pool(id=2, allocations=(alloc2,), offset=200)
     pool3 = Pool(id=3, allocations=(alloc3,), offset=500)
 
-    memory = Memory(id="mem_1", pools=(pool1, pool2, pool3), capacity=1000)
+    memory = Memory(id="mem_1", pools=(pool1, pool2, pool3), size=1000)
 
     output_path = artifacts_dir / "test_memory_pools.pdf"
     plot_allocation(memory, output_path)
@@ -89,14 +89,14 @@ def test_visualize_system_with_multiple_memories(artifacts_dir: Path) -> None:
     # Memory 1: Simple pool
     alloc1 = Allocation(id=1, size=100, start=0, end=5, offset=0)
     pool1 = Pool(id=1, allocations=(alloc1,), offset=0)
-    memory1 = Memory(id="ddr4_1", pools=(pool1,), capacity=500)
+    memory1 = Memory(id="ddr4_1", pools=(pool1,), size=500)
 
     # Memory 2: Multiple pools
     alloc2 = Allocation(id=2, size=150, start=0, end=10, offset=0)
     alloc3 = Allocation(id=3, size=75, start=5, end=15, offset=0)
     pool2 = Pool(id=2, allocations=(alloc2,), offset=0)
     pool3 = Pool(id=3, allocations=(alloc3,), offset=200)
-    memory2 = Memory(id="ddr4_2", pools=(pool2, pool3), capacity=1000)
+    memory2 = Memory(id="ddr4_2", pools=(pool2, pool3), size=1000)
 
     system = System(id="test_system", memories=(memory1, memory2))
 
@@ -127,7 +127,7 @@ def test_visualize_complex_hierarchy(artifacts_dir: Path) -> None:
     pool1 = Pool(id="pool_1", allocations=tuple(allocations_mem1_pool1), offset=0)
     pool2 = Pool(id="pool_2", allocations=tuple(allocations_mem1_pool2), offset=300)
 
-    memory1 = Memory(id="main_memory", pools=(pool1, pool2), capacity=2048)
+    memory1 = Memory(id="main_memory", pools=(pool1, pool2), size=2048)
 
     # Second memory with different allocation patterns
     allocations_mem2 = [
@@ -142,7 +142,7 @@ def test_visualize_complex_hierarchy(artifacts_dir: Path) -> None:
         for i in range(0, 20, 5)
     ]
     pool3 = Pool(id="pool_3", allocations=tuple(allocations_mem2), offset=0)
-    memory2 = Memory(id="cache_memory", pools=(pool3,), capacity=1024)
+    memory2 = Memory(id="cache_memory", pools=(pool3,), size=1024)
 
     system = System(id="complex_system", memories=(memory1, memory2))
 
@@ -159,7 +159,7 @@ def test_visualize_with_string_ids(artifacts_dir: Path) -> None:
     alloc1 = Allocation(id="workspace_buf", size=100, start=0, end=5, offset=0)
     alloc2 = Allocation(id="temp_buf", size=150, start=5, end=10, offset=0)
     pool = Pool(id="tensor_pool", allocations=(alloc1, alloc2), offset=0)
-    memory = Memory(id="ddr_ram", pools=(pool,), capacity=512)
+    memory = Memory(id="ddr_ram", pools=(pool,), size=512)
 
     output_path = artifacts_dir / "test_string_ids.pdf"
     plot_allocation(memory, output_path)
@@ -193,10 +193,21 @@ def test_visualize_memory_converts_to_system(artifacts_dir: Path) -> None:
     """Test that visualizing a Memory creates appropriate System wrapper."""
     alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
     pool = Pool(id=1, allocations=(alloc,), offset=0)
-    memory = Memory(id=1, pools=(pool,), capacity=500)
+    memory = Memory(id=1, pools=(pool,), size=500)
 
     output_path = artifacts_dir / "test_memory_wrapper.pdf"
     plot_allocation(memory, output_path)
+    assert output_path.exists()
+
+
+def test_visualize_raw_allocations_converts_to_pool(artifacts_dir: Path) -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=5, offset=0),
+        Allocation(id=2, size=150, start=5, end=10, offset=0),
+    )
+
+    output_path = artifacts_dir / "test_raw_allocations.pdf"
+    plot_allocation(allocations, output_path)
     assert output_path.exists()
 
 
@@ -205,7 +216,7 @@ def test_visualize_with_capacities(artifacts_dir: Path) -> None:
     alloc1 = Allocation(id=1, size=100, start=0, end=5, offset=0)
     alloc2 = Allocation(id=2, size=150, start=5, end=10, offset=100)
     pool = Pool(id=1, allocations=(alloc1, alloc2), offset=0)
-    memory = Memory(id="ddr_mem", pools=(pool,), capacity=1000)
+    memory = Memory(id="ddr_mem", pools=(pool,), size=1000)
     system = System(id="test_sys", memories=(memory,))
 
     custom_limits = {
@@ -283,7 +294,7 @@ def test_visualize_mixed_dimension_pools(artifacts_dir: Path) -> None:
         allocations=(Allocation(id=2, size=50, start=(0, 1), end=(2, 3), offset=0),),
         offset=200,
     )
-    memory = Memory(id="mem", pools=(scalar_pool, vector_pool), capacity=1000)
+    memory = Memory(id="mem", pools=(scalar_pool, vector_pool), size=1000)
 
     output_path = artifacts_dir / "test_mixed_dim_pools.pdf"
     plot_allocation(memory, output_path)
@@ -298,7 +309,7 @@ def test_visualize_empty_pool(artifacts_dir: Path) -> None:
         allocations=(Allocation(id=1, size=100, start=0, end=4, offset=0),),
         offset=100,
     )
-    memory = Memory(id="mem", pools=(empty, filled), capacity=500)
+    memory = Memory(id="mem", pools=(empty, filled), size=500)
 
     output_path = artifacts_dir / "test_empty_pool.pdf"
     plot_allocation(memory, output_path)

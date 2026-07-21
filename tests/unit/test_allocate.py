@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import pytest
 from omnimalloc import allocate
-from omnimalloc.allocators.greedy import GreedyAllocator
+from omnimalloc.allocators.greedy import GreedyAllocator, GreedyBySizeAllocator
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, System
 
@@ -140,14 +141,14 @@ def test_allocate_complex_hierarchy() -> None:
     pool1 = Pool(id=1, allocations=tuple(allocations_pool1))
     pool2 = Pool(id=2, allocations=tuple(allocations_pool2))
 
-    memory1 = Memory(id=1, pools=(pool1, pool2), capacity=2048)
+    memory1 = Memory(id=1, pools=(pool1, pool2), size=2048)
 
     # Second memory
     allocations_pool3 = [
         Allocation(id=i + 10, size=75, start=i * 5, end=(i + 1) * 5) for i in range(4)
     ]
     pool3 = Pool(id=3, allocations=tuple(allocations_pool3))
-    memory2 = Memory(id=2, pools=(pool3,), capacity=1024)
+    memory2 = Memory(id=2, pools=(pool3,), size=1024)
 
     system = System(id=1, memories=(memory1, memory2))
 
@@ -246,10 +247,70 @@ def test_allocate_memory_calculates_used_size() -> None:
     alloc2 = Allocation(id=2, size=150, start=0, end=10)
     pool1 = Pool(id=1, allocations=(alloc1,))
     pool2 = Pool(id=2, allocations=(alloc2,))
-    memory = Memory(id=1, pools=(pool1, pool2), capacity=1000)
+    memory = Memory(id=1, pools=(pool1, pool2), size=1000)
 
     allocator = NaiveAllocator()
     allocated_memory = allocate(memory, allocator)
 
     # Each pool gets its allocations placed
     assert allocated_memory.used_size == 250  # 100 + 150
+
+
+def test_allocate_raw_allocations_returns_tuple() -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=5),
+        Allocation(id=2, size=150, start=5, end=10),
+    )
+    allocated = allocate(allocations, NaiveAllocator(), validate=True)
+    assert isinstance(allocated, tuple)
+    assert all(a.offset is not None for a in allocated)
+    assert {a.id for a in allocated} == {1, 2}
+
+
+def test_allocate_raw_allocations_accepts_list_and_registry_name() -> None:
+    allocations = [
+        Allocation(id="a", size=100, start=0, end=5),
+        Allocation(id="b", size=150, start=0, end=5),
+    ]
+    allocated = allocate(allocations, "naive")
+    assert isinstance(allocated, tuple)
+    assert all(a.is_allocated for a in allocated)
+
+
+def test_allocate_raw_allocations_does_not_mutate_input() -> None:
+    allocations = (Allocation(id=1, size=100, start=0, end=5),)
+    allocate(allocations, NaiveAllocator())
+    assert allocations[0].offset is None
+
+
+def test_allocate_raw_allocations_duplicate_ids_raise() -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=5),
+        Allocation(id=1, size=150, start=5, end=10),
+    )
+    with pytest.raises(ValueError, match="allocation ids must be unique"):
+        allocate(allocations, NaiveAllocator())
+
+
+def test_allocate_raw_allocations_empty() -> None:
+    assert allocate((), NaiveAllocator()) == ()
+
+
+def test_allocate_raw_allocations_rejects_non_allocation_elements() -> None:
+    with pytest.raises(TypeError, match="Expected Allocation"):
+        allocate((1, 2, 3), NaiveAllocator())
+
+
+def test_allocate_rejects_unsupported_entity() -> None:
+    with pytest.raises(TypeError, match="Unsupported entity type"):
+        allocate("naive")
+
+
+def test_allocate_raw_allocations_preserves_input_order() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=10 * (i + 1), start=0, end=5) for i in range(10)
+    )
+    allocated = allocate(allocations, GreedyBySizeAllocator(), validate=True)
+    assert tuple(a.id for a in allocated) == tuple(a.id for a in allocations)
+    assert all(a.offset is not None for a in allocated)
+    assert tuple(a.size for a in allocated) == tuple(a.size for a in allocations)

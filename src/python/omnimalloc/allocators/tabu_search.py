@@ -30,7 +30,6 @@ class TabuSearchAllocator(BaseAllocator):
 
     def __init__(
         self,
-        *,
         seed: int = DEFAULT_SEED,
         max_iterations: int = 500,
         neighborhood_size: int = 20,

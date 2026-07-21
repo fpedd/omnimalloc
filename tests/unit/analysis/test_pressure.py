@@ -8,6 +8,8 @@ from random import Random
 import pytest
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.analysis import (
+    antichain_pressure,
+    antichain_pressure_per_allocation,
     closure_pressure,
     closure_pressure_per_allocation,
     placement_pressure,
@@ -16,6 +18,11 @@ from omnimalloc.analysis import (
     pressure_per_allocation,
 )
 from omnimalloc.primitives import Allocation
+
+
+def test_default_names_alias_antichain() -> None:
+    assert pressure is antichain_pressure
+    assert pressure_per_allocation is antichain_pressure_per_allocation
 
 
 def test_pressure_empty_is_zero() -> None:

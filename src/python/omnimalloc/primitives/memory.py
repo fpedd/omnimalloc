@@ -19,19 +19,19 @@ if TYPE_CHECKING:
 class Memory:
     """A physical memory unit containing one or more pools.
 
-    `capacity` is the declared memory limit (an input); the computed extent
-    of a placement is `used_size`. `capacity=None` means unbounded.
+    `size` is the declared memory size (an input); the computed extent of a
+    placement is `used_size`. `size=None` means unbounded.
     """
 
     id: IdType
     pools: tuple[Pool, ...]
-    capacity: int | None = None
+    size: int | None = None
 
     def __post_init__(self) -> None:
         if len({pool.id for pool in self.pools}) != len(self.pools):
             raise ValueError("pool ids must be unique")
-        if self.capacity is not None:
-            ensure_non_negative(self.capacity, "capacity")
+        if self.size is not None:
+            ensure_non_negative(self.size, "size")
 
     @cached_property
     def used_size(self) -> int:
@@ -43,9 +43,14 @@ class Memory:
         """True if all pools have been allocated."""
         return all(pool.is_allocated for pool in self.pools)
 
+    @cached_property
+    def any_allocated(self) -> bool:
+        """True if any pool has a placed allocation."""
+        return any(pool.any_allocated for pool in self.pools)
+
     def with_pools(self, pools: tuple[Pool, ...]) -> "Memory":
         """Return new Memory with specified pools."""
-        return Memory(id=self.id, capacity=self.capacity, pools=pools)
+        return Memory(id=self.id, size=self.size, pools=pools)
 
     def allocate(self, allocator: "BaseAllocator") -> "Memory":
         """Apply allocator to all pools."""

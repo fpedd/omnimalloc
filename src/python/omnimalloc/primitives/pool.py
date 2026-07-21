@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from omnimalloc.analysis._pressure import pressure as _pressure
 from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import Allocation, IdType
+from .utils import ensure_allocations
 
 
 @dataclass(frozen=True)
@@ -29,13 +31,14 @@ class Pool:
         if self.offset is not None:
             ensure_non_negative(self.offset, "offset")
 
+    @classmethod
+    def from_allocations(cls, allocations: Sequence[Allocation]) -> "Pool":
+        """Wrap a raw sequence of allocations in an anonymous pool."""
+        return cls(id=0, allocations=ensure_allocations(allocations))
+
     @cached_property
     def size(self) -> int:
-        """Memory extent from the pool base (offset 0) to the highest allocated end.
-
-        Counts any gap below the lowest allocation, so it is consistent with
-        how `overlaps`, pool stacking, and visualization interpret pool extent.
-        """
+        """Memory extent from the pool base (offset 0) to the highest allocated end."""
         if not self.is_allocated:
             raise ValueError("cannot compute size of unallocated pool")
         ends = [
@@ -47,11 +50,7 @@ class Pool:
 
     @cached_property
     def pressure(self) -> int:
-        """Peak memory pressure (max cut through all buffer lifetimes).
-
-        Exact: scalar sweep for linearizable lifetimes, max-weight antichain
-        for non-linearizable vector-clock instances (see `analysis.pressure`).
-        """
+        """Peak memory pressure (max cut through all buffer lifetimes)."""
         return _pressure(self.allocations)
 
     @cached_property
@@ -68,6 +67,11 @@ class Pool:
         """True if all allocations have been assigned memory offsets."""
         return all(alloc.offset is not None for alloc in self.allocations)
 
+    @cached_property
+    def any_allocated(self) -> bool:
+        """True if any allocation has been assigned a memory offset."""
+        return any(alloc.offset is not None for alloc in self.allocations)
+
     def overlaps(self, other: "Pool") -> bool:
         """True if pools overlap in memory space."""
         if self.offset is None or other.offset is None:
@@ -82,10 +86,17 @@ class Pool:
         return Pool(id=self.id, offset=self.offset, allocations=allocations)
 
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
-        """Apply allocator to assign memory offsets to all allocations."""
+        """Apply allocator to assign memory offsets, preserving allocation order."""
         allocated = allocator.allocate(self.allocations)
-        if {a.id for a in allocated} != {a.id for a in self.allocations}:
+        if len(allocated) != len(self.allocations) or {a.id for a in allocated} != {
+            a.id for a in self.allocations
+        }:
             raise ValueError(
                 f"allocator {allocator!s} returned a different allocation set"
             )
-        return self.with_allocations(allocated)
+        # Allocators may reorder internally; restore the pool's input order so
+        # positions in the returned tuple keep corresponding to the request
+        placed_by_id = {a.id: a for a in allocated}
+        return self.with_allocations(
+            tuple(placed_by_id[a.id] for a in self.allocations)
+        )

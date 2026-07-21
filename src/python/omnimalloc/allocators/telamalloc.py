@@ -36,7 +36,6 @@ class TelamallocAllocator(BaseAllocator):
 
     def __init__(
         self,
-        *,
         seed: int = DEFAULT_SEED,
         max_backtracks: int = 10000,
         timeout: float | None = DEFAULT_TIMEOUT,

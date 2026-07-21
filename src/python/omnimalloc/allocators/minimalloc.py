@@ -51,7 +51,7 @@ class MinimallocAllocator(BaseAllocator):
     supports_vector_time = False
 
     def __init__(
-        self, *, timeout: float | None = DEFAULT_TIMEOUT, capacity: int = 1 * TB
+        self, timeout: float | None = DEFAULT_TIMEOUT, capacity: int = 1 * TB
     ) -> None:
         _require_minimalloc()
         ensure_valid_timeout(timeout)

@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from collections.abc import Sequence
+
 from .analysis.clock import uniform_dim
 from .primitives import Allocation, IdType, Memory, Pool, System
+from .primitives.utils import ensure_allocations
 
 
 def _check_unique_ids(entities: tuple[Memory | Pool | Allocation, ...]) -> None:
@@ -51,12 +54,12 @@ def _validate_pools(pools: tuple[Pool, ...]) -> None:
             raise ValueError(f"in pool {pool.id!r}, {e}") from e
 
 
-def _check_capacity(memory: Memory) -> None:
-    if memory.capacity is None or not memory.is_allocated:
+def _check_size(memory: Memory) -> None:
+    if memory.size is None or not memory.is_allocated:
         return
-    if memory.used_size > memory.capacity:
+    if memory.used_size > memory.size:
         raise ValueError(
-            f"used size {memory.used_size} exceeds capacity {memory.capacity}"
+            f"used size {memory.used_size} exceeds memory size {memory.size}"
         )
 
 
@@ -65,29 +68,35 @@ def _validate_memories(memories: tuple[Memory, ...]) -> None:
     for memory in memories:
         try:
             _validate_pools(memory.pools)
-            _check_capacity(memory)
+            _check_size(memory)
         except ValueError as e:
             raise ValueError(f"in memory {memory.id!r}, {e}") from e
 
 
-def validate_allocation(entity: System | Memory | Pool) -> None:
+def validate_allocation(entity: System | Memory | Pool | Sequence[Allocation]) -> None:
     """Raise ValueError unless the entity is fully placed with no collisions.
 
+    Accepts a System, Memory, or Pool, or a raw sequence of Allocations.
     Checks unique ids, that every allocation and pool carries an offset,
     that no placed rectangles collide, and that each memory's used size
-    stays within its declared capacity.
+    stays within its declared size.
     """
+    if isinstance(entity, System | Memory | Pool):
+        described = f"{type(entity).__name__} {entity.id!r}"
+    elif isinstance(entity, Sequence) and not isinstance(entity, str | bytes):
+        described = f"{len(entity)} allocations"
+    else:
+        raise TypeError(f"Unsupported entity type: {type(entity)!r}")
+
     try:
         if isinstance(entity, System):
             _validate_memories(entity.memories)
         elif isinstance(entity, Memory):
             _validate_pools(entity.pools)
-            _check_capacity(entity)
+            _check_size(entity)
         elif isinstance(entity, Pool):
             _validate_allocations(entity.allocations)
         else:
-            raise TypeError(f"Unsupported entity type: {type(entity)!r}")
+            _validate_allocations(ensure_allocations(entity))
     except ValueError as e:
-        raise ValueError(
-            f"Validation of {type(entity).__name__} {entity.id!r} failed, {e}."
-        ) from e
+        raise ValueError(f"Validation of {described} failed, {e}.") from e

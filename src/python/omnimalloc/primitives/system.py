@@ -29,6 +29,11 @@ class System:
         """True if all memories have been allocated."""
         return all(memory.is_allocated for memory in self.memories)
 
+    @property
+    def any_allocated(self) -> bool:
+        """True if any memory has a placed allocation."""
+        return any(memory.any_allocated for memory in self.memories)
+
     def with_memories(self, memories: tuple[Memory, ...]) -> "System":
         """Return new System with specified memories."""
         return System(id=self.id, memories=memories)

@@ -4,7 +4,7 @@
 
 from collections.abc import Sequence
 
-from omnimalloc._cpp import antichain_pressure
+from omnimalloc._cpp import antichain_pressure as _antichain_pressure
 from omnimalloc._cpp import (
     antichain_pressure_per_allocation as _antichain_pressure_per_allocation,
 )
@@ -21,7 +21,7 @@ from omnimalloc.primitives.allocation import Allocation, IdType
 from omnimalloc.primitives.utils import ensure_unique_ids
 
 
-def pressure(
+def antichain_pressure(
     allocations: Sequence[Allocation], work_budget: int | None = DEFAULT_WORK_BUDGET
 ) -> int:
     """Peak memory pressure: exact max-weight antichain of the happens-before order.
@@ -36,7 +36,7 @@ def pressure(
     the flow work exceeds `work_budget`; pass `None` to always compute.
     """
     ensure_valid_budget(work_budget)
-    return antichain_pressure(allocations, work_budget)
+    return _antichain_pressure(allocations, work_budget)
 
 
 def closure_pressure(
@@ -46,7 +46,7 @@ def closure_pressure(
 
     C++ enumeration of the join-closure of the birth clocks. Pairwise-
     concurrent allocations need not share a cut, so this can sit strictly
-    below `pressure`; both soundly lower-bound any placement's peak. Raises
+    below `antichain_pressure`; both soundly lower-bound any placement's peak. Raises
     `RuntimeError` once the closure exceeds `closure_cap`; pass `None` to
     always enumerate — memory then grows with the closure itself.
     """
@@ -58,7 +58,7 @@ def placement_pressure(allocations: Sequence[Allocation]) -> int:
     """Peak of a placement: the highest occupied address, max(offset + size).
 
     Simply the pressure the placement realizes after allocation — an upper
-    bound on `pressure` (and so on `closure_pressure`), equal to the max
+    bound on `antichain_pressure` (and so on `closure_pressure`), equal to the max
     entry of `placement_pressure_per_allocation`. Raises `ValueError` on
     unplaced input.
     """
@@ -71,14 +71,14 @@ def placement_pressure(allocations: Sequence[Allocation]) -> int:
     return max(heights, default=0)
 
 
-def pressure_per_allocation(
+def antichain_pressure_per_allocation(
     allocations: Sequence[Allocation], work_budget: int | None = DEFAULT_WORK_BUDGET
 ) -> dict[IdType, int]:
     """Peak pressure over each allocation's own lifetime, keyed by id.
 
     The max-weight antichain through each allocation: the tightest
     order-derived lower bound on the pressure any placement can exhibit
-    while that allocation is live; the max entry equals `pressure`.
+    while that allocation is live; the max entry equals `antichain_pressure`.
     Linearizable instances take one O(N log N) window sweep, genuinely
     partial orders solve one pinned antichain (min flow over the conflict
     neighborhood) per distinct lifetime — exact, but built to certify
@@ -98,7 +98,7 @@ def closure_pressure_per_allocation(
     """Exact realizable peak while each allocation is live, keyed by id.
 
     The max total size at any join-closure cut where the allocation is
-    live. Can sit elementwise strictly below `pressure_per_allocation`,
+    live. Can sit elementwise strictly below `antichain_pressure_per_allocation`,
     since pairwise-concurrent allocations need not share a cut; the max
     entry equals `closure_pressure`. Raises `RuntimeError` once the
     closure exceeds `closure_cap`; pass `None` to always enumerate —
@@ -126,6 +126,11 @@ def placement_pressure_per_allocation(
     ensure_unique_ids(allocations)
     peaks = _placement_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
+
+
+# The antichain bound is the canonical/default pressure metric
+pressure = antichain_pressure
+pressure_per_allocation = antichain_pressure_per_allocation
 
 
 def _keyed_by_id(

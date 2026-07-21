@@ -1335,6 +1335,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nanobind"
+version = "2.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/e5/a6fc2f024eaef17c68b94b5f8f56098d31859a7840a11a3dd45da2d3908a/nanobind-2.13.0.tar.gz", hash = "sha256:c7b04d6a6a4cd57985571e605539399b51331ae455d7fce576a5e2fcb89b1dcf", size = 1052101, upload-time = "2026-06-18T06:03:49.491Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/8d/cec69a0a804711fd89f47fad92cd2a438a1ceaafd9dabaf3b8b403b5cbba/nanobind-2.13.0-py3-none-any.whl", hash = "sha256:9268d7201eaf5519ae61b7a83175f2af77088cb4b99dd3ce5b00550f697da7b7", size = 269387, upload-time = "2026-06-18T06:03:47.508Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1580,6 +1589,7 @@ all = [
 dev = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
+    { name = "nanobind" },
     { name = "nbconvert" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -1605,6 +1615,7 @@ provides-extras = ["all"]
 dev = [
     { name = "ipykernel", specifier = ">=6.30.0" },
     { name = "ipywidgets", specifier = ">=8.1.0" },
+    { name = "nanobind", specifier = ">=2.0" },
     { name = "nbconvert", specifier = ">=7.16.0" },
     { name = "pre-commit", specifier = ">=4.0.0" },
     { name = "pytest", specifier = ">=8.0" },

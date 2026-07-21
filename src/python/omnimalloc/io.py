@@ -3,6 +3,7 @@
 #
 
 import csv
+from collections.abc import Sequence
 from pathlib import Path
 
 from .analysis.clock import time_components
@@ -39,7 +40,7 @@ def _write_pool(pool: Pool, path: Path) -> Path:
     # Any placed allocation brings in the offset column (minimalloc's
     # solution format; unplaced rows leave the cell blank), so save/load
     # round-trips placements instead of silently stripping them.
-    with_offsets = any(alloc.is_allocated for alloc in pool.allocations)
+    with_offsets = pool.any_allocated
     fields = ("id", "lower", "upper", "size")
     if with_offsets:
         fields = (*fields, "offset")
@@ -56,11 +57,12 @@ def _write_pool(pool: Pool, path: Path) -> Path:
 
 
 def save_allocation(
-    entity: System | Memory | Pool, path: str | Path
+    entity: System | Memory | Pool | Sequence[Allocation], path: str | Path
 ) -> tuple[Path, ...]:
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
-    Saving a `Pool` writes exactly `path`; a `Memory` or `System` fans out
+    Saving a `Pool` (or a raw sequence of Allocations, saved as one pool)
+    writes exactly `path`; a `Memory` or `System` fans out
     to one `<stem>_<pool_id>.csv` per pool (the CSV is pool-level minimalloc
     interchange). Returns the tuple of paths actually written. Pools with
     any placed allocation include an `offset` column (minimalloc's solution
@@ -72,10 +74,10 @@ def save_allocation(
     """
     path_ = Path(path)
     path_.parent.mkdir(parents=True, exist_ok=True)
+    if not isinstance(entity, System | Memory | Pool):
+        entity = Pool.from_allocations(entity)
     if isinstance(entity, Pool):
         return (_write_pool(entity, path_),)
-    if not isinstance(entity, (Memory, System)):
-        raise TypeError(f"Unsupported entity type: {type(entity)!r}")
     return tuple(
         _write_pool(pool, path_.with_name(f"{path_.stem}_{name}.csv"))
         for name, pool in _collect_pools(entity).items()

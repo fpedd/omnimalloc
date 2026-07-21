@@ -4,6 +4,7 @@
 
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, Literal, NamedTuple
 
@@ -219,23 +220,23 @@ def _select_lanes(
 def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
     limits: dict[Memory, tuple[int, int]] = {}
     for memory in system.memories:
-        capacity = memory.capacity
+        size = memory.size
         used = memory.used_size
 
-        if capacity is None:
-            # No capacity declared, scale to 1.2x used
+        if size is None:
+            # No size declared, scale to 1.2x used
             y_limit = used * 1.2
 
-        elif used > capacity:
-            # Usage exceeds capacity, scale to 1.2x usage
+        elif used > size:
+            # Usage exceeds the declared size, scale to 1.2x usage
             y_limit = used * 1.2
 
-        elif used >= capacity * 0.5:
-            # Usage is 50-100% of capacity, use capacity as limit
-            y_limit = capacity
+        elif used >= size * 0.5:
+            # Usage is 50-100% of the declared size, use the size as limit
+            y_limit = size
 
         else:
-            # Usage below 50% of capacity, scale to 2x usage
+            # Usage below 50% of the declared size, scale to 2x usage
             y_limit = used * 2
 
         # Clamp to at least 1 so downstream tick spacing stays positive
@@ -307,7 +308,7 @@ def _draw_pool_background(
 
 
 def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
-    """Draw annotated horizontal lines for used size, capacity, and extras."""
+    """Draw annotated horizontal lines for used size, declared size, and extras."""
     _, x_max = ax.get_xlim()
     for name, value in limits.items():
         ax.axhline(value, color="black", linestyle="--", linewidth=1, alpha=0.8)
@@ -343,11 +344,9 @@ def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
 
 
 def _memory_title(memory: Memory, threads: str) -> str:
-    capacity = memory.capacity
-    capacity_str = (
-        _format_bytes(capacity) if capacity is not None else "Unbounded Capacity"
-    )
-    return f"{memory.id} ({capacity_str}, {len(memory.pools)} pools{threads})"
+    size = memory.size
+    size_str = _format_bytes(size) if size is not None else "Unbounded Size"
+    return f"{memory.id} ({size_str}, {len(memory.pools)} pools{threads})"
 
 
 def _lane_panels(
@@ -412,27 +411,6 @@ def _projection_panels(system: System) -> tuple[list[_Panel], str | None]:
     return panels, caveat
 
 
-def _set_axes_limits(
-    ax: Axes,
-    x_limits: tuple[int, int],
-    y_limits: tuple[int, int],
-    capacity: int | None,
-) -> None:
-    """Set axis limits and add scaling notice if needed."""
-    ax.set_xlim(x_limits)
-    ax.set_ylim(y_limits)
-    if capacity is not None and y_limits[1] < capacity:
-        ax.text(
-            0.02,
-            0.98,
-            "Y-axis scaled down for improved readability",
-            transform=ax.transAxes,
-            va="top",
-            fontsize=8,
-            alpha=0.7,
-        )
-
-
 def _add_legend(fig: Figure) -> None:
     """Add figure legend for allocation kinds."""
     handles = [
@@ -446,6 +424,27 @@ def _add_legend(fig: Figure) -> None:
         fontsize=8,
         title="Allocation Kinds",
     )
+
+
+def _set_axes_limits(
+    ax: Axes,
+    x_limits: tuple[int, int],
+    y_limits: tuple[int, int],
+    size: int | None,
+) -> None:
+    """Set axis limits and add scaling notice if needed."""
+    ax.set_xlim(x_limits)
+    ax.set_ylim(y_limits)
+    if size is not None and y_limits[1] < size:
+        ax.text(
+            0.02,
+            0.98,
+            "Y-axis scaled down for improved readability",
+            transform=ax.transAxes,
+            va="top",
+            fontsize=8,
+            alpha=0.7,
+        )
 
 
 # TODO(fpedd): Add a pools size descriptor on the right side of each pool
@@ -462,7 +461,7 @@ def _draw_panel(
     if panel.title is not None:
         ax.set_title(panel.title)
     ax.set_xlabel(panel.xlabel)
-    _set_axes_limits(ax, panel.x_limits, y_limits, memory.capacity)
+    _set_axes_limits(ax, panel.x_limits, y_limits, memory.size)
     _set_axes_ticks(ax, y_limits[1])
     if panel.note is not None:
         ax.text(
@@ -488,10 +487,10 @@ def _draw_panel(
                 _draw_allocation(ax, alloc, y_offset, color, extent)
         _draw_pool_background(ax, y_offset, pool.size, colors)
 
-    # Draw used-size, capacity, and extra capacity lines
+    # Draw used-size, declared-size, and extra capacity lines
     limits: dict[str, int] = {"used": memory.used_size}
-    if memory.capacity is not None:
-        limits["capacity"] = memory.capacity
+    if memory.size is not None:
+        limits["size"] = memory.size
     for label, per_memory_capacity in capacities.items():
         if memory.id in per_memory_capacity:
             limits[label] = per_memory_capacity[memory.id]
@@ -551,9 +550,8 @@ def _visualize_system(
 
 
 def plot_allocation(
-    entity: System | Memory | Pool,
+    entity: System | Memory | Pool | Sequence[Allocation],
     path: Path | str | None = None,
-    *,
     capacities: dict[str, dict[IdType, int]] | None = None,
     view: Literal["panel", "lanes"] = "panel",
     max_lanes: int | None = None,
@@ -561,7 +559,8 @@ def plot_allocation(
     """Plot an allocated entity: `path=None` displays the figure, `path=...` saves it.
 
     Args:
-        entity: The entity to plot (System, Memory, or Pool).
+        entity: The entity to plot (System, Memory, Pool, or a raw sequence
+                of Allocations, plotted as a single pool).
         path: Where to save the figure; `None` displays it instead.
         capacities: Extra capacity lines to draw, keyed by label then by
                     memory id (byte limits, drawn as horizontal lines).
@@ -587,6 +586,9 @@ def plot_allocation(
         raise ValueError('max_lanes requires view="lanes"')
     if not HAS_MATPLOTLIB:
         require_optional("matplotlib", "visualization")
+
+    if not isinstance(entity, System | Memory | Pool):
+        entity = Pool.from_allocations(entity)
 
     if isinstance(entity, Pool):
         entity = Memory(id=f"memory_{entity.id}", pools=(entity,))

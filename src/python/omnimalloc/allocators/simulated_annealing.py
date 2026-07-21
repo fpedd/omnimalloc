@@ -31,7 +31,6 @@ class SimulatedAnnealingAllocator(BaseAllocator):
 
     def __init__(
         self,
-        *,
         seed: int = DEFAULT_SEED,
         max_iterations: int = 3000,
         initial_temperature: float = 3.0,

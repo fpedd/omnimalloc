@@ -20,7 +20,7 @@ class Timer:
     multiple threads may result in race conditions and inconsistent state.
     """
 
-    def __init__(self, *, auto_start: bool = False) -> None:
+    def __init__(self, auto_start: bool = False) -> None:
         self._start_ns: int | None = None
         self._stop_ns: int | None = None
         self._is_running: bool = False

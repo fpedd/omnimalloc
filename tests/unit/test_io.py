@@ -32,6 +32,20 @@ def test_save_pool_writes_exactly_path(tmp_path: Path) -> None:
     assert file_path.read_text() == "id,lower,upper,size\na,0,3,4\nb,2,9,8\n"
 
 
+def test_save_raw_allocations_writes_one_pool(tmp_path: Path) -> None:
+    file_path = tmp_path / "problem.csv"
+    written = save_allocation(list(make_pool().allocations), file_path)
+    assert written == (file_path,)
+    assert file_path.read_text() == "id,lower,upper,size\na,0,3,4\nb,2,9,8\n"
+
+
+def test_save_raw_allocations_rejects_non_allocation_elements(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(TypeError, match="Expected Allocation"):
+        save_allocation((1, 2), tmp_path / "problem.csv")
+
+
 def test_save_creates_missing_parent_directories(tmp_path: Path) -> None:
     file_path = tmp_path / "nested" / "dir" / "problem.csv"
     written = save_allocation(make_pool(), file_path)
