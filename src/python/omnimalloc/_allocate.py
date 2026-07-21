@@ -3,37 +3,59 @@
 #
 
 
-from typing import TypeVar, cast
+from collections.abc import Sequence
+from typing import TypeAlias, TypeVar, cast, overload
 
 from .allocators import DEFAULT_ALLOCATOR, BaseAllocator
-from .primitives import Memory, Pool, System
+from .primitives import Allocation, Memory, Pool, System
 from .validate import validate_allocation
+
+AllocatorLike: TypeAlias = BaseAllocator | type[BaseAllocator] | str | None
 
 T = TypeVar("T", System, Memory, Pool)
 
 
+@overload
 def allocate(
     entity: T,
-    allocator: BaseAllocator | type[BaseAllocator] | str | None = None,
-    *,
+    allocator: AllocatorLike = None,
     validate: bool = False,
-) -> T:
-    """Return the entity (System, Memory, or Pool) with offsets assigned.
+) -> T: ...
 
-    `allocator` accepts an instance, a class, a registry name, or `None`
-    (the default allocator); `validate=True` additionally runs
-    `validate_allocation` on the result.
+
+@overload
+def allocate(
+    entity: Sequence[Allocation],
+    allocator: AllocatorLike = None,
+    validate: bool = False,
+) -> tuple[Allocation, ...]: ...
+
+
+def allocate(
+    entity: System | Memory | Pool | Sequence[Allocation],
+    allocator: AllocatorLike = None,
+    validate: bool = False,
+) -> System | Memory | Pool | tuple[Allocation, ...]:
+    """Return the entity with offsets assigned.
+
+    Accepts a System, Memory, or Pool (returned as the same type) or a raw
+    sequence of Allocations (returned as a tuple in input order). `allocator`
+    accepts an instance, a class, a registry name, or `None` (the default
+    allocator); `validate=True` additionally runs `validate_allocation` on
+    the result.
     """
 
     if allocator is None:
         allocator = DEFAULT_ALLOCATOR
 
-    resolved = BaseAllocator.resolve(allocator)
+    resolved = cast("BaseAllocator", BaseAllocator.resolve(allocator))
 
-    # ty doesn't understand that TypeVar T (System|Memory|Pool) all have allocate method
-    allocated = entity.allocate(resolved)  # type: ignore[invalid-argument-type]
+    if isinstance(entity, System | Memory | Pool):
+        allocated = entity.allocate(resolved)
+    else:
+        allocated = Pool.from_allocations(entity).allocate(resolved).allocations
 
     if validate:
         validate_allocation(allocated)
 
-    return cast("T", allocated)
+    return allocated

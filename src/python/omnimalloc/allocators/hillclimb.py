@@ -33,7 +33,6 @@ class HillClimbAllocator(GreedyAllocator):
 
     def __init__(
         self,
-        *,
         max_iterations: int = 100,
         seed: int = DEFAULT_SEED,
         acceptance_temperature: float = 2.0,

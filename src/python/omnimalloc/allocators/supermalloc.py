@@ -133,7 +133,6 @@ class SupermallocAllocator(BaseAllocator):
 
     def __init__(
         self,
-        *,
         timeout: float | None = DEFAULT_TIMEOUT,
         heuristics: tuple[Heuristic, ...] = DEFAULT_HEURISTICS,
         num_threads: int | None = None,

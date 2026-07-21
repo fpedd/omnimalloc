@@ -15,7 +15,7 @@ from .greedy import GreedyAllocator
 class RandomAllocator(GreedyAllocator):
     """Randomized allocator that tries multiple random orders and picks the best."""
 
-    def __init__(self, *, num_trials: int = 100, seed: int = DEFAULT_SEED) -> None:
+    def __init__(self, num_trials: int = 100, seed: int = DEFAULT_SEED) -> None:
         ensure_non_negative(num_trials, "num_trials")
         self._seed = seed
         self._num_trials = num_trials

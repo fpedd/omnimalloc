@@ -77,7 +77,7 @@ class GreedyByAllAllocator(GreedyAllocator):
     `num_threads=None` uses all cores.
     """
 
-    def __init__(self, *, num_threads: int | None = None) -> None:
+    def __init__(self, num_threads: int | None = None) -> None:
         ensure_valid_num_threads(num_threads)
         self._num_threads = num_threads
 

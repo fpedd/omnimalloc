@@ -202,20 +202,20 @@ def test_validate_complex_hierarchy_with_error_raises() -> None:
         validate_allocation(system)
 
 
-def test_validate_memory_over_capacity_fails() -> None:
+def test_validate_memory_over_size_fails() -> None:
     pool = Pool(
         id="p", allocations=(Allocation(id=1, size=100, start=0, end=5, offset=0),)
     )
-    memory = Memory(id="m", capacity=50, pools=(pool,))
-    with pytest.raises(ValueError, match="exceeds capacity"):
+    memory = Memory(id="m", size=50, pools=(pool,))
+    with pytest.raises(ValueError, match="exceeds memory size"):
         validate_allocation(memory)
 
 
-def test_validate_memory_within_capacity_passes() -> None:
+def test_validate_memory_within_size_passes() -> None:
     pool = Pool(
         id="p", allocations=(Allocation(id=1, size=100, start=0, end=5, offset=0),)
     )
-    memory = Memory(id="m", capacity=100, pools=(pool,))
+    memory = Memory(id="m", size=100, pools=(pool,))
     validate_allocation(memory)
 
 
@@ -240,3 +240,58 @@ def test_validate_pool_mixed_dimensions_rejected() -> None:
     pool = Pool(id=1, allocations=(alloc1, alloc2))
     with pytest.raises(ValueError, match="share one clock dimension"):
         validate_allocation(pool)
+
+
+def test_validate_raw_allocations_valid() -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=5, offset=0),
+        Allocation(id=2, size=100, start=5, end=10, offset=0),
+    )
+    validate_allocation(allocations)
+
+
+def test_validate_raw_allocations_list() -> None:
+    validate_allocation([Allocation(id=1, size=10, start=0, end=5, offset=0)])
+
+
+def test_validate_raw_allocations_empty() -> None:
+    validate_allocation(())
+
+
+def test_validate_raw_allocations_overlapping_raises() -> None:
+    allocations = (
+        Allocation(id=1, size=100, start=0, end=10, offset=0),
+        Allocation(id=2, size=100, start=5, end=15, offset=50),
+    )
+    with pytest.raises(ValueError, match=r"Validation of 2 allocations failed"):
+        validate_allocation(allocations)
+
+
+def test_validate_raw_allocations_unallocated_raises() -> None:
+    with pytest.raises(ValueError, match="is not allocated"):
+        validate_allocation((Allocation(id=1, size=10, start=0, end=5),))
+
+
+def test_validate_raw_allocations_duplicate_ids_raise() -> None:
+    allocations = (
+        Allocation(id=1, size=10, start=0, end=5, offset=0),
+        Allocation(id=1, size=10, start=5, end=10, offset=0),
+    )
+    with pytest.raises(ValueError, match="duplicate id"):
+        validate_allocation(allocations)
+
+
+def test_validate_raw_allocations_rejects_non_allocation_elements() -> None:
+    with pytest.raises(TypeError, match="Expected Allocation"):
+        validate_allocation([1, 2, 3])
+
+
+def test_validate_raw_allocations_complex_mix() -> None:
+    valid = tuple(
+        Allocation(id=i, size=50, start=5 * i, end=5 * (i + 1), offset=0)
+        for i in range(10)
+    )
+    validate_allocation(valid)
+    overlapping = (*valid, Allocation(id=99, size=50, start=12, end=18, offset=25))
+    with pytest.raises(ValueError, match=r"Validation of 11 allocations failed"):
+        validate_allocation(overlapping)

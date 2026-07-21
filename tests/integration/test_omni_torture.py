@@ -61,7 +61,9 @@ def _certify(
     peak = _peak(placed)
     assert pressure(allocations, work_budget=None) <= peak
     assert peak <= sum(a.size for a in allocations)
-    assert max(placement_pressure_per_allocation(placed).values()) == peak
+    per_allocation = placement_pressure_per_allocation(placed)
+    assert per_allocation == placement_pressure_per_allocation(placed, None)
+    assert max(per_allocation.values()) == peak
     _assert_conflicting_pairs_disjoint(placed)
     return peak
 

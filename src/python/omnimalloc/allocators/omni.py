@@ -23,7 +23,7 @@ class OmniAllocator(BaseAllocator):
 
     supports_vector_time = True
 
-    def __init__(self, *, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
+    def __init__(self, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
         ensure_valid_budget(linearize_budget, name="linearize_budget")
         self._linearize_budget = linearize_budget
 

@@ -44,7 +44,6 @@ class GeneticAllocator(GreedyAllocator):
 
     def __init__(
         self,
-        *,
         seed: int = DEFAULT_SEED,
         population_size: int = 100,
         max_generations: int = 50,

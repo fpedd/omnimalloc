@@ -3,6 +3,7 @@
 #
 
 import pytest
+from omnimalloc.allocators.greedy import GreedyBySizeAllocator
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
@@ -385,3 +386,51 @@ def test_size_counts_gap_below_lowest_allocation() -> None:
     alloc = Allocation(id=1, size=100, start=0, end=10, offset=1000)
     pool = Pool(id="p", allocations=(alloc,))
     assert pool.size == 1100
+
+
+def test_any_allocated_empty_pool() -> None:
+    pool = Pool(id=1, allocations=())
+    assert pool.any_allocated is False
+    assert pool.is_allocated is True
+
+
+def test_any_allocated_none_placed() -> None:
+    pool = Pool(id=1, allocations=(Allocation(id=1, size=10, start=0, end=5),))
+    assert pool.any_allocated is False
+
+
+def test_any_allocated_partially_placed() -> None:
+    alloc1 = Allocation(id=1, size=10, start=0, end=5, offset=0)
+    alloc2 = Allocation(id=2, size=10, start=0, end=5)
+    pool = Pool(id=1, allocations=(alloc1, alloc2))
+    assert pool.any_allocated is True
+    assert pool.is_allocated is False
+
+
+def test_from_allocations_wraps_sequence() -> None:
+    allocations = [Allocation(id=1, size=10, start=0, end=5)]
+    pool = Pool.from_allocations(allocations)
+    assert pool.allocations == tuple(allocations)
+
+
+def test_from_allocations_rejects_non_allocation_elements() -> None:
+    with pytest.raises(TypeError, match="Expected Allocation"):
+        Pool.from_allocations((1, 2))
+
+
+def test_from_allocations_rejects_non_sequence() -> None:
+    with pytest.raises(TypeError, match="Unsupported entity type"):
+        Pool.from_allocations("abc")
+
+
+def test_allocate_preserves_allocation_order() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=10 * (i + 1), start=0, end=5) for i in range(8)
+    )
+    pool = Pool(id=1, allocations=allocations)
+    allocated = pool.allocate(GreedyBySizeAllocator())
+    assert allocated.is_allocated is True
+    assert tuple(a.id for a in allocated.allocations) == tuple(range(8))
+    assert tuple(a.size for a in allocated.allocations) == tuple(
+        a.size for a in allocations
+    )

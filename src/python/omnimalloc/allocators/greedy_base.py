@@ -72,7 +72,6 @@ def _allocate(
 def allocate_parallel(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
-    *,
     num_threads: int | None = None,
 ) -> tuple[Allocation, ...]:
     """Run each variant and return the lowest peak memory results.
