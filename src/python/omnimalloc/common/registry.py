@@ -13,16 +13,10 @@ from typing_extensions import Self
 class Registered(ABC):
     """Mixin for auto-registering and managing subclasses.
 
-    Any direct subclass of Registered will maintain its own registry. Any
-    subclass of that subclass that's not abstract will be registered in the
-    direct subclass's registry.
-
-    Registry names derive from the class name: the root's `_strip_suffix`
-    (its class-role suffix, e.g. "Allocator" or "Source") is stripped from
-    the end of the name (mid-name occurrences stay), then the remainder
-    converts to snake_case — the token carries zero information when the
-    registry is the namespace. Roots leave `_strip_suffix` empty to keep
-    full class names.
+    Each direct subclass of Registered maintains its own registry; its
+    non-abstract descendants register automatically. Registry names strip
+    the root's `_strip_suffix` (e.g. "Allocator") from the end of the
+    class name and snake_case the remainder; roots leave it empty.
     """
 
     _registry: ClassVar[dict[str, type[Self]]]

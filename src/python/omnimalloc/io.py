@@ -61,16 +61,14 @@ def save_allocation(
 ) -> tuple[Path, ...]:
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
-    Saving a `Pool` (or a raw sequence of Allocations, saved as one pool)
-    writes exactly `path`; a `Memory` or `System` fans out
-    to one `<stem>_<pool_id>.csv` per pool (the CSV is pool-level minimalloc
-    interchange). Returns the tuple of paths actually written. Pools with
-    any placed allocation include an `offset` column (minimalloc's solution
-    format; unplaced rows leave the cell blank), so `load_allocation`
-    round-trips placements. Vector-clock lifetimes use an
-    omnimalloc extension (``:``-joined components, e.g. ``3:0``); such files
-    round-trip through `load_allocation` but are no longer
-    minimalloc-readable.
+    A `Pool` (or raw sequence of Allocations, saved as one pool) writes
+    exactly `path`; a `Memory` or `System` fans out to one
+    `<stem>_<pool_id>.csv` per pool. Returns the paths written. Pools
+    with any placed allocation include an `offset` column (minimalloc's
+    solution format; unplaced rows blank), so placements round-trip
+    through `load_allocation`. Vector-clock lifetimes use an omnimalloc
+    extension (``:``-joined components, e.g. ``3:0``) that round-trips
+    but is no longer minimalloc-readable.
     """
     path_ = Path(path)
     path_.parent.mkdir(parents=True, exist_ok=True)

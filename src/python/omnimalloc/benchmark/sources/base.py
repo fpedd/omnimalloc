@@ -12,19 +12,10 @@ from omnimalloc.primitives import Allocation, IdType, Memory, Pool, System
 class BaseSource(Registered):
     """Base class for benchmark allocation sources with automatic registry.
 
-    Registry keys drop the class-role token: RandomSource registers as
-    "random".
-
-    Sources provide workloads at different abstraction levels.
-    Subclasses must implement `get_allocations()`. Higher-level methods
-    (pools, memories, systems) have default implementations that build
-    on allocations.
-
-    Sources can be either:
-    - Parameterizable: Can generate arbitrary numbers of allocations
-      (e.g., RandomSource)
-    - Fixed: Have predetermined models/pools with fixed allocation counts
-      (e.g., Huggingface)
+    Subclasses implement `get_allocations()`; the pool/memory/system
+    methods build on it. Sources are either parameterizable (generate any
+    allocation count, e.g. RandomSource) or fixed (predetermined
+    models/pools with set counts, e.g. Huggingface).
     """
 
     _strip_suffix: ClassVar[str] = "Source"

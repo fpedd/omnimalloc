@@ -168,11 +168,7 @@ def _download_onnx_models(
 
 
 class HuggingfaceSource(BaseSource):
-    """Load allocations from Huggingface ONNX models.
-
-    This is a fixed source with predetermined models from Huggingface.
-    Each model becomes a variant that can be benchmarked.
-    """
+    """Fixed source of Huggingface ONNX model allocations, one variant per model."""
 
     def __init__(
         self,
