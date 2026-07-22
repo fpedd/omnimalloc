@@ -34,13 +34,11 @@ def conflict_degrees(
 ) -> list[int]:
     """Conflict count per allocation, aligned with input order.
 
-    The degree sequence of the conflict relation behind `conflicts`,
-    without materializing the adjacency. Positional rather than id-keyed,
-    so duplicate ids are allowed and counted with multiplicity. Scalar
-    lifetimes count in O(N log N) without enumerating pairs; vector clocks
-    take the pairwise C++ sweep (quadratic in the worst case), raising
-    `RuntimeError` once it exceeds `work_budget` — pass `None` to
-    always compute.
+    The degree sequence of the relation behind `conflicts`, without
+    materializing the adjacency; positional rather than id-keyed, so
+    duplicate ids are allowed and counted with multiplicity. Scalar
+    lifetimes count in O(N log N); vector clocks take the quadratic sweep,
+    raising `RuntimeError` past `work_budget` (`None` always computes).
     """
     ensure_valid_budget(work_budget)
     return _conflict_degrees(allocations, work_budget)

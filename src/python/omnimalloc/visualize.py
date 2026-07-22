@@ -558,25 +558,16 @@ def plot_allocation(
 ) -> None:
     """Plot an allocated entity: `path=None` displays the figure, `path=...` saves it.
 
-    Args:
-        entity: The entity to plot (System, Memory, Pool, or a raw sequence
-                of Allocations, plotted as a single pool).
-        path: Where to save the figure; `None` displays it instead.
-        capacities: Extra capacity lines to draw, keyed by label then by
-                    memory id (byte limits, drawn as horizontal lines).
-        view: "panel" draws each memory once over a happens-before-monotone
-              virtual time (exact for scalar or linearizable lifetimes, else
-              a sound clock-component-sum projection annotated with its
-              conflict coverage on modestly sized memories)
-              "lanes" draws one subplot per thread showing its local-time
-              projection. Both views only ever show genuine conflicts as
-              temporal overlaps; scalar entities render identically under
-              either.
-        max_lanes: Lanes view only (rejected under other views): cap each
-                   memory to its top-k threads by peak definitely-live
-                   occupancy.
-
-    Raises `ImportError` without matplotlib.
+    Accepts a System, Memory, Pool, or raw sequence of Allocations
+    (plotted as a single pool). `capacities` draws extra horizontal limit
+    lines, keyed by label then memory id. `view="panel"` draws each
+    memory once over a happens-before-monotone virtual time (exact for
+    scalar or linearizable lifetimes, else a sound projection annotated
+    with its conflict coverage); `view="lanes"` draws one subplot per
+    thread's local-time projection, capped to the top `max_lanes` threads
+    by peak definitely-live occupancy. Both views only ever show genuine
+    conflicts as temporal overlaps. Raises `ImportError` without
+    matplotlib.
     """
     if view not in ("panel", "lanes"):
         raise ValueError(f'view must be "panel" or "lanes", got {view!r}')

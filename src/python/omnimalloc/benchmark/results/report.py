@@ -15,11 +15,7 @@ from .result import BenchmarkResult
 
 @dataclass(frozen=True)
 class BenchmarkReport:
-    """A collection of benchmark results with aggregate statistics.
-
-    A report aggregates multiple results (iterations) for the same
-    allocator/source/variant combination.
-    """
+    """Aggregates results (iterations) of one allocator/source/variant combination."""
 
     id: IdType
     results: tuple[BenchmarkResult, ...]

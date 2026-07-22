@@ -17,11 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Memory:
-    """A physical memory unit containing one or more pools.
-
-    `size` is the declared memory size (an input); the computed extent of a
-    placement is `used_size`. `size=None` means unbounded.
-    """
+    """A physical memory unit containing one or more pools."""
 
     id: IdType
     pools: tuple[Pool, ...]

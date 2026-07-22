@@ -46,9 +46,9 @@ def closure_pressure(
 
     C++ enumeration of the join-closure of the birth clocks. Pairwise-
     concurrent allocations need not share a cut, so this can sit strictly
-    below `antichain_pressure`; both soundly lower-bound any placement's peak. Raises
-    `RuntimeError` once the closure exceeds `closure_cap`; pass `None` to
-    always enumerate — memory then grows with the closure itself.
+    below `antichain_pressure`; both soundly lower-bound any placement's
+    peak. Raises `RuntimeError` once the closure exceeds `closure_cap`;
+    pass `None` to always enumerate — memory then grows with the closure.
     """
     ensure_valid_budget(closure_cap, name="closure_cap")
     return _closure_pressure(allocations, closure_cap)
@@ -57,10 +57,9 @@ def closure_pressure(
 def placement_pressure(allocations: Sequence[Allocation]) -> int:
     """Peak of a placement: the highest occupied address, max(offset + size).
 
-    Simply the pressure the placement realizes after allocation — an upper
-    bound on `antichain_pressure` (and so on `closure_pressure`), equal to the max
-    entry of `placement_pressure_per_allocation`. Raises `ValueError` on
-    unplaced input.
+    An upper bound on `antichain_pressure` (and so on `closure_pressure`),
+    equal to the max entry of `placement_pressure_per_allocation`. Raises
+    `ValueError` on unplaced input.
     """
     heights = []
     for alloc in allocations:
@@ -76,15 +75,11 @@ def antichain_pressure_per_allocation(
 ) -> dict[IdType, int]:
     """Peak pressure over each allocation's own lifetime, keyed by id.
 
-    The max-weight antichain through each allocation: the tightest
-    order-derived lower bound on the pressure any placement can exhibit
-    while that allocation is live; the max entry equals `antichain_pressure`.
-    Linearizable instances take one O(N log N) window sweep, genuinely
-    partial orders solve one pinned antichain (min flow over the conflict
-    neighborhood) per distinct lifetime — exact, but built to certify
-    placements, not for the 10k+ hot path. Raises `RuntimeError`
-    once the linearize attempt or a pinned flow exceeds `work_budget`;
-    pass `None` to always compute.
+    `antichain_pressure` restricted to cuts where each allocation is live;
+    the max entry equals `antichain_pressure`. Genuinely partial orders
+    solve one pinned antichain per distinct lifetime. Raises
+    `RuntimeError` once the linearize attempt or a pinned flow exceeds
+    `work_budget`; pass `None` to always compute.
     """
     ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations)
@@ -97,12 +92,10 @@ def closure_pressure_per_allocation(
 ) -> dict[IdType, int]:
     """Exact realizable peak while each allocation is live, keyed by id.
 
-    The max total size at any join-closure cut where the allocation is
-    live. Can sit elementwise strictly below `antichain_pressure_per_allocation`,
-    since pairwise-concurrent allocations need not share a cut; the max
-    entry equals `closure_pressure`. Raises `RuntimeError` once the
-    closure exceeds `closure_cap`; pass `None` to always enumerate —
-    memory then grows with the closure itself.
+    `closure_pressure` restricted to cuts where each allocation is live;
+    the max entry equals `closure_pressure`, and entries can sit strictly
+    below `antichain_pressure_per_allocation`. Raises `RuntimeError` once
+    the closure exceeds `closure_cap`; pass `None` to always enumerate.
     """
     ensure_valid_budget(closure_cap, name="closure_cap")
     ensure_unique_ids(allocations)

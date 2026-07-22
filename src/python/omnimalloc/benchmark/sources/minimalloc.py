@@ -23,11 +23,7 @@ class MinimallocSubset(str, Enum):
 
 
 class MinimallocSource(BaseSource):
-    """Load allocations from a bundled Minimalloc CSV subset.
-
-    This is a fixed source with predetermined pools from the Minimalloc
-    benchmarks. Pick a bundled ``subset`` to select which pools to load.
-    """
+    """Fixed source loading pools from a bundled Minimalloc CSV ``subset``."""
 
     def __init__(
         self,

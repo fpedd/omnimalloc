@@ -154,27 +154,13 @@ def run_benchmark(
 ) -> BenchmarkCampaign:
     """Run a benchmark campaign across multiple allocators and sources.
 
-    Args:
-        allocators: Allocators to benchmark (defaults to all available).
-        sources: Sources to benchmark (defaults to default source).
-        variants: For parameterizable sources, specifies allocation counts
-                 (int or tuple of ints). For fixed sources, specifies which
-                 models/pools to test (tuple of names or indices, or int for
-                 "first N", or None for all). A dict keyed by source name
-                 selects variants per source. Examples:
-                 - 100: Test with 100 allocations (parameterizable only)
-                 - (10, 100, 1000): Test with multiple sizes (parameterizable)
-                 - ("model1", "model2"): Test specific models (fixed sources)
-                 - 5: Test first 5 models (fixed sources)
-                 - {"random": (10, 100), "minimalloc": 5}:
-                   per-source variants (sources without an entry use defaults)
-                 - None: Use defaults (all models for fixed, 100 for parameterizable)
-        campaign_id: Unique identifier for this campaign.
-        iterations: Number of iterations per variant (for statistical averaging).
-        validate: Whether to validate allocations after running.
-
-    Returns:
-        BenchmarkCampaign containing all reports.
+    `allocators` and `sources` default to all available and the default
+    source. `variants` selects workloads per source: allocation counts
+    (int or tuple) for parameterizable sources; names, indices, or an int
+    meaning "first N" for fixed sources; a dict keyed by source name sets
+    variants per source; `None` uses defaults (all models for fixed, 100
+    for parameterizable). `iterations` repeats each variant for
+    statistical averaging; `validate=True` checks every result.
     """
     allocators = allocators or available_allocators()
     sources = sources or (DEFAULT_SOURCE,)
