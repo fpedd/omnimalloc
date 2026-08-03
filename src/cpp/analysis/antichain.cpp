@@ -16,19 +16,9 @@
 #include "common/parallel.hpp"
 #include "linearize.hpp"
 
-// Weighted Dilworth via min flow: the minimum s->t flow in which every
-// allocation's split node carries at least its size equals the max-weight
-// antichain, because every flow unit follows a chain and LP duality makes
-// the minimum chain multi-cover meet the heaviest pairwise-concurrent set.
-// (The classic bipartite-matching construction is the unit-weight case.)
-// Node lower bounds use the standard super-source/super-sink transform, so
-// the answer costs two Dinic max-flow runs: saturate the demands, then
-// drain the circulation back down to the minimum. Identical (start, end)
-// lifetimes merge into one node (they are mutually concurrent and compare
-// identically to everything else, so a maximum antichain takes all or
-// none), and happens-before edges route through distinct clock-row nodes,
-// compressing the quadratic pair relation to |end rows| x |start rows|
-// dominance edges.
+// Weighted Dilworth via min flow: the minimum s->t flow whose split nodes each
+// carry their size equals the max-weight antichain, by LP duality. Costs two
+// Dinic runs, saturating the demands then draining back to the minimum.
 
 namespace omnimalloc {
 
@@ -144,16 +134,12 @@ class Dinic {
 };
 
 // Max-weight antichain over explicit lifetime rows via the min-flow
-// construction above; `max_threads` caps the parallel dominance-edge pass
-// so the nested per-allocation solves stay serial inside a parallel outer
-// loop. A set `work_budget` (nullopt means unbounded) bounds the dominance
-// pass and the network it feeds; past it, throw instead of stalling or
-// exhausting memory.
+// construction above; `max_threads` caps the dominance-edge pass so nested
+// solves stay serial. `work_budget` bounds that pass and the network it feeds.
 int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
                       const std::vector<std::span<const int64_t>>& end_rows,
                       const std::vector<int64_t>& weights, size_t d,
-                      unsigned max_threads,
-                      std::optional<uint64_t> work_budget) {
+                      bool serial, std::optional<uint64_t> work_budget) {
   const size_t g = weights.size();
   if (g == 0) {
     return 0;
@@ -162,6 +148,9 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
   const DedupedRows ends = dedupe_rows(end_rows, d);
   const size_t k = starts.count();
   const size_t m = ends.count();
+  // The flow network's up-to-k*m arcs dwarf the comparisons counted here.
+  // Callers price that into tighter default budgets, never into the value
+  // passed, so this gate and the linearize prelude's agree.
   if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
     throw std::runtime_error(
         "Antichain flow work exceeds work_budget; pass None to always "
@@ -170,21 +159,11 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
 
   // Dominance edges end row -> start row, pruned to the suffix with
   // start[0] >= end[0] (rows ascend lexicographically on component 0)
-  const unsigned num_threads = std::min(max_threads, parallel_threads(m));
+  const unsigned num_threads = serial ? 1U : parallel_threads(m);
   std::vector<std::vector<int32_t>> dominated(m);
   for_each_row_block(m, num_threads, [&](size_t r) {
     const int64_t* end_row = ends.row(r);
-    size_t lo = 0;
-    size_t hi = k;
-    while (lo < hi) {
-      const size_t mid = lo + (hi - lo) / 2;
-      if (starts.row(mid)[0] < end_row[0]) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-    for (size_t q = lo; q < k; ++q) {
+    for (size_t q = starts.prefix_lt(end_row[0]); q < k; ++q) {
       if (dominates(end_row, starts.row(q), d)) {
         dominated[r].push_back(static_cast<int32_t>(q));
       }
@@ -252,12 +231,10 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
     return interval_peak(*times, weights);
   }
 
-  // Identical (start, end) lifetimes merge into one weighted node (they are
-  // mutually concurrent and compare identically to everything else, so a
-  // maximum antichain takes all or none).
+  // Identical lifetimes merge into one weighted node (see the file header)
   const LifetimeGroups groups = group_lifetimes(allocations);
   return max_antichain(groups.starts, groups.ends, groups.weights, d,
-                       std::numeric_limits<unsigned>::max(), work_budget);
+                       /*serial=*/false, work_budget);
 }
 
 std::vector<int64_t> antichain_pressure_per_allocation(
@@ -278,9 +255,8 @@ std::vector<int64_t> antichain_pressure_per_allocation(
     return interval_peaks(*times, weights);
   }
 
-  // Identical lifetimes are mutually concurrent and relate identically to
-  // everything else, so they share one pinned antichain; solve per group.
-  // An antichain through a group is the group plus an antichain among its
+  // Identical lifetimes share one pinned antichain, so solve per group; an
+  // antichain through a group is the group plus an antichain among its
   // conflict neighbors, so each solve restricts to the neighborhood.
   const LifetimeGroups groups = group_lifetimes(allocations);
   const size_t g = groups.count();
@@ -288,25 +264,34 @@ std::vector<int64_t> antichain_pressure_per_allocation(
   const CsrAdjacency adj = sweep.adjacency(parallel_threads(g));
 
   // One flow per group dwarfs thread startup, so parallelize from 2 rows up
+  // and schedule single rows. Cap the workers: each solve materializes its
+  // own flow network, so peak memory scales with workers, not cores.
+  constexpr unsigned kMaxFlowThreads = 8;
+  const unsigned num_threads =
+      std::min({kMaxFlowThreads, max_threads(), static_cast<unsigned>(g)});
   std::vector<int64_t> pinned(g);
-  for_each_row_block(g, parallel_threads(g, 2), [&](size_t i) {
-    const auto begin = static_cast<size_t>(adj.offsets[i]);
-    const auto end = static_cast<size_t>(adj.offsets[i + 1]);
-    std::vector<std::span<const int64_t>> starts;
-    std::vector<std::span<const int64_t>> ends;
-    std::vector<int64_t> weights;
-    starts.reserve(end - begin);
-    ends.reserve(end - begin);
-    weights.reserve(end - begin);
-    for (size_t e = begin; e < end; ++e) {
-      const auto j = static_cast<size_t>(adj.neighbors[e]);
-      starts.push_back(groups.starts[j]);
-      ends.push_back(groups.ends[j]);
-      weights.push_back(groups.weights[j]);
-    }
-    pinned[i] = groups.weights[i] +
-                max_antichain(starts, ends, weights, d, 1, work_budget);
-  });
+  for_each_row_block(
+      g, num_threads,
+      [&](size_t i) {
+        const auto begin = static_cast<size_t>(adj.offsets[i]);
+        const auto end = static_cast<size_t>(adj.offsets[i + 1]);
+        std::vector<std::span<const int64_t>> starts;
+        std::vector<std::span<const int64_t>> ends;
+        std::vector<int64_t> weights;
+        starts.reserve(end - begin);
+        ends.reserve(end - begin);
+        weights.reserve(end - begin);
+        for (size_t e = begin; e < end; ++e) {
+          const auto j = static_cast<size_t>(adj.neighbors[e]);
+          starts.push_back(groups.starts[j]);
+          ends.push_back(groups.ends[j]);
+          weights.push_back(groups.weights[j]);
+        }
+        pinned[i] =
+            groups.weights[i] + max_antichain(starts, ends, weights, d,
+                                              /*serial=*/true, work_budget);
+      },
+      1);
 
   std::vector<int64_t> peaks(n);
   for (size_t i = 0; i < n; ++i) {

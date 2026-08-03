@@ -39,10 +39,7 @@ def allocate(
     """Return the entity with offsets assigned.
 
     Accepts a System, Memory, or Pool (returned as the same type) or a raw
-    sequence of Allocations (returned as a tuple in input order). `allocator`
-    accepts an instance, a class, a registry name, or `None` (the default
-    allocator); `validate=True` additionally runs `validate_allocation` on
-    the result.
+    sequence of Allocations. An allocation carrying an offset is pinned.
     """
 
     if allocator is None:

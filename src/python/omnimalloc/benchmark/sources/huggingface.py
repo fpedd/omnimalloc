@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import logging
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -37,8 +36,6 @@ except ImportError:
 
 from ..utils import tqdm  # noqa: TID252
 
-logger = logging.getLogger(__name__)
-
 
 def _get_hf_api() -> HfApi:
     """Get HfApi instance, checking that dependency is available."""
@@ -47,15 +44,10 @@ def _get_hf_api() -> HfApi:
     return HfApi()
 
 
-def _list_onnx_models(limit: int = 10, search: str | None = None) -> list[ModelInfo]:
+def _list_onnx_models(limit: int = 10) -> list[ModelInfo]:
     """Return ONNX models from Hugging Face Hub, excluding the first result."""
     hf_api = _get_hf_api()
-    models = hf_api.list_models(
-        author="onnxmodelzoo",
-        search=search,
-        limit=limit + 1,
-        filter=None,
-    )
+    models = hf_api.list_models(author="onnxmodelzoo", limit=limit + 1)
     return list(models)[1:]  # Exclude first, which is a legacy model repository
 
 
@@ -102,12 +94,9 @@ def _gather_download_info(
         if file_info.size is None:
             continue
 
-        # At this point, file_info.size is guaranteed to not be None
-        file_size = file_info.size
-        assert file_size is not None
-        # ty doesn't respect the assert for narrowing
-        file_size_mb = file_size / (1024 * 1024)  # type: ignore[unsupported-operator]
-        if max_file_size_mb is not None and file_size_mb > max_file_size_mb:
+        # ty does not narrow file_info.size from the None check above
+        size_mb = file_info.size / (1024 * 1024)  # type: ignore[unsupported-operator]
+        if max_file_size_mb is not None and size_mb > max_file_size_mb:
             continue
 
         id_file_map[model_info.id] = file_info.path

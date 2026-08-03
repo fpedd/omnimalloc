@@ -90,7 +90,14 @@ def _draw_graphs(
         for r in reports
     ]
     times = [r.mean_seconds for r in reports]
-    efficiencies = [r.mean_allocation_efficiency * 100 for r in reports]
+
+    # Efficiency is unknown wherever the pressure analysis gave up; those
+    # points drop out of the series instead of breaking the whole plot
+    efficiencies: list[tuple[int, Any, float]] = []
+    for index, (x, report) in enumerate(zip(x_vals, reports, strict=True)):
+        efficiency = report.mean_allocation_efficiency
+        if efficiency is not None:
+            efficiencies.append((index, x, efficiency * 100))
 
     ax.plot(
         x_vals,
@@ -105,8 +112,8 @@ def _draw_graphs(
     )
 
     ax2.plot(
-        x_vals,
-        efficiencies,
+        [x for _, x, _ in efficiencies],
+        [y for _, _, y in efficiencies],
         marker="s",
         linestyle="--",
         linewidth=1.5,
@@ -134,7 +141,7 @@ def _draw_graphs(
             },
         )
 
-    for i, (x, y) in enumerate(zip(x_vals, efficiencies, strict=True)):
+    for i, x, y in efficiencies:
         ax2.text(
             i if is_categorical else float(x),
             y,

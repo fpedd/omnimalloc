@@ -5,7 +5,7 @@
 import inspect
 import re
 from abc import ABC
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from typing_extensions import Self
 
@@ -13,10 +13,8 @@ from typing_extensions import Self
 class Registered(ABC):
     """Mixin for auto-registering and managing subclasses.
 
-    Each direct subclass of Registered maintains its own registry; its
-    non-abstract descendants register automatically. Registry names strip
-    the root's `_strip_suffix` (e.g. "Allocator") from the end of the
-    class name and snake_case the remainder; roots leave it empty.
+    Each direct subclass maintains its own registry; non-abstract descendants
+    register automatically, named by snake_case minus `_strip_suffix`.
     """
 
     _registry: ClassVar[dict[str, type[Self]]]
@@ -26,7 +24,7 @@ class Registered(ABC):
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
 
-        # Direct subclass of Registered - initialize registry, don't register
+        # Direct subclass of Registered: initialize registry, don't register
         if Registered in cls.__bases__:
             cls._name = _camel_to_snake(cls.__name__)
             cls._registry = {}
@@ -37,10 +35,11 @@ class Registered(ABC):
             cls._name = _camel_to_snake(cls.__name__)
             return
 
-        # Child class - register in parent's registry
+        # Child class: register in parent's registry
         for base in reversed(cls.__mro__[1:]):
             if Registered in base.__bases__ and issubclass(base, Registered):
-                cls._name = _derive_name(cls.__name__, base._strip_suffix)  # noqa: SLF001
+                suffix = base._strip_suffix  # noqa: SLF001
+                cls._name = _derive_name(cls.__name__, suffix)
                 registered = base._registry.get(cls._name)  # noqa: SLF001
                 if registered is not None and registered is not cls:
                     raise RuntimeError(
@@ -82,8 +81,12 @@ class Registered(ABC):
         if isinstance(value, str):
             value = cls.get(value)
         if isinstance(value, type):
+            if not issubclass(value, cls):
+                raise TypeError(f"{value.__qualname__} is not a {cls.__name__}")
             return value()
-        return value
+        if not isinstance(value, cls):
+            raise TypeError(f"{type(value).__qualname__} is not a {cls.__name__}")
+        return cast("Self", value)
 
 
 def _derive_name(class_name: str, role_token: str) -> str:

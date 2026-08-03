@@ -3,11 +3,22 @@
 #
 
 import csv
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
 from .analysis.clock import time_components
-from .primitives import Allocation, Memory, Pool, System, TimePoint
+from .primitives import (
+    Allocation,
+    AllocationKind,
+    IdType,
+    Memory,
+    Pool,
+    System,
+    TimePoint,
+)
+
+_INTEGER = re.compile(r"-?\d+")
 
 
 def _format_time(time_point: TimePoint) -> str:
@@ -36,14 +47,23 @@ def _collect_pools(entity: Memory | System) -> dict[str, Pool]:
     return pools
 
 
+def _parse_id(text: str) -> IdType:
+    # Integer ids are the common case (every shipped source uses them) and
+    # CSV cannot tell 1 from "1", so read digits back as the int they were.
+    return int(text) if _INTEGER.fullmatch(text) else text
+
+
 def _write_pool(pool: Pool, path: Path) -> Path:
-    # Any placed allocation brings in the offset column (minimalloc's
-    # solution format; unplaced rows leave the cell blank), so save/load
-    # round-trips placements instead of silently stripping them.
+    # Any placed allocation brings in the offset column (minimalloc's solution
+    # format; unplaced rows leave the cell blank), so save/load round-trips
+    # placements instead of stripping them. A kind column appears the same way.
     with_offsets = pool.any_allocated
+    with_kinds = any(alloc.kind is not None for alloc in pool.allocations)
     fields = ("id", "lower", "upper", "size")
     if with_offsets:
         fields = (*fields, "offset")
+    if with_kinds:
+        fields = (*fields, "kind")
     with path.open("w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(fields)
@@ -52,6 +72,8 @@ def _write_pool(pool: Pool, path: Path) -> Path:
             row.append(alloc.size)
             if with_offsets:
                 row.append(alloc.offset)
+            if with_kinds:
+                row.append(alloc.kind.name if alloc.kind is not None else None)
             writer.writerow(row)
     return path
 
@@ -61,14 +83,8 @@ def save_allocation(
 ) -> tuple[Path, ...]:
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
-    A `Pool` (or raw sequence of Allocations, saved as one pool) writes
-    exactly `path`; a `Memory` or `System` fans out to one
-    `<stem>_<pool_id>.csv` per pool. Returns the paths written. Pools
-    with any placed allocation include an `offset` column (minimalloc's
-    solution format; unplaced rows blank), so placements round-trip
-    through `load_allocation`. Vector-clock lifetimes use an omnimalloc
-    extension (``:``-joined components, e.g. ``3:0``) that round-trips
-    but is no longer minimalloc-readable.
+    A `Pool` writes exactly `path`; a `Memory` or `System` fans out per pool.
+    Placements round-trip through an `offset` column, clocks through ``:``.
     """
     path_ = Path(path)
     path_.parent.mkdir(parents=True, exist_ok=True)
@@ -85,20 +101,20 @@ def save_allocation(
 def load_allocation(path: str | Path) -> Pool:
     """Load a minimalloc-format CSV file into a Pool.
 
-    Loading is pool-level, matching the format's granularity; an `offset`
-    column (minimalloc's solution format) restores placements. The format
-    carries no allocation kind, so loaded allocations keep `kind=None`.
+    Loading is pool-level: the pool takes the file stem as its id. `offset` and
+    `kind` columns restore a round-trip-equal result.
     """
     path_ = Path(path)
     allocations = []
     with path_.open(newline="") as csvfile:
         for row in csv.DictReader(csvfile):
             allocation = Allocation(
-                id=str(row["id"]),
+                id=_parse_id(row["id"]),
                 size=int(row["size"]),
                 start=_parse_time(row["lower"]),
                 end=_parse_time(row["upper"]),
                 offset=int(row["offset"]) if row.get("offset") else None,
+                kind=AllocationKind[row["kind"]] if row.get("kind") else None,
             )
             allocations.append(allocation)
     return Pool(id=path_.stem, allocations=tuple(allocations))

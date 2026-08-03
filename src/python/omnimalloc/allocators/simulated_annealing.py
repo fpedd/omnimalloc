@@ -14,20 +14,12 @@ from .base import BaseAllocator
 class SimulatedAnnealingAllocator(BaseAllocator):
     """Simulated annealing over first-fit placement orders, run entirely in C++.
 
-    Repeatedly swaps a peak allocation with an earlier temporal neighbor,
-    accepting improving swaps outright and worsening ones with a probability
-    that anneals to zero over `max_iterations`. `initial_temperature` is the
-    percent memory worsening accepted with probability 1/e at iteration 0;
-    it decays geometrically by `cooling_rate` every iteration. Because the
-    whole search loop (including every candidate placement) runs natively,
-    it evaluates far more candidates per second than an equivalent
-    Python-orchestrated local search such as `HillClimbAllocator`. Each
-    iteration re-evaluates a full placement of every allocation, so
-    `timeout` (default 3s) bounds wall-clock time as the input grows,
-    independent of `max_iterations`.
+    Repeatedly swaps a peak allocation with an earlier temporal neighbor, taking
+    worsenings with a probability that anneals to zero. `timeout` binds.
     """
 
     supports_vector_time = True
+    supports_pinned = True
 
     def __init__(
         self,

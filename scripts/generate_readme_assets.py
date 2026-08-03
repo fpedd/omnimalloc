@@ -3,26 +3,9 @@
 #
 """Generate the figures embedded in the README.
 
-Runs a deterministic benchmark suite and renders four figures, each in a light
-and a dark variant with transparent backgrounds (GitHub picks the right one via
-a ``<picture>`` element):
-
-- ``hero``: packing efficiency vs. solve time across allocators (Pareto view)
-- ``quality``: per-problem packing efficiency for three allocators
-- ``scaling``: solve time vs. problem size
-- ``allocation``: a solved allocation rendered as offset/time rectangles
-
-Regenerate the committed assets with:
-
-    uv run python scripts/generate_readme_assets.py
-
-The benchmark portion takes a few minutes (every search allocator runs at the
-library-wide 3 s budget). Use ``--dump data.json`` once and ``--data data.json``
-to iterate on rendering without re-running it. ``--preview DIR`` additionally
-writes PNG previews.
+Renders the hero, quality, scaling and allocation figures in light and dark.
+The benchmark takes minutes; ``--dump`` then ``--data`` iterates on rendering.
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -219,13 +202,13 @@ def _ensure_minimalloc() -> None:
     try:
         import minimalloc  # type: ignore  # noqa: F401
     except ImportError:
-        print(f"minimalloc not installed — installing from {MINIMALLOC_URL} ...")
+        print(f"minimalloc not installed, installing from {MINIMALLOC_URL} ...")
         _pip_install(MINIMALLOC_URL)
 
 
 def _solve(
-    pool: Pool, allocator: BaseAllocator, *, validate: bool = True
-) -> tuple[float, float, Pool]:
+    pool: "Pool", allocator: BaseAllocator, *, validate: bool = True
+) -> "tuple[float, float, Pool]":
     """Time the solve alone; validation is quadratic and would skew timings."""
     with Timer() as timer:
         solved = allocate(pool, allocator=allocator)
@@ -234,7 +217,7 @@ def _solve(
     return timer.elapsed_s, solved.efficiency, solved
 
 
-def _hard_suite() -> dict[str, Pool]:
+def _hard_suite() -> "dict[str, Pool]":
     """Real minimalloc benchmarks plus adversarial synthetic patterns."""
     suite: dict[str, Pool] = {}
     minimalloc = BaseSource.get("minimalloc")()
@@ -341,7 +324,7 @@ def _style(theme: Theme) -> dict[str, Any]:
     }
 
 
-def _title(fig: Figure, theme: Theme, title: str, subtitle: str) -> None:
+def _title(fig: "Figure", theme: Theme, title: str, subtitle: str) -> None:
     fig.text(
         0.01,
         0.99,
@@ -357,7 +340,7 @@ def _title(fig: Figure, theme: Theme, title: str, subtitle: str) -> None:
     )
 
 
-def _series_line(fig: Figure, series: list[tuple[str, str]], y: float) -> None:
+def _series_line(fig: "Figure", series: list[tuple[str, str]], y: float) -> None:
     """Draw an inline legend: colored '● label' entries on one figure line."""
     x = 0.012
     for label, color in series:
@@ -366,7 +349,7 @@ def _series_line(fig: Figure, series: list[tuple[str, str]], y: float) -> None:
 
 
 def _optimal_line(
-    ax: Axes,
+    ax: "Axes",
     theme: Theme,
     value: float,
     axis: str = "y",
@@ -402,7 +385,7 @@ def _format_steps(value: float, _pos: int) -> str:
     return f"{value:g}"
 
 
-def _save(fig: Figure, name: str, theme: Theme, preview: Path | None) -> None:
+def _save(fig: "Figure", name: str, theme: Theme, preview: Path | None) -> None:
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(
         ASSETS_DIR / f"{name}_{theme.name}.svg", bbox_inches="tight", pad_inches=0.02

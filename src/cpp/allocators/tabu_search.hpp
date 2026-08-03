@@ -21,21 +21,14 @@ struct TabuSearchConfig {
   int neighborhood_size{};  // candidate swaps sampled per iteration
   int tabu_tenure{};        // iterations a reversed swap stays forbidden
   // Wall-clock budget checked once per iteration; nullopt disables it. Each
-  // iteration evaluates `neighborhood_size` full O(n) placements, so
-  // `max_iterations` alone does not bound runtime as `allocations` grows -
-  // this does.
+  // iteration evaluates `neighborhood_size` full O(n) placements, so only this
+  // bounds runtime as `allocations` grows, never `max_iterations` alone.
   std::optional<double> timeout;
 };
 
-// Tabu search over first-fit placement orders. Each iteration samples
-// `neighborhood_size` candidate swaps between a currently-peak allocation and
-// an earlier temporal neighbor, and moves to the best-scoring candidate that
-// is not tabu (or, per the aspiration criterion, a tabu candidate that beats
-// the best solution found so far). The swap just made is then forbidden from
-// being immediately reversed for `tabu_tenure` iterations, which lets the
-// search climb out of local optima without cycling between the same two
-// orders. Runs entirely in C++ for the same reason as
-// `simulated_annealing_place`: no Python round trip per candidate.
+// Tabu search over first-fit placement orders: each iteration takes the best
+// non-tabu swap among `neighborhood_size` candidates (aspiration admits a tabu
+// one that beats the incumbent), forbidding its reversal for `tabu_tenure`.
 [[nodiscard]] std::vector<Allocation> tabu_search_place(
     const std::vector<Allocation>& allocations, const TabuSearchConfig& config);
 

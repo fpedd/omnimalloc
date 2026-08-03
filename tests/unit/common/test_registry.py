@@ -11,6 +11,7 @@ from omnimalloc.allocators import (
     GreedyAllocator,
     GreedyByAreaAllocator,
     GreedyBySizeAllocator,
+    OmniAllocator,
 )
 from omnimalloc.benchmark.sources import (
     BaseSource,
@@ -20,30 +21,23 @@ from omnimalloc.benchmark.sources import (
 from omnimalloc.common.registry import Registered
 
 
-class ExampleBase(Registered):
-    """Test base class without a role token."""
+class ExampleBase(Registered): ...
 
 
-class FooBar(ExampleBase):
-    """Should register as 'foo_bar'."""
+class FooBar(ExampleBase): ...
 
 
-class BazQux(ExampleBase):
-    """Should register as 'baz_qux'."""
+class BazQux(ExampleBase): ...
 
 
-class SimpleAllocator(ExampleBase):
-    """Keeps its full name: ExampleBase strips no role token."""
+class SimpleAllocator(ExampleBase): ...
 
 
 class ExampleRoleBase(Registered):
-    """Test base class stripping the 'Widget' role token."""
-
     _strip_suffix: ClassVar[str] = "Widget"
 
 
-class SpinningWidget(ExampleRoleBase):
-    """Should register as 'spinning'."""
+class SpinningWidget(ExampleRoleBase): ...
 
 
 def test_registry_auto_registration() -> None:
@@ -175,16 +169,33 @@ def test_source_name_drops_strip_suffix() -> None:
 
 
 def test_registry_rejects_duplicate_names() -> None:
-    class UniqueNameBase(Registered):
-        """Test base class."""
+    class UniqueNameBase(Registered): ...
 
-    class DuplicateName(UniqueNameBase):
-        """First registration wins."""
+    class DuplicateName(UniqueNameBase): ...
 
     first = DuplicateName
     with pytest.raises(RuntimeError, match="already taken"):
 
-        class DuplicateName(UniqueNameBase):
-            """Second registration with the same name must fail."""
+        class DuplicateName(UniqueNameBase): ...
 
     assert UniqueNameBase.registry()["duplicate_name"] is first
+
+
+def test_resolve_rejects_a_foreign_class() -> None:
+    class Foreign:
+        pass
+
+    with pytest.raises(TypeError, match="Foreign is not a"):
+        BaseAllocator.resolve(Foreign)  # type: ignore[arg-type]
+
+
+def test_resolve_rejects_a_foreign_instance() -> None:
+    with pytest.raises(TypeError, match="object is not a"):
+        BaseAllocator.resolve(object())  # type: ignore[arg-type]
+
+
+def test_resolve_accepts_names_classes_and_instances() -> None:
+    assert isinstance(BaseAllocator.resolve("omni"), OmniAllocator)
+    assert isinstance(BaseAllocator.resolve(OmniAllocator), OmniAllocator)
+    instance = OmniAllocator()
+    assert BaseAllocator.resolve(instance) is instance

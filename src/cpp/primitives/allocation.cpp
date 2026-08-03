@@ -6,15 +6,26 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
-#include "hash_utils.hpp"
-
 namespace omnimalloc {
+
+// Generic hash combiner using the boost::hash_combine algorithm; consumed
+// only by the std::hash<Allocation> specialization below
+template <typename T, typename... Args>
+[[nodiscard]] constexpr size_t make_hash(const T& first,
+                                         const Args&... args) noexcept {
+  size_t seed = std::hash<T>{}(first);
+  if constexpr (sizeof...(args) > 0) {
+    seed ^= make_hash(args...) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  }
+  return seed;
+}
 
 namespace {
 
@@ -103,6 +114,14 @@ void Allocation::validate() const {
     throw std::invalid_argument("offset must be non-negative, got " +
                                 std::to_string(offset_.value()));
   }
+  // height() and every downstream offset + size must stay in int64 (UB
+  // otherwise)
+  if (offset_.has_value() &&
+      offset_.value() > std::numeric_limits<int64_t>::max() - size_) {
+    throw std::invalid_argument("offset (" + std::to_string(offset_.value()) +
+                                ") + size (" + std::to_string(size_) +
+                                ") exceeds int64 range");
+  }
 }
 
 int64_t Allocation::vector_duration() const noexcept {
@@ -140,7 +159,7 @@ bool Allocation::overlaps(const Allocation& other) const {
   return conflicts_with(other) && overlaps_spatially(other);
 }
 
-Allocation Allocation::with_offset(int64_t new_offset) const {
+Allocation Allocation::with_offset(std::optional<int64_t> new_offset) const {
   return {id_, size_, start_, end_, new_offset, kind_};
 }
 

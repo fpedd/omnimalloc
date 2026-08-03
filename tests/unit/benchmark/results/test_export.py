@@ -3,6 +3,7 @@
 #
 
 
+import csv
 import json
 from pathlib import Path
 from zipfile import ZipFile
@@ -16,16 +17,17 @@ from omnimalloc.benchmark.results import (
     BenchmarkResult,
 )
 from omnimalloc.benchmark.results.export import (
+    RESULTS_CSV_COLUMNS,
     _prepare_base_dir,
     _write_metadata,
     save_benchmark,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
+from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 
 
 @pytest.fixture
 def simple_campaign() -> BenchmarkCampaign:
-    """Create a simple benchmark campaign for testing."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -42,7 +44,6 @@ def simple_campaign() -> BenchmarkCampaign:
 def test_save_benchmark_creates_directory(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that save_benchmark creates a directory with expected structure."""
     output_path = artifacts_dir / "campaign_output"
 
     result_path = save_benchmark(
@@ -61,7 +62,6 @@ def test_save_benchmark_creates_directory(
 def test_save_benchmark_creates_zip(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that save_benchmark creates a zip archive."""
     output_path = artifacts_dir / "campaign_output"
 
     result_path = save_benchmark(
@@ -75,7 +75,6 @@ def test_save_benchmark_creates_zip(
     assert result_path.suffix == ".zip"
     assert result_path.is_file()
 
-    # Verify zip contents
     with ZipFile(result_path, "r") as zip_file:
         names = zip_file.namelist()
         assert any("metadata.json" in name for name in names)
@@ -83,7 +82,6 @@ def test_save_benchmark_creates_zip(
 
 
 def test_save_benchmark_with_none_path(simple_campaign: BenchmarkCampaign) -> None:
-    """Test that save_benchmark works with None as output_path."""
     result_path = save_benchmark(
         simple_campaign,
         output_path=None,
@@ -96,7 +94,6 @@ def test_save_benchmark_with_none_path(simple_campaign: BenchmarkCampaign) -> No
 
 
 def test_save_benchmark_raises_typeerror_for_non_campaign(artifacts_dir: Path) -> None:
-    """Test that save_benchmark raises TypeError for non-campaign objects."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -111,7 +108,6 @@ def test_save_benchmark_raises_typeerror_for_non_campaign(artifacts_dir: Path) -
 def test_save_benchmark_raises_valueerror_for_invalid_format(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that save_benchmark raises ValueError for invalid output format."""
     with pytest.raises(ValueError, match="output_format must be 'dir' or 'zip'"):
         save_benchmark(
             simple_campaign,
@@ -123,15 +119,12 @@ def test_save_benchmark_raises_valueerror_for_invalid_format(
 def test_save_benchmark_raises_fileexistserror_when_not_overwriting(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that save_benchmark raises FileExistsError when overwrite=False."""
     output_path = artifacts_dir / "campaign_output"
 
-    # First save
     save_benchmark(
         simple_campaign, output_path=output_path, output_format="dir", overwrite=True
     )
 
-    # Second save should fail with overwrite=False
     with pytest.raises(FileExistsError, match="already exists"):
         save_benchmark(
             simple_campaign,
@@ -144,15 +137,11 @@ def test_save_benchmark_raises_fileexistserror_when_not_overwriting(
 def test_save_benchmark_overwrites_existing_directory(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that save_benchmark can overwrite existing directory."""
     output_path = artifacts_dir / "campaign_output"
 
-    # First save
     result1 = save_benchmark(
         simple_campaign, output_path=output_path, output_format="dir", overwrite=True
     )
-
-    # Second save with overwrite=True should succeed
     result2 = save_benchmark(
         simple_campaign, output_path=output_path, output_format="dir", overwrite=True
     )
@@ -164,7 +153,6 @@ def test_save_benchmark_overwrites_existing_directory(
 def test_write_metadata_creates_json_file(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
-    """Test that _write_metadata creates a valid JSON file."""
     _write_metadata(artifacts_dir, simple_campaign)
 
     metadata_file = artifacts_dir / "metadata.json"
@@ -177,7 +165,6 @@ def test_write_metadata_creates_json_file(
 
 
 def test_prepare_base_dir_creates_directory(artifacts_dir: Path) -> None:
-    """Test that _prepare_base_dir creates a directory for dir format."""
     output_path = artifacts_dir / "test_dir"
 
     base_dir = _prepare_base_dir(output_path, output_format="dir", overwrite=True)
@@ -188,7 +175,6 @@ def test_prepare_base_dir_creates_directory(artifacts_dir: Path) -> None:
 
 
 def test_prepare_base_dir_creates_temp_for_zip(artifacts_dir: Path) -> None:
-    """Test that _prepare_base_dir creates a temp directory for zip format."""
     output_path = artifacts_dir / "test_zip"
 
     base_dir = _prepare_base_dir(output_path, output_format="zip", overwrite=True)
@@ -196,3 +182,99 @@ def test_prepare_base_dir_creates_temp_for_zip(artifacts_dir: Path) -> None:
     assert base_dir != output_path
     assert base_dir.exists()
     assert "omnimalloc_dump_" in str(base_dir)
+
+
+def test_save_benchmark_writes_results_csv(
+    simple_campaign: BenchmarkCampaign, artifacts_dir: Path
+) -> None:
+    output_path = save_benchmark(
+        simple_campaign,
+        output_path=artifacts_dir / "campaign_output",
+        output_format="dir",
+        visualize_iterations=False,
+    )
+
+    with (output_path / "results.csv").open(newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == simple_campaign.num_reports
+    assert tuple(rows[0]) == RESULTS_CSV_COLUMNS
+    assert rows[0]["source"] == "random"
+    assert rows[0]["allocator"] == "greedy"
+    assert rows[0]["num_allocations"] == "10"
+    assert rows[0]["iterations"] == "1"
+    assert float(rows[0]["mean_seconds"]) == 0.5
+    assert rows[0]["stdev_seconds"] == ""
+    assert rows[0]["known_optimum"] == ""
+    assert rows[0]["optimum_ratio"] == ""
+
+
+def test_results_csv_has_one_row_per_report(artifacts_dir: Path) -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    allocator = GreedyAllocator()
+    pool = allocate(source.get_pool(), allocator)
+    reports = tuple(
+        BenchmarkReport(
+            id=i,
+            results=tuple(
+                BenchmarkResult(
+                    id=10 * i + j,
+                    allocator=allocator,
+                    source=source,
+                    entity=pool,
+                    duration=float(j + 1),
+                )
+                for j in range(2)
+            ),
+            variant_id=10 * (i + 1),
+            known_optimum=pool.pressure,
+        )
+        for i in range(3)
+    )
+    campaign = BenchmarkCampaign(id="multi", reports=reports)
+
+    output_path = save_benchmark(
+        campaign,
+        output_path=artifacts_dir / "multi_output",
+        output_format="dir",
+        visualize_iterations=False,
+    )
+
+    with (output_path / "results.csv").open(newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert [row["variant"] for row in rows] == ["10", "20", "30"]
+    assert all(float(row["stdev_seconds"]) > 0 for row in rows)
+    assert all(float(row["optimum_ratio"]) >= 1.0 for row in rows)
+    assert all(int(row["lower_bound"]) == pool.pressure for row in rows)
+
+
+def test_results_csv_leaves_unmeasurable_efficiency_empty(artifacts_dir: Path) -> None:
+    source = SyncPatternSource(
+        num_allocations=2000, num_threads=64, pattern="independent"
+    )
+    allocator = GreedyAllocator()
+    pool = allocate(source.get_pool(), allocator)
+    result = BenchmarkResult(
+        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
+    )
+    campaign = BenchmarkCampaign(
+        id="wide", reports=(BenchmarkReport(id=0, results=(result,), source=source),)
+    )
+
+    output_path = save_benchmark(
+        campaign,
+        output_path=artifacts_dir / "wide_output",
+        output_format="dir",
+        visualize_iterations=False,
+    )
+
+    with (output_path / "results.csv").open(newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 1
+    assert rows[0]["mean_efficiency"] == ""
+    assert rows[0]["lower_bound"] == ""
+    assert float(rows[0]["mean_seconds"]) == 0.5
+    assert int(rows[0]["mean_peak_size"]) > 0
+    assert (output_path / "campaign_overview.pdf").exists()

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +24,6 @@ pytestmark = pytest.mark.skipif(not HAS_ONNX, reason="onnx not installed")
 
 @pytest.fixture
 def simple_onnx_model() -> "onnx.ModelProto":
-    """Create a simple ONNX model for testing."""
     input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 10])
     output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 10])
     intermediate_tensor = helper.make_tensor_value_info(
@@ -65,12 +63,10 @@ def simple_onnx_model() -> "onnx.ModelProto":
         value_info=[intermediate_tensor],
     )
 
-    model_def = helper.make_model(graph_def, producer_name="test")
-    return model_def
+    return helper.make_model(graph_def, producer_name="test")
 
 
 def test_tensor_proto_to_buffer() -> None:
-    """Test converting ONNX TensorProto to Buffer."""
     tensor = helper.make_tensor(
         "test_tensor",
         TensorProto.FLOAT,
@@ -88,7 +84,6 @@ def test_tensor_proto_to_buffer() -> None:
 
 
 def test_tensor_proto_to_buffer_different_dtype() -> None:
-    """Test converting ONNX TensorProto with different data type."""
     tensor = helper.make_tensor(
         "int_tensor",
         TensorProto.INT64,
@@ -106,7 +101,6 @@ def test_tensor_proto_to_buffer_different_dtype() -> None:
 
 
 def test_value_info_to_buffer() -> None:
-    """Test converting ONNX ValueInfoProto to Buffer."""
     value_info = helper.make_tensor_value_info("test_value", TensorProto.INT32, [5, 10])
 
     buffer = _value_info_to_buffer(value_info, AllocationKind.WORKSPACE)
@@ -118,7 +112,6 @@ def test_value_info_to_buffer() -> None:
 
 
 def test_value_info_to_buffer_input_kind() -> None:
-    """Test converting ONNX ValueInfoProto with INPUT kind."""
     value_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 224])
 
     buffer = _value_info_to_buffer(value_info, AllocationKind.INPUT)
@@ -127,7 +120,6 @@ def test_value_info_to_buffer_input_kind() -> None:
 
 
 def test_value_info_to_buffer_output_kind() -> None:
-    """Test converting ONNX ValueInfoProto with OUTPUT kind."""
     value_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1000])
 
     buffer = _value_info_to_buffer(value_info, AllocationKind.OUTPUT)
@@ -136,7 +128,6 @@ def test_value_info_to_buffer_output_kind() -> None:
 
 
 def test_value_info_to_buffer_filters_zero_dims() -> None:
-    """Test that dimensions with size <= 0 are filtered."""
     value_info = helper.make_tensor_value_info(
         "test_value", TensorProto.FLOAT, [3, 0, 5]
     )
@@ -147,11 +138,9 @@ def test_value_info_to_buffer_filters_zero_dims() -> None:
 
 
 def test_node_to_op(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test converting ONNX NodeProto to Op."""
     graph = simple_onnx_model.graph
-    node = graph.node[0]  # MatMul node
+    node = graph.node[0]
 
-    # Create buffer dict
     buffers = {}
     for init in graph.initializer:
         buf = _tensor_proto_to_buffer(init)
@@ -167,18 +156,15 @@ def test_node_to_op(simple_onnx_model: "onnx.ModelProto") -> None:
 
     assert op.id == "matmul_node"
     assert op.op_type == "MatMul"
-    assert len(op.inputs) == 2  # input and weights
-    assert len(op.outputs) == 1  # intermediate
+    assert len(op.inputs) == 2
+    assert len(op.outputs) == 1
 
 
 def test_node_to_op_handles_missing_buffers(
     simple_onnx_model: "onnx.ModelProto",
 ) -> None:
-    """Test that _node_to_op handles missing buffers gracefully."""
-    graph = simple_onnx_model.graph
-    node = graph.node[0]
+    node = simple_onnx_model.graph.node[0]
 
-    # Empty buffer dict
     op = _node_to_op(node, {}, node.name)
 
     assert op.id == "matmul_node"
@@ -187,91 +173,52 @@ def test_node_to_op_handles_missing_buffers(
 
 
 def test_from_onnx_model_proto(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test converting ONNX ModelProto to Model."""
     model = from_onnx(simple_onnx_model)
 
     assert model.id == "test_model"
-    assert len(model.ops) == 2  # MatMul and Add
-    assert len(model.buffers) == 5  # input, weights, bias, intermediate, output
+    assert len(model.ops) == 2
+    assert len(model.buffers) == 5
 
 
-def test_from_onnx_file_path(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test converting ONNX model from file path."""
-    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+@pytest.mark.parametrize("path_type", [Path, str])
+def test_from_onnx_path(
+    simple_onnx_model: "onnx.ModelProto", tmp_path: Path, path_type: type
+) -> None:
+    model_path = tmp_path / "model.onnx"
+    onnx.save(simple_onnx_model, model_path)
 
-    try:
-        onnx.save(simple_onnx_model, tmp_path)
-        model = from_onnx(tmp_path)
+    model = from_onnx(path_type(model_path))
 
-        assert model.id == "test_model"
-        assert len(model.ops) == 2
-        assert len(model.buffers) == 5
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-
-
-def test_from_onnx_string_path(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test converting ONNX model from string path."""
-    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        onnx.save(simple_onnx_model, tmp_path)
-        model = from_onnx(tmp_path)
-
-        assert model.id == "test_model"
-        assert len(model.ops) == 2
-    finally:
-        Path(tmp_path).unlink()
+    assert model.id == "test_model"
+    assert len(model.ops) == 2
+    assert len(model.buffers) == 5
 
 
 def test_from_onnx_invalid_type() -> None:
-    """Test that invalid input type raises TypeError."""
     with pytest.raises(TypeError, match="onnx_input must be"):
         from_onnx(123)  # type: ignore[arg-type]
 
 
 def test_from_onnx_buffer_kinds(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test that buffers have correct kinds."""
     model = from_onnx(simple_onnx_model)
 
-    input_buffer = model.buffers["input"]
-    assert input_buffer.kind == AllocationKind.INPUT
-
-    output_buffer = model.buffers["output"]
-    assert output_buffer.kind == AllocationKind.OUTPUT
-
-    weights_buffer = model.buffers["weights"]
-    assert weights_buffer.kind == AllocationKind.CONSTANT
-
-    bias_buffer = model.buffers["bias"]
-    assert bias_buffer.kind == AllocationKind.CONSTANT
-
-    intermediate_buffer = model.buffers["intermediate"]
-    assert intermediate_buffer.kind == AllocationKind.WORKSPACE
+    assert model.buffers["input"].kind == AllocationKind.INPUT
+    assert model.buffers["output"].kind == AllocationKind.OUTPUT
+    assert model.buffers["weights"].kind == AllocationKind.CONSTANT
+    assert model.buffers["bias"].kind == AllocationKind.CONSTANT
+    assert model.buffers["intermediate"].kind == AllocationKind.WORKSPACE
 
 
 def test_from_onnx_ops_reference_buffers(simple_onnx_model: "onnx.ModelProto") -> None:
-    """Test that ops correctly reference buffers."""
     model = from_onnx(simple_onnx_model)
 
     matmul_op = model.ops["matmul_node"]
-    input_ids = {buf.id for buf in matmul_op.inputs}
-    assert "input" in input_ids
-    assert "weights" in input_ids
-
-    output_ids = {buf.id for buf in matmul_op.outputs}
-    assert "intermediate" in output_ids
+    assert {buf.id for buf in matmul_op.inputs} == {"input", "weights"}
+    assert {buf.id for buf in matmul_op.outputs} == {"intermediate"}
 
     add_op = model.ops["add_node"]
-    add_input_ids = {buf.id for buf in add_op.inputs}
-    assert "intermediate" in add_input_ids
-    assert "bias" in add_input_ids
-
-    add_output_ids = {buf.id for buf in add_op.outputs}
-    assert "output" in add_output_ids
+    assert {buf.id for buf in add_op.inputs} == {"intermediate", "bias"}
+    assert {buf.id for buf in add_op.outputs} == {"output"}
 
 
 def test_from_onnx_synthesizes_ids_for_unnamed_nodes(

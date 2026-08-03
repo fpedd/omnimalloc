@@ -9,12 +9,13 @@ from datetime import datetime
 from typing import Any
 
 from omnimalloc import __version__
+from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.common.directories import PROJECT_DIR
 
 
-def get_date_time() -> str:
-    """Get the current time and date as a formatted string."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def source_label(source: BaseSource | type[BaseSource] | str) -> str:
+    """Per-instance label of a source, so configured variants stay separable."""
+    return source.label() if isinstance(source, BaseSource) else str(source)
 
 
 def get_date_time_snake_case() -> str:
@@ -22,14 +23,7 @@ def get_date_time_snake_case() -> str:
     return datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 
-def get_package_version() -> str:
-    """Get the current omnimalloc version."""
-
-    return str(__version__)
-
-
-def get_git_hash() -> str:
-    """Get the current git hash of the omnimalloc package."""
+def _get_git_hash() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607
@@ -43,28 +37,13 @@ def get_git_hash() -> str:
         return "unknown"
 
 
-def get_os_info() -> str:
-    """Get a string describing the operating system."""
-    return f"{platform.system()} {platform.release()}"
-
-
-def get_cpu_info() -> str:
-    """Get a string describing the CPU."""
-    return platform.processor()
-
-
-def get_num_cores() -> int:
-    """Get the number of CPU cores."""
-    return os.cpu_count() or 1
-
-
 def get_environment_metadata() -> dict[str, Any]:
     """Generate environment metadata for benchmark results."""
     return {
-        "date_time": get_date_time(),
-        "omnimalloc_version": get_package_version(),
-        "omnimalloc_git_hash": get_git_hash(),
-        "os_info": get_os_info(),
-        "cpu_info": get_cpu_info(),
-        "num_cores": get_num_cores(),
+        "date_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "omnimalloc_version": str(__version__),
+        "omnimalloc_git_hash": _get_git_hash(),
+        "os_info": f"{platform.system()} {platform.release()}",
+        "cpu_info": platform.processor(),
+        "num_cores": os.cpu_count() or 1,
     }

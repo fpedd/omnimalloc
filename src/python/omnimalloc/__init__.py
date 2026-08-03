@@ -11,6 +11,8 @@ from .allocators import OmniAllocator as OmniAllocator
 from .analysis import conflicts as conflicts
 from .analysis import pressure as pressure
 from .analysis import try_linearize as try_linearize
+from .common.parallel import max_threads as max_threads
+from .common.parallel import set_max_threads as set_max_threads
 from .io import load_allocation as load_allocation
 from .io import save_allocation as save_allocation
 from .primitives import Allocation as Allocation

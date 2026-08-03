@@ -60,18 +60,92 @@ def test_two_plus_two_returns_none() -> None:
     assert try_linearize(allocations) is None
 
 
-def test_tiny_work_budget_gives_up_undecided() -> None:
+def test_tiny_work_budget_raises_instead_of_reporting_no_linearization() -> None:
     allocations = tuple(
-        Allocation(id=i, size=8, start=(i, i), end=(i + 1, i + 1)) for i in range(4)
+        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 1, 2 * i + 2))
+        for i in range(4)
     )
-    assert try_linearize(allocations, work_budget=1) is None
+    with pytest.raises(RuntimeError, match="exceeds work_budget"):
+        try_linearize(allocations, work_budget=1)
 
 
 def test_unbounded_work_budget_decides() -> None:
     allocations = tuple(
-        Allocation(id=i, size=8, start=(i, i), end=(i + 1, i + 1)) for i in range(4)
+        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 1, 2 * i + 2))
+        for i in range(4)
     )
     assert try_linearize(allocations, work_budget=None) is not None
+
+
+def test_degenerate_columns_decide_once_budget_covers_the_reduction() -> None:
+    lockstep = tuple(
+        Allocation(id=i, size=8, start=(i, i, 0), end=(i + 1, i + 1, 0))
+        for i in range(4)
+    )
+    linearized = try_linearize(lockstep, work_budget=2 * 4 * 3)
+    assert linearized is not None
+    assert _overlap_map(linearized) == _overlap_map(lockstep)
+
+
+def test_zero_budget_refuses_even_degenerate_columns() -> None:
+    lockstep = tuple(
+        Allocation(id=i, size=8, start=(i, i, 0), end=(i + 1, i + 1, 0))
+        for i in range(4)
+    )
+    with pytest.raises(RuntimeError, match="exceeds work_budget"):
+        try_linearize(lockstep, work_budget=0)
+
+
+def test_all_duplicate_columns_linearize_and_preserve_overlaps() -> None:
+    quad = tuple(
+        Allocation(id=i, size=8, start=(i,) * 4, end=(i + 2,) * 4) for i in range(4)
+    )
+    linearized = try_linearize(quad)
+    assert linearized is not None
+    assert all(a.dim == 1 for a in linearized)
+    assert _overlap_map(linearized) == _overlap_map(quad)
+
+
+def test_single_varying_column_behaves_like_the_scalar_instance() -> None:
+    scalar = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(4))
+    padded = tuple(
+        Allocation(id=i, size=8, start=(3, i, 7), end=(3, i + 2, 7)) for i in range(4)
+    )
+    linearized = try_linearize(padded, work_budget=None)
+    assert linearized is not None
+    assert all(a.dim == 1 for a in linearized)
+    assert _overlap_map(linearized) == _overlap_map(scalar)
+
+
+def test_partial_column_reduction_matches_the_unpadded_instance() -> None:
+    plain = tuple(
+        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 1, 2 * i + 2))
+        for i in range(4)
+    )
+    padded = tuple(
+        Allocation(
+            id=i, size=8, start=(i, i, 5, 2 * i), end=(i + 1, i + 1, 5, 2 * i + 2)
+        )
+        for i in range(4)
+    )
+    linearized = try_linearize(padded, work_budget=None)
+    assert linearized is not None
+    assert _overlap_map(linearized) == _overlap_map(padded)
+    plain_linearized = try_linearize(plain, work_budget=None)
+    assert plain_linearized is not None
+    assert [(a.start, a.end) for a in linearized] == [
+        (a.start, a.end) for a in plain_linearized
+    ]
+
+
+def test_partial_column_reduction_keeps_two_plus_two_refused() -> None:
+    padded = (
+        Allocation(id="a", size=8, start=(0, 0, 3, 0), end=(1, 1, 3, 0)),
+        Allocation(id="b", size=8, start=(1, 1, 3, 0), end=(2, 2, 3, 0)),
+        Allocation(id="c", size=8, start=(0, 0, 3, 0), end=(0, 0, 3, 1)),
+        Allocation(id="d", size=8, start=(0, 0, 3, 1), end=(0, 0, 3, 2)),
+    )
+    assert try_linearize(padded, work_budget=None) is None
 
 
 def test_negative_work_budget_rejected() -> None:
@@ -195,3 +269,14 @@ def test_linearize_unlocks_supermalloc() -> None:
     assert linearized is not None
     placed = SupermallocAllocator().allocate(linearized)
     validate_allocation(Pool(id="p", allocations=placed))
+
+
+def test_non_interval_order_returns_none_under_any_budget() -> None:
+    obstruction = (
+        Allocation(id=0, size=8, start=(0, 0), end=(1, 0)),
+        Allocation(id=1, size=8, start=(0, 0), end=(0, 1)),
+        Allocation(id=2, size=8, start=(2, 0), end=(3, 0)),
+        Allocation(id=3, size=8, start=(0, 2), end=(0, 3)),
+    )
+    assert try_linearize(obstruction, work_budget=None) is None
+    assert try_linearize(obstruction) is None

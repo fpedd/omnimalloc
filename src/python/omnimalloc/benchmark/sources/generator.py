@@ -3,6 +3,7 @@
 #
 
 import random
+from abc import abstractmethod
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation, AllocationKind
@@ -10,7 +11,27 @@ from omnimalloc.primitives import Allocation, AllocationKind
 from .base import BaseSource
 
 
-class RandomSource(BaseSource):
+class _GeneratorSource(BaseSource):
+    """Seeded source drawing each allocation from a per-class generation hook."""
+
+    seed: int | None
+
+    def get_allocations(
+        self, num_allocations: int | None = None, skip: int = 0
+    ) -> tuple[Allocation, ...]:
+        total = num_allocations if num_allocations is not None else self.num_allocations
+        rng = random.Random(self.seed)
+
+        for _ in range(skip):
+            self._generate_one(rng, 0)
+
+        return tuple(self._generate_one(rng, skip + i) for i in range(total))
+
+    @abstractmethod
+    def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation: ...
+
+
+class RandomSource(_GeneratorSource):
     """Generate random allocations with random sizes, starts, and durations."""
 
     def __init__(
@@ -54,17 +75,6 @@ class RandomSource(BaseSource):
         self.kind_weights = kind_weights
         self.seed = seed
 
-    def get_allocations(
-        self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]:
-        total = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(self.seed)
-
-        for _ in range(skip):
-            self._generate_one(rng, 0)
-
-        return tuple(self._generate_one(rng, skip + i) for i in range(total))
-
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         size = rng.randint(self.size_min, self.size_max)
         duration = rng.randint(self.duration_min, self.duration_max)
@@ -84,7 +94,7 @@ class RandomSource(BaseSource):
         )
 
 
-class UniformSource(BaseSource):
+class UniformSource(_GeneratorSource):
     """Generate uniform-sized allocations with random start times."""
 
     def __init__(
@@ -110,17 +120,6 @@ class UniformSource(BaseSource):
         self.time_max = time_max
         self.seed = seed
 
-    def get_allocations(
-        self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]:
-        total = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(self.seed)
-
-        for _ in range(skip):
-            self._generate_one(rng, 0)
-
-        return tuple(self._generate_one(rng, skip + i) for i in range(total))
-
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         max_start = max(0, self.time_max - self.duration)
         start = rng.randint(0, max_start)
@@ -133,7 +132,7 @@ class UniformSource(BaseSource):
         )
 
 
-class PowerOf2Source(BaseSource):
+class PowerOf2Source(_GeneratorSource):
     """Generate allocations with power-of-2 sizes."""
 
     def __init__(
@@ -165,17 +164,6 @@ class PowerOf2Source(BaseSource):
         self.duration_max = duration_max
         self.seed = seed
 
-    def get_allocations(
-        self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]:
-        total = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(self.seed)
-
-        for _ in range(skip):
-            self._generate_one(rng, 0)
-
-        return tuple(self._generate_one(rng, skip + i) for i in range(total))
-
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         exponent = rng.randint(self.size_exponent_min, self.size_exponent_max)
         duration = rng.randint(self.duration_min, self.duration_max)
@@ -189,7 +177,7 @@ class PowerOf2Source(BaseSource):
         )
 
 
-class HighContentionSource(BaseSource):
+class HighContentionSource(_GeneratorSource):
     """Generate allocations with high temporal contention in a small time window."""
 
     def __init__(
@@ -212,17 +200,6 @@ class HighContentionSource(BaseSource):
         self.size_max = size_max
         self.time_window = time_window
         self.seed = seed
-
-    def get_allocations(
-        self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]:
-        total = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(self.seed)
-
-        for _ in range(skip):
-            self._generate_one(rng, 0)
-
-        return tuple(self._generate_one(rng, skip + i) for i in range(total))
 
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         size = rng.randint(self.size_min, self.size_max)

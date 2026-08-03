@@ -5,11 +5,11 @@
 #include "first_fit.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstring>
-#include <future>
 #include <limits>
 #include <numeric>
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -18,27 +18,15 @@
 
 namespace omnimalloc {
 
-void require_scalar_time(const std::vector<Allocation>& allocations,
-                         const char* who) {
-  if (!std::ranges::all_of(allocations, &Allocation::is_scalar_time)) {
-    const size_t max_dim =
-        std::ranges::max_element(allocations, {}, &Allocation::dim)->dim();
-    throw std::invalid_argument(std::string(who) +
-                                " requires scalar (interval) lifetimes, got " +
-                                std::to_string(max_dim) + "-dim vector clocks");
-  }
-}
-
 namespace {
 
 // Occupied (offset, end) span of a placed allocation, matching the span
 // shape that `first_fit_offset` consumes
 using Interval = std::pair<int64_t, int64_t>;
 
-// LSD radix sort by offset (the end rides along as payload; equal-offset
-// order is irrelevant to the gap scan). The comparison sort dominated
-// first-fit at scale, radix is ~5x cheaper; pass count scales with the
-// actual offset magnitude, so no assumption on the offset range.
+// LSD radix sort by offset (the end rides along as payload; equal-offset order
+// is irrelevant to the gap scan). Replaces the comparison sort that dominated
+// first-fit at scale; pass count scales with the actual offset magnitude.
 void sort_intervals_by_lo(std::vector<Interval>& intervals,
                           std::vector<Interval>& scratch) {
   const size_t m = intervals.size();
@@ -82,16 +70,27 @@ void sort_intervals_by_lo(std::vector<Interval>& intervals,
 }
 
 // First-fit offsets for the allocations taken in `order`, gathering each
-// allocation's placed CSR neighbors and reusing the shared gap scan
+// allocation's placed CSR neighbors and reusing the shared gap scan. A
+// non-negative `pins[i]` fixes i there, an obstacle before the first scan.
 std::vector<int64_t> place_order(const CsrAdjacency& adj,
                                  const std::vector<int64_t>& sizes,
+                                 const std::vector<int64_t>& pins,
                                  const std::vector<int32_t>& order) {
   constexpr Interval kUnplaced{-1, -1};
   std::vector<int64_t> offsets(sizes.size(), -1);
   std::vector<Interval> placed(sizes.size(), kUnplaced);
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    if (pins[i] >= 0) {
+      offsets[i] = pins[i];
+      placed[i] = {pins[i], pins[i] + sizes[i]};
+    }
+  }
   std::vector<Interval> intervals;
   std::vector<Interval> scratch;
   for (const int32_t idx : order) {
+    if (pins[static_cast<size_t>(idx)] >= 0) {
+      continue;
+    }
     intervals.clear();
     for (int64_t e = adj.offsets[idx]; e < adj.offsets[idx + 1]; ++e) {
       const Interval span =
@@ -118,93 +117,176 @@ int64_t saturating_product(int64_t a, int64_t b) noexcept {
   return a * b;
 }
 
-// The seven greedy_by_* sort orders over one shared adjacency, mirroring the
-// greedy_by_* allocators; place_portfolio races them all
-std::vector<std::vector<int32_t>> greedy_orders(
-    const std::vector<Allocation>& allocations, const CsrAdjacency& adj,
-    const std::vector<int64_t>& sizes) {
-  const size_t n = allocations.size();
+// Indices sorted stably by `less`, so equal keys keep input order (matching
+// the greedy_by_* allocators' stable sorts)
+template <typename Less>
+std::vector<int32_t> sorted_by(const std::vector<int32_t>& base, Less&& less) {
+  std::vector<int32_t> result = base;
+  std::stable_sort(result.begin(), result.end(), less);
+  return result;
+}
+
+// Start components in canonical lane order, row-major (n x d), for the one
+// comparator that reads raw clock components: ordering lanes by their own
+// contents stops arbitrary lane labelling from deciding the packing.
+std::vector<int64_t> canonical_starts(const std::vector<Allocation>& times) {
+  const size_t n = times.size();
+  const size_t d = n == 0 ? 1 : times[0].dim();
+  std::vector<size_t> lanes(d);
+  std::iota(lanes.begin(), lanes.end(), 0);
+  if (d > 1) {
+    std::vector<uint64_t> fingerprint(d, 0);
+    for (size_t i = 0; i < n; ++i) {
+      const auto start = times[i].start_vec();
+      const auto end = times[i].end_vec();
+      for (size_t c = 0; c < d; ++c) {
+        fingerprint[c] =
+            hash_component(hash_component(fingerprint[c], start[c]), end[c]);
+      }
+    }
+    const auto content_less = [&](size_t a, size_t b) {
+      for (size_t i = 0; i < n; ++i) {
+        const auto start = times[i].start_vec();
+        const auto end = times[i].end_vec();
+        if (start[a] != start[b]) {
+          return start[a] < start[b];
+        }
+        if (end[a] != end[b]) {
+          return end[a] < end[b];
+        }
+      }
+      return false;
+    };
+    std::ranges::sort(lanes, [&](size_t a, size_t b) {
+      return fingerprint[a] != fingerprint[b] ? fingerprint[a] < fingerprint[b]
+                                              : content_less(a, b);
+    });
+  }
+  std::vector<int64_t> rows(n * d);
+  for (size_t i = 0; i < n; ++i) {
+    const auto start = times[i].start_vec();
+    for (size_t c = 0; c < d; ++c) {
+      rows[i * d + c] = start[lanes[c]];
+    }
+  }
+  return rows;
+}
+
+// The three orders one timeline contributes: greedy_by_duration,
+// greedy_by_area and greedy_by_start. `times` is the input clocks or a
+// surrogate linearization; all three are invariant under permuting the lanes.
+std::array<std::vector<int32_t>, 3> time_orders(
+    const std::vector<Allocation>& times, const std::vector<int64_t>& sizes,
+    const std::vector<int32_t>& base) {
+  const size_t n = times.size();
   std::vector<int64_t> durations(n);
   std::vector<int64_t> areas(n);
+  std::ranges::transform(times, durations.begin(), &Allocation::duration);
+  std::ranges::transform(times, areas.begin(), &Allocation::area);
+  const std::vector<int64_t> starts = canonical_starts(times);
+  const size_t d = n == 0 ? 1 : starts.size() / n;
+  return {sorted_by(base,  // greedy_by_duration
+                    [&](int32_t a, int32_t b) {
+                      return durations[a] > durations[b];
+                    }),
+          sorted_by(base,  // greedy_by_area
+                    [&](int32_t a, int32_t b) { return areas[a] > areas[b]; }),
+          sorted_by(base, [&](int32_t a, int32_t b) {  // greedy_by_start
+            const int64_t* sa = starts.data() + static_cast<size_t>(a) * d;
+            const int64_t* sb = starts.data() + static_cast<size_t>(b) * d;
+            const auto cmp =
+                std::lexicographical_compare_three_way(sa, sa + d, sb, sb + d);
+            if (cmp != 0) {
+              return cmp < 0;
+            }
+            return sizes[a] > sizes[b];
+          })};
+}
+
+// The seven greedy_by_* sort orders over one shared adjacency, optionally
+// followed by the three time-derived orders of `surrogate`; place_portfolio
+// races them all. Surrogate orders append, never displacing an input winner.
+std::vector<std::vector<int32_t>> greedy_orders(
+    const std::vector<Allocation>& allocations,
+    const std::vector<Allocation>* surrogate, const CsrAdjacency& adj,
+    const std::vector<int64_t>& sizes) {
+  const size_t n = allocations.size();
   std::vector<int64_t> loads(n);
   const auto degree = [&](int32_t i) {
     return adj.offsets[i + 1] - adj.offsets[i];
   };
   for (size_t i = 0; i < n; ++i) {
-    durations[i] = allocations[i].duration();
-    areas[i] = allocations[i].area();
     loads[i] = saturating_product(degree(static_cast<int32_t>(i)), sizes[i]);
   }
   std::vector<int32_t> base(n);
   std::iota(base.begin(), base.end(), 0);
-  const auto sorted_by = [&](auto&& less) {
-    std::vector<int32_t> result = base;
-    std::stable_sort(result.begin(), result.end(), less);
-    return result;
-  };
+  auto [by_duration, by_area, by_start] = time_orders(allocations, sizes, base);
   std::vector<std::vector<int32_t>> orders;
-  orders.reserve(7);
-  orders.push_back(base);      // greedy (input order)
-  orders.push_back(sorted_by(  // greedy_by_size
-      [&](int32_t a, int32_t b) { return sizes[a] > sizes[b]; }));
-  orders.push_back(sorted_by(  // greedy_by_duration
-      [&](int32_t a, int32_t b) { return durations[a] > durations[b]; }));
-  orders.push_back(sorted_by(  // greedy_by_area
-      [&](int32_t a, int32_t b) { return areas[a] > areas[b]; }));
-  orders.push_back(sorted_by([&](int32_t a, int32_t b) {  // greedy_by_conflict
-    return std::pair(degree(a), sizes[a]) > std::pair(degree(b), sizes[b]);
-  }));
+  orders.reserve(10);
+  orders.push_back(base);  // greedy (input order)
   orders.push_back(
-      sorted_by([&](int32_t a, int32_t b) {  // greedy_by_conflict_size
+      sorted_by(base,  // greedy_by_size
+                [&](int32_t a, int32_t b) { return sizes[a] > sizes[b]; }));
+  orders.push_back(std::move(by_duration));
+  orders.push_back(std::move(by_area));
+  orders.push_back(
+      sorted_by(base, [&](int32_t a, int32_t b) {  // greedy_by_conflict
+        return std::pair(degree(a), sizes[a]) > std::pair(degree(b), sizes[b]);
+      }));
+  orders.push_back(
+      sorted_by(base, [&](int32_t a, int32_t b) {  // greedy_by_conflict_size
         return std::pair(loads[a], sizes[a]) > std::pair(loads[b], sizes[b]);
       }));
-  orders.push_back(sorted_by([&](int32_t a, int32_t b) {  // greedy_by_start
-    const auto sa = allocations[a].start_vec();
-    const auto sb = allocations[b].start_vec();
-    const auto cmp = std::lexicographical_compare_three_way(
-        sa.begin(), sa.end(), sb.begin(), sb.end());
-    if (cmp != 0) {
-      return cmp < 0;
+  orders.push_back(std::move(by_start));
+  if (surrogate != nullptr) {
+    // Duplicates of input-clock orders never change the winner (ties favor
+    // earlier orders); dropping them just skips redundant first-fit passes
+    for (auto& order : time_orders(*surrogate, sizes, base)) {
+      if (std::ranges::find(orders, order) == orders.end()) {
+        orders.push_back(std::move(order));
+      }
     }
-    return sizes[a] > sizes[b];
-  }));
+  }
   return orders;
 }
 
 }  // namespace
 
 PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
-                                   const CsrAdjacency& adj) {
+                                   const CsrAdjacency& adj,
+                                   const std::vector<Allocation>* surrogate) {
+  if (surrogate != nullptr && surrogate->size() != allocations.size()) {
+    throw std::invalid_argument(
+        "surrogate must be index-aligned with allocations");
+  }
   const size_t n = allocations.size();
   std::vector<int64_t> sizes(n);
-  for (size_t i = 0; i < n; ++i) {
-    sizes[i] = allocations[i].size();
-  }
-  const auto orders = greedy_orders(allocations, adj, sizes);
+  std::ranges::transform(allocations, sizes.begin(), &Allocation::size);
+  std::vector<int64_t> pins(n);
+  std::ranges::transform(
+      allocations, pins.begin(), [](const Allocation& alloc) {
+        return alloc.offset().value_or(-1);  // -1 marks a free allocation
+      });
+  const auto orders = greedy_orders(allocations, surrogate, adj, sizes);
 
-  // Placements are independent given the shared adjacency; spawning threads
-  // only pays off once the placements dwarf the thread startup cost
+  // Placements are independent given the shared adjacency; threads only pay
+  // off once the placements dwarf startup cost. One order per scheduled unit,
+  // under the same worker ceiling as every other kernel.
   std::vector<std::vector<int64_t>> placements(orders.size());
-  if (n < kMinParallel) {
-    for (size_t v = 0; v < orders.size(); ++v) {
-      placements[v] = place_order(adj, sizes, orders[v]);
-    }
-  } else {
-    std::vector<std::future<std::vector<int64_t>>> futures;
-    futures.reserve(orders.size() - 1);
-    for (size_t v = 1; v < orders.size(); ++v) {
-      futures.push_back(std::async(std::launch::async, place_order,
-                                   std::cref(adj), std::cref(sizes),
-                                   std::cref(orders[v])));
-    }
-    placements[0] = place_order(adj, sizes, orders[0]);
-    for (size_t v = 1; v < orders.size(); ++v) {
-      placements[v] = futures[v - 1].get();
-    }
-  }
+  const unsigned workers =
+      n < kMinParallel
+          ? 1U
+          : std::min<unsigned>(max_threads(),
+                               static_cast<unsigned>(orders.size()));
+  for_each_row_block(
+      orders.size(), workers,
+      [&](size_t v) {
+        placements[v] = place_order(adj, sizes, pins, orders[v]);
+      },
+      1);
 
-  // Futures are joined before this strictly-ordered reduction, so ties break
-  // by the fixed order sequence and the winner is deterministic
+  // Strictly ordered reduction: ties break by the fixed order sequence, so
+  // the winner never depends on how the placements were scheduled
   PortfolioPlacement best;
   best.peak = std::numeric_limits<int64_t>::max();
   for (auto& offsets : placements) {
@@ -264,8 +346,7 @@ std::vector<Allocation> first_fit_place(
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)
     : allocations_(std::move(allocations)),
-      indices_(compute_conflict_indices(allocations_)),
-      conflicts_(conflict_map_from_indices(allocations_, indices_)) {
+      indices_(compute_conflict_indices(allocations_)) {
   check_total_size(allocations_);
 }
 
@@ -287,10 +368,17 @@ void FirstFitPlacer::check_order(const std::vector<size_t>& order) const {
 
 std::vector<std::optional<int64_t>> FirstFitPlacer::place_offsets(
     const std::vector<size_t>& order) const {
+  // Pre-set offsets are pins: obstacles from the first scan, never re-placed
   std::vector<std::optional<int64_t>> offsets(allocations_.size());
+  for (size_t i = 0; i < allocations_.size(); ++i) {
+    offsets[i] = allocations_[i].offset();
+  }
   std::vector<std::pair<int64_t, int64_t>> spans;
   for (size_t idx : order) {
     const Allocation& alloc = allocations_[idx];
+    if (alloc.offset().has_value()) {
+      continue;
+    }
     gather_spans(indices_[idx], offsets, allocations_, spans);
     offsets[idx] = first_fit_offset(alloc.size(), spans);
   }

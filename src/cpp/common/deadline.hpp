@@ -13,11 +13,9 @@
 
 namespace omnimalloc {
 
-// Deadline `timeout` seconds from now, or nullopt when `timeout` is nullopt
-// (the budget is disabled). Throws on a non-positive or non-finite set
-// `timeout`, so the boundary has exactly two states — positive budget or
-// nullopt — even for raw-binding callers that bypass the Python-side
-// validation. The cap keeps the duration cast representable.
+// Deadline `timeout` seconds from now, or nullopt when the budget is disabled.
+// Throws on a non-positive or non-finite `timeout`, so the boundary has exactly
+// two states even for raw-binding callers that bypass Python-side validation.
 [[nodiscard]] inline std::optional<std::chrono::steady_clock::time_point>
 make_deadline(std::optional<double> timeout) {
   if (!timeout) {

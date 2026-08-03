@@ -3,25 +3,9 @@
 #
 """Benchmark and torture-test allocators on vector-clock workloads.
 
-Sweeps problem size over two workload families and renders one figure per
-family, each with wall time on top and packing quality below:
-
-- ``SyncPatternSource``: every sync pattern (loosest to tightest coupling)
-- ``ConcurrentTilingSource``: a ``num_syncs`` sweep with a provably
-  achievable optimum (``capacity``), so quality is measured against ground
-  truth instead of best-of-run
-
-Any allocator whose single run exceeds ``--budget`` seconds is dropped for
-the rest of the sweep; partially sampled points are not plotted, so every
-plotted point averages the full workload mix. Placements up to
-``VALIDATE_LIMIT`` allocations are checked with ``validate_allocation``
-(pairwise, quadratic) and larger ones against peak bounds; any violation
-aborts the run, so the sweep doubles as a fuzz/torture pass.
-
-    uv run python scripts/benchmark_allocation.py --out benchmark_results_allocation
+Sweeps problem size over ``SyncPatternSource`` and ``ConcurrentTilingSource``,
+checking every placement, so it doubles as a fuzz pass. ``--budget`` drops slow ones.
 """
-
-from __future__ import annotations
 
 import argparse
 from math import isnan, nan
@@ -67,28 +51,28 @@ Sample = dict[str, Any]
 
 
 def _timed(
-    allocator: BaseAllocator, allocations: tuple[Allocation, ...]
-) -> tuple[float, tuple[Allocation, ...]]:
-    timer = Timer(auto_start=True)
+    allocator: BaseAllocator, allocations: "tuple[Allocation, ...]"
+) -> "tuple[float, tuple[Allocation, ...]]":
+    timer = Timer().start()
     placed = allocator.allocate(allocations)
     timer.stop()
     seconds = timer.elapsed_s
     if seconds < 1e-3:
         for _ in range(4):
-            timer = Timer(auto_start=True)
+            timer = Timer().start()
             allocator.allocate(allocations)
             timer.stop()
             seconds = min(seconds, timer.elapsed_s)
     return seconds, placed
 
 
-def _peak(placed: tuple[Allocation, ...]) -> int:
+def _peak(placed: "tuple[Allocation, ...]") -> int:
     heights = [alloc.height for alloc in placed if alloc.height is not None]
     return max(heights, default=0)
 
 
 def _run_allocators(
-    allocations: tuple[Allocation, ...],
+    allocations: "tuple[Allocation, ...]",
     allocators: dict[str, BaseAllocator],
     dropped: set[str],
     budget: float,
@@ -99,7 +83,15 @@ def _run_allocators(
     for name, allocator in allocators.items():
         if name in dropped or not allocator.supports(allocations):
             continue
-        seconds, placed = _timed(allocator, allocations)
+        try:
+            seconds, placed = _timed(allocator, allocations)
+        except RuntimeError as exc:
+            # A budget or capacity refusal, not a bug: the relation on a dense
+            # instance this size outgrows what the kernels materialize. Drop the
+            # allocator like a too-slow one; every later size is only denser.
+            dropped.add(name)
+            print(f"dropping {name} at {context}: {exc}")
+            continue
         if len(placed) <= VALIDATE_LIMIT:
             validate_allocation(Pool(id=context, allocations=placed))
         else:
@@ -116,9 +108,13 @@ def _run_allocators(
 def _finish_sample(sample: Sample, optimum: int | None) -> Sample:
     """Attach per-allocator quality ratios (vs ground truth or best-of-run)."""
     peaks = sample["peaks"]
+    # Always set ratios: a sample where every allocator was skipped has no
+    # reference, and the lookups expect the key. One survivor is no reference
+    # either, since it would score itself 1.000 and read as optimal.
+    if optimum is None and len(peaks) < 2:
+        sample["ratios"] = {}
+        return sample
     reference = optimum if optimum is not None else min(peaks.values(), default=0)
-    # Always set ratios: a sample where every allocator was skipped or dropped
-    # has no reference, and the summary/plot lookups expect the key
     sample["ratios"] = (
         {name: peak / reference for name, peak in peaks.items()} if reference else {}
     )
@@ -215,7 +211,7 @@ def _print_summary(samples: list[Sample], args: argparse.Namespace) -> None:
     print()
 
 
-def _style_axes(ax: Axes) -> None:
+def _style_axes(ax: "Axes") -> None:
     ax.set_facecolor(SURFACE)
     ax.grid(visible=True, which="major", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
@@ -227,7 +223,7 @@ def _style_axes(ax: Axes) -> None:
 
 
 def _plot_series(
-    ax: Axes, sizes: list[int], values: list[float], label: str, color: str
+    ax: "Axes", sizes: list[int], values: list[float], label: str, color: str
 ) -> None:
     # An all-NaN series (allocator skipped or dropped everywhere) would leave
     # the log-scaled axis without positive values and crash on save
@@ -246,7 +242,7 @@ def _plot_series(
     )
 
 
-def _finish_time_axes(ax: Axes, sizes: list[int]) -> None:
+def _finish_time_axes(ax: "Axes", sizes: list[int]) -> None:
     _style_axes(ax)
     ax.set_yscale("log")
     ax.set_xscale("log")
@@ -255,7 +251,7 @@ def _finish_time_axes(ax: Axes, sizes: list[int]) -> None:
     ax.set_ylabel("wall time [s]", color=INK_SECONDARY, fontsize=10)
 
 
-def _titles(ax: Axes, title: str, caption: str) -> None:
+def _titles(ax: "Axes", title: str, caption: str) -> None:
     ax.set_title(title, loc="left", color=INK, fontsize=12, fontweight="medium", pad=22)
     note = ax.text(
         0.0, 1.04, caption, transform=ax.transAxes, fontsize=8.5, color=INK_MUTED
@@ -263,7 +259,7 @@ def _titles(ax: Axes, title: str, caption: str) -> None:
     note.set_in_layout(False)
 
 
-def _legend(ax: Axes) -> None:
+def _legend(ax: "Axes") -> None:
     ax.legend(frameon=False, fontsize=8.5, labelcolor=INK_SECONDARY, loc="upper left")
 
 
@@ -275,7 +271,7 @@ def _render_family(
     caption: str,
     quality_label: str,
     expected: int,
-) -> Figure:
+) -> "Figure":
     fig, (ax_time, ax_ratio) = plt.subplots(
         2,
         1,

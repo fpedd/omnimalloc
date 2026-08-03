@@ -145,3 +145,18 @@ def test_concurrent_tiling_no_allocator_beats_the_optimum() -> None:
     pool = source.get_pool()
     allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity
+
+
+def test_concurrent_tiling_label_carries_thread_count() -> None:
+    assert (
+        ConcurrentTilingSource(num_allocations=16, num_threads=2).label()
+        == "concurrent_tiling[num_threads=2]"
+    )
+
+
+def test_concurrent_tiling_known_optimum_is_the_capacity() -> None:
+    capacity = 1024 * 1024
+    source = ConcurrentTilingSource(
+        num_allocations=32, num_threads=4, capacity=capacity
+    )
+    assert source.get_known_optimum(32) == capacity

@@ -12,14 +12,8 @@ from .tiling_base import TilingBase, _Tile
 class PinwheelSource(TilingBase):
     """Generate non-guillotine packing problems with a known, tight optimum.
 
-    The adversarial sibling of ``TilingSource``: it splits each tile into a
-    pinwheel — a central rectangle ringed by four blades in 90-degree
-    rotational symmetry. No straight line crosses the whole rectangle without
-    slicing a blade, so the packing is non-guillotine and allocators that lean
-    on decomposition or canonical guillotine search cannot shortcut to the
-    optimum. Each split turns one tile into five (net ``+4``), so
-    ``num_allocations`` is rounded up to the nearest ``1 + 4k``. See
-    ``TilingBase`` for the construction and optimality guarantee.
+    Each tile splits into a central rectangle ringed by four blades, so no
+    straight cut crosses it and decomposition cannot shortcut to the optimum.
     """
 
     def __init__(

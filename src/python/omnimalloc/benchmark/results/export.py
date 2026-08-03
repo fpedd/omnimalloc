@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import csv
 import json
 import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Final, Literal, Protocol
 
 from omnimalloc.common.directories import PROJECT_DIR
 
@@ -17,16 +18,32 @@ from .report import BenchmarkReport
 from .result import BenchmarkResult
 from .visualize import plot_benchmark
 
+logger = logging.getLogger(__name__)
+
+# Stable, self-explanatory schema: cross-run regression tracking joins on it
+RESULTS_CSV_COLUMNS: Final[tuple[str, ...]] = (
+    "source",
+    "allocator",
+    "variant",
+    "num_allocations",
+    "iterations",
+    "mean_seconds",
+    "median_seconds",
+    "stdev_seconds",
+    "min_seconds",
+    "max_seconds",
+    "mean_peak_size",
+    "lower_bound",
+    "mean_efficiency",
+    "known_optimum",
+    "optimum_ratio",
+)
+
 
 class ProgressBar(Protocol):
-    """Protocol for progress bar objects."""
+    """Update-only view of a tqdm(-like) progress bar."""
 
-    def update(self, n: int = 1) -> None:
-        """Update the progress bar."""
-        ...
-
-
-logger = logging.getLogger(__name__)
+    def update(self, n: int = 1) -> None: ...
 
 
 def _prepare_base_dir(output_path: Path, output_format: str, overwrite: bool) -> Path:
@@ -43,9 +60,32 @@ def _write_metadata(base_dir: Path, campaign: BenchmarkCampaign) -> None:
         json.dump(campaign.metadata, f, indent=2, default=str)
 
 
-def _write_campaign_visualization(base_dir: Path, campaign: BenchmarkCampaign) -> None:
-    campaign_viz_file = base_dir / "campaign_overview.pdf"
-    plot_benchmark(campaign, campaign_viz_file)
+def _report_row(report: BenchmarkReport) -> dict[str, Any]:
+    return {
+        "source": report.source_name,
+        "allocator": report.allocator_name,
+        "variant": report.variant_label,
+        "num_allocations": report.num_allocations,
+        "iterations": report.num_results,
+        "mean_seconds": report.mean_seconds,
+        "median_seconds": report.median_seconds,
+        "stdev_seconds": report.stdev_seconds,
+        "min_seconds": report.min_seconds,
+        "max_seconds": report.max_seconds,
+        "mean_peak_size": report.mean_peak_size,
+        "lower_bound": report.lower_bound,
+        "mean_efficiency": report.mean_allocation_efficiency,
+        "known_optimum": report.known_optimum,
+        "optimum_ratio": report.optimum_ratio,
+    }
+
+
+def _write_results_csv(base_dir: Path, campaign: BenchmarkCampaign) -> None:
+    """Write one flat row per report, the machine-readable campaign summary."""
+    with (base_dir / "results.csv").open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=RESULTS_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(_report_row(report) for report in campaign.reports)
 
 
 def _create_zip_archive(output_path: Path, base_dir: Path, final_path: Path) -> None:
@@ -191,7 +231,8 @@ def save_benchmark(
 
     try:
         _write_metadata(base_dir, campaign)
-        _write_campaign_visualization(base_dir, campaign)
+        _write_results_csv(base_dir, campaign)
+        plot_benchmark(campaign, base_dir / "campaign_overview.pdf")
         _write_nested_reports(base_dir, campaign, visualize_iterations)
 
         if output_format == "zip":

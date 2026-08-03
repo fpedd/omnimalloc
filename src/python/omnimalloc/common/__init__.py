@@ -3,5 +3,6 @@
 #
 
 from .optional import require_optional as require_optional
-from .optional import try_import as try_import
+from .parallel import max_threads as max_threads
+from .parallel import set_max_threads as set_max_threads
 from .registry import Registered as Registered

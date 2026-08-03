@@ -17,15 +17,8 @@ def try_linearize(
 ) -> tuple[Allocation, ...] | None:
     """Synthesize scalar lifetimes with the identical conflict relation, or None.
 
-    Within the work budget, succeeds iff the happens-before order is an
-    interval order (equivalently, the conflict graph is an interval graph):
-    any 2+2 in the order induces a chordless 4-cycle of conflicts, which no
-    intervals can realize. A success unlocks scalar-only allocators
-    (minimalloc, supermalloc) for that instance; offsets carry over unchanged
-    since the conflict relation — and thus the packing problem — is
-    identical. Implemented in C++ (analysis/linearize.cpp). `None` means no
-    linearization was obtained: the order is not an interval order, or
-    deciding would exceed `work_budget`; pass `None` to always decide.
+    Succeeds iff the happens-before order is an interval order, unlocking the
+    scalar-only allocators. Exceeding `work_budget` raises rather than None.
     """
     ensure_valid_budget(work_budget)
     if uniform_dim(allocations) == 1:

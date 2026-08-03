@@ -3,25 +3,9 @@
 #
 """Stress the omni allocator across clock dimensions and concurrent callers.
 
-Complements ``scripts/benchmark_allocation.py`` (problem-size and sync-density
-sweeps) and ``scripts/benchmark_pressure.py`` (exact pressure engines) with
-the two axes both hold fixed:
-
-- dimension sweep: wall time and packing quality versus the clock dimension
-  (source ``num_threads``) at a fixed problem size, one series per sync
-  pattern. Quality is peak over the budgeted exact lower bound
-  (``pressure``); instances whose bound exceeds the work budget are
-  reported without a ratio rather than stalling the sweep.
-- caller sweep: aggregate throughput versus concurrent Python callers on one
-  fixed instance. The bindings release the GIL and the C++ portfolio spawns
-  its own workers per call, so this measures how caller-level and internal
-  parallelism compose. Every concurrent result is checked against the serial
-  placement, so the sweep doubles as a determinism/race torture pass.
-
-    uv run python scripts/stress_omni.py --out stress_results_omni
+Sweeps the two axes the other scripts hold fixed: clock dimension, and
+concurrent callers checked against the serial placement, so races surface.
 """
-
-from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -57,18 +41,18 @@ SERIES = ("#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#008300", "#e8
 MARKERS = ("o", "s", "^", "D", "v", "P", "X")
 
 
-def _peak(placed: tuple[Allocation, ...]) -> int:
+def _peak(placed: "tuple[Allocation, ...]") -> int:
     heights = [alloc.height for alloc in placed if alloc.height is not None]
     return max(heights, default=0)
 
 
 def _timed_allocate(
-    allocations: tuple[Allocation, ...], repeats: int
-) -> tuple[float, tuple[Allocation, ...]]:
+    allocations: "tuple[Allocation, ...]", repeats: int
+) -> "tuple[float, tuple[Allocation, ...]]":
     seconds = []
     placed: tuple[Allocation, ...] = ()
     for _ in range(repeats):
-        timer = Timer(auto_start=True)
+        timer = Timer().start()
         placed = OmniAllocator().allocate(allocations)
         timer.stop()
         seconds.append(timer.elapsed_s)
@@ -76,7 +60,7 @@ def _timed_allocate(
 
 
 def _bounded_ratio(
-    allocations: tuple[Allocation, ...], peak: int, work_budget: int
+    allocations: "tuple[Allocation, ...]", peak: int, work_budget: int
 ) -> float:
     """Peak over the budgeted exact bound; NaN when the budget is exceeded."""
     try:
@@ -128,7 +112,7 @@ def caller_sweep(args: argparse.Namespace) -> dict[int, float]:
     throughput: dict[int, float] = {}
     for callers in args.callers:
         with ThreadPoolExecutor(max_workers=callers) as executor:
-            timer = Timer(auto_start=True)
+            timer = Timer().start()
             offsets = list(executor.map(run_once, range(args.calls)))
             timer.stop()
         if any(result != expected for result in offsets):
@@ -142,7 +126,7 @@ def caller_sweep(args: argparse.Namespace) -> dict[int, float]:
     return throughput
 
 
-def _style_axes(ax: Axes) -> None:
+def _style_axes(ax: "Axes") -> None:
     ax.set_facecolor(SURFACE)
     ax.grid(visible=True, which="major", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
@@ -154,7 +138,7 @@ def _style_axes(ax: Axes) -> None:
 
 
 def _plot_series(
-    ax: Axes,
+    ax: "Axes",
     xs: list[int],
     values: list[float],
     label: str,
@@ -176,7 +160,7 @@ def _plot_series(
     )
 
 
-def _titles(ax: Axes, title: str, caption: str) -> None:
+def _titles(ax: "Axes", title: str, caption: str) -> None:
     ax.set_title(title, loc="left", color=INK, fontsize=12, fontweight="medium", pad=22)
     note = ax.text(
         0.0, 1.04, caption, transform=ax.transAxes, fontsize=8.5, color=INK_MUTED
@@ -186,7 +170,7 @@ def _titles(ax: Axes, title: str, caption: str) -> None:
 
 def render_dim_sweep(
     results: dict[str, dict[int, tuple[float, float]]], args: argparse.Namespace
-) -> Figure:
+) -> "Figure":
     fig, (ax_time, ax_ratio) = plt.subplots(
         2,
         1,
@@ -227,7 +211,7 @@ def render_dim_sweep(
 
 def render_caller_sweep(
     throughput: dict[int, float], args: argparse.Namespace
-) -> Figure:
+) -> "Figure":
     fig, ax = plt.subplots(figsize=(8, 4.4), layout="constrained")
     fig.set_facecolor(SURFACE)
     callers = list(throughput)

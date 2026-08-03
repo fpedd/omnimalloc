@@ -50,6 +50,7 @@ nanobind_add_module(
   src/cpp/allocators/telamalloc.cpp
   src/cpp/analysis/antichain.cpp
   src/cpp/analysis/closure.cpp
+  src/cpp/analysis/collision.cpp
   src/cpp/analysis/conflicts.cpp
   src/cpp/analysis/linearize.cpp
   src/cpp/analysis/placement.cpp

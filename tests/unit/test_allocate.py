@@ -10,7 +10,6 @@ from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, Syst
 
 
 def test_allocate_pool_with_naive_allocator() -> None:
-    """Test allocating a pool with naive allocator."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5)
     alloc2 = Allocation(id=2, size=150, start=5, end=10)
     pool = Pool(id=1, allocations=(alloc1, alloc2))
@@ -18,31 +17,13 @@ def test_allocate_pool_with_naive_allocator() -> None:
     allocator = NaiveAllocator()
     allocated_pool = allocate(pool, allocator)
 
-    # Check that allocations were placed
     assert allocated_pool.is_allocated
     assert all(a.offset is not None for a in allocated_pool.allocations)
-
-    # Naive allocator places sequentially
     assert allocated_pool.allocations[0].offset == 0
     assert allocated_pool.allocations[1].offset == 100
 
 
-def test_allocate_pool_with_greedy_allocator() -> None:
-    """Test allocating a pool with greedy allocator."""
-    alloc1 = Allocation(id=1, size=100, start=0, end=10)
-    alloc2 = Allocation(id=2, size=150, start=10, end=20)
-    alloc3 = Allocation(id=3, size=75, start=0, end=5)
-    pool = Pool(id=1, allocations=(alloc1, alloc2, alloc3))
-
-    allocator = GreedyAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.is_allocated
-    assert all(a.offset is not None for a in allocated_pool.allocations)
-
-
 def test_allocate_memory_with_multiple_pools() -> None:
-    """Test allocating memory with multiple pools."""
     alloc1 = Allocation(id=1, size=100, start=0, end=10)
     alloc2 = Allocation(id=2, size=150, start=0, end=10)
     pool1 = Pool(id=1, allocations=(alloc1,))
@@ -57,7 +38,6 @@ def test_allocate_memory_with_multiple_pools() -> None:
 
 
 def test_allocate_system_with_multiple_memories() -> None:
-    """Test allocating system with multiple memories."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5)
     alloc2 = Allocation(id=2, size=150, start=0, end=5)
     pool1 = Pool(id=1, allocations=(alloc1,))
@@ -74,7 +54,6 @@ def test_allocate_system_with_multiple_memories() -> None:
 
 
 def test_allocate_with_validation_success() -> None:
-    """Test allocate with validation when allocation is valid."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5)
     alloc2 = Allocation(id=2, size=150, start=5, end=10)
     pool = Pool(id=1, allocations=(alloc1, alloc2))
@@ -86,7 +65,6 @@ def test_allocate_with_validation_success() -> None:
 
 
 def test_allocate_preserves_pool_offset() -> None:
-    """Test that allocate preserves pool offset."""
     alloc = Allocation(id=1, size=100, start=0, end=10)
     pool = Pool(id=1, allocations=(alloc,), offset=50)
 
@@ -97,7 +75,6 @@ def test_allocate_preserves_pool_offset() -> None:
 
 
 def test_allocate_with_allocation_kinds() -> None:
-    """Test allocating with different allocation kinds."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5, kind=AllocationKind.WORKSPACE)
     alloc2 = Allocation(id=2, size=150, start=5, end=10, kind=AllocationKind.CONSTANT)
     alloc3 = Allocation(id=3, size=75, start=10, end=15, kind=AllocationKind.INPUT)
@@ -106,14 +83,12 @@ def test_allocate_with_allocation_kinds() -> None:
     allocator = NaiveAllocator()
     allocated_pool = allocate(pool, allocator)
 
-    # Check kinds are preserved
     assert allocated_pool.allocations[0].kind == AllocationKind.WORKSPACE
     assert allocated_pool.allocations[1].kind == AllocationKind.CONSTANT
     assert allocated_pool.allocations[2].kind == AllocationKind.INPUT
 
 
 def test_allocate_with_string_ids() -> None:
-    """Test allocating with string IDs."""
     alloc1 = Allocation(id="buf_a", size=100, start=0, end=5)
     alloc2 = Allocation(id="buf_b", size=150, start=5, end=10)
     pool = Pool(id="main_pool", allocations=(alloc1, alloc2))
@@ -128,8 +103,6 @@ def test_allocate_with_string_ids() -> None:
 
 
 def test_allocate_complex_hierarchy() -> None:
-    """Test allocating a complex system hierarchy."""
-    # Create multiple allocations with different temporal patterns
     allocations_pool1 = [
         Allocation(id=i, size=50 + i * 10, start=i * 2, end=(i + 1) * 2)
         for i in range(5)
@@ -143,7 +116,6 @@ def test_allocate_complex_hierarchy() -> None:
 
     memory1 = Memory(id=1, pools=(pool1, pool2), size=2048)
 
-    # Second memory
     allocations_pool3 = [
         Allocation(id=i + 10, size=75, start=i * 5, end=(i + 1) * 5) for i in range(4)
     ]
@@ -155,7 +127,6 @@ def test_allocate_complex_hierarchy() -> None:
     allocator = GreedyAllocator()
     allocated_system = allocate(system, allocator)
 
-    # Verify everything is allocated
     assert allocated_system.is_allocated
     for memory in allocated_system.memories:
         assert memory.is_allocated
@@ -166,7 +137,6 @@ def test_allocate_complex_hierarchy() -> None:
 
 
 def test_allocate_empty_pool() -> None:
-    """Test allocating an empty pool."""
     pool = Pool(id=1, allocations=())
 
     allocator = NaiveAllocator()
@@ -176,21 +146,7 @@ def test_allocate_empty_pool() -> None:
     assert len(allocated_pool.allocations) == 0
 
 
-def test_allocate_single_allocation() -> None:
-    """Test allocating pool with single allocation."""
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    pool = Pool(id=1, allocations=(alloc,))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.is_allocated
-    assert allocated_pool.allocations[0].offset == 0
-    assert allocated_pool.size == 100
-
-
 def test_allocate_preserves_original_properties() -> None:
-    """Test that allocate preserves all original allocation properties."""
     alloc = Allocation(id="test", size=100, start=5, end=15, kind=AllocationKind.OUTPUT)
     pool = Pool(id="pool", allocations=(alloc,), offset=50)
 
@@ -203,11 +159,10 @@ def test_allocate_preserves_original_properties() -> None:
     assert allocated_alloc.start == 5
     assert allocated_alloc.end == 15
     assert allocated_alloc.kind == AllocationKind.OUTPUT
-    assert allocated_alloc.offset is not None  # This is the new property
+    assert allocated_alloc.offset is not None
 
 
 def test_allocate_returns_same_type() -> None:
-    """Test that allocate returns the same type as input."""
     alloc = Allocation(id=1, size=100, start=0, end=10)
     pool = Pool(id=1, allocations=(alloc,))
     memory = Memory(id=1, pools=(pool,))
@@ -215,21 +170,12 @@ def test_allocate_returns_same_type() -> None:
 
     allocator = NaiveAllocator()
 
-    # Test with Pool
-    result_pool = allocate(pool, allocator)
-    assert isinstance(result_pool, Pool)
-
-    # Test with Memory
-    result_memory = allocate(memory, allocator)
-    assert isinstance(result_memory, Memory)
-
-    # Test with System
-    result_system = allocate(system, allocator)
-    assert isinstance(result_system, System)
+    assert isinstance(allocate(pool, allocator), Pool)
+    assert isinstance(allocate(memory, allocator), Memory)
+    assert isinstance(allocate(system, allocator), System)
 
 
 def test_allocate_pool_calculates_correct_size() -> None:
-    """Test that allocated pool calculates size correctly."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5)
     alloc2 = Allocation(id=2, size=150, start=5, end=10)
     pool = Pool(id=1, allocations=(alloc1, alloc2))
@@ -242,7 +188,6 @@ def test_allocate_pool_calculates_correct_size() -> None:
 
 
 def test_allocate_memory_calculates_used_size() -> None:
-    """Test that allocated memory calculates used size correctly."""
     alloc1 = Allocation(id=1, size=100, start=0, end=10)
     alloc2 = Allocation(id=2, size=150, start=0, end=10)
     pool1 = Pool(id=1, allocations=(alloc1,))
@@ -252,8 +197,7 @@ def test_allocate_memory_calculates_used_size() -> None:
     allocator = NaiveAllocator()
     allocated_memory = allocate(memory, allocator)
 
-    # Each pool gets its allocations placed
-    assert allocated_memory.used_size == 250  # 100 + 150
+    assert allocated_memory.used_size == 250
 
 
 def test_allocate_raw_allocations_returns_tuple() -> None:

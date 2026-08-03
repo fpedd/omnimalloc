@@ -35,10 +35,9 @@ struct Solution {
   int64_t peak;
 };
 
-// A temporal allocation problem: immutable structural data (sections,
-// overlaps, spans) shared across copies, plus mutable search state (offsets,
-// floors, totals, best_height) that the hot loop updates via
-// `apply_at`/`revert`.
+// A temporal allocation problem: immutable structure (sections, overlaps,
+// spans) shared across copies, plus mutable search state (offsets, floors,
+// totals, best_height) that the hot loop updates via `apply_at`/`revert`.
 class Partition {
  public:
   [[nodiscard]] static Partition from_allocations(
@@ -76,10 +75,9 @@ class Partition {
   // a node's candidate scan and feed `can_allocate_at`'s cheap screen.
   [[nodiscard]] std::pair<int64_t, int64_t> scan_bounds() const noexcept;
 
-  // With `monotonic_floor`, every section the candidate does not span has its
-  // floor raised to the placement offset (the canonical order places nothing
-  // below it). `lower_bound` and `max_total` come from `scan_bounds` and
-  // enable an O(spanned) screen; the exact scan runs only when it fails.
+  // With `monotonic_floor`, sections the candidate does not span have their
+  // floor raised to the placement offset: the canonical order places nothing
+  // below it. `lower_bound`/`max_total` screen in O(spanned) before the scan.
   [[nodiscard]] bool can_allocate_at(int idx, bool monotonic_floor,
                                      int64_t lower_bound,
                                      int64_t max_total) const noexcept;
@@ -92,19 +90,16 @@ class Partition {
     std::vector<std::pair<int, int64_t>> min_offset_changes;
   };
 
-  // Post-`apply_at` bound check: sections untouched by the placement were
-  // already validated by `can_allocate_at` with identical values, so only the
-  // floors it raised (`undo.floor_changes`) can newly violate the bound.
-  // `offset` is the placement offset; with `monotonic_floor` it acts as a
-  // floor for every section.
+  // Post-`apply_at` bound check: only the floors it raised
+  // (`undo.floor_changes`) can newly violate the bound, since every other
+  // section was already validated by `can_allocate_at` at identical values.
   [[nodiscard]] bool placement_feasible(const PlacementUndo& undo,
                                         int64_t offset,
                                         bool monotonic_floor) const noexcept;
 
-  // Place allocation `idx` at its `min_offset` and return the diff; `revert`
-  // undoes it in O(touched log n), avoiding a per-node copy of the state. The
-  // returned frame lives in a depth-indexed pool (valid until the matching
-  // `revert`), so its vectors reuse their capacity across nodes.
+  // Place allocation `idx` at its `min_offset` and return the diff, so
+  // `revert` undoes it in O(touched log n) with no per-node state copy. The
+  // frame lives in a depth-indexed pool, valid until the matching `revert`.
   [[nodiscard]] const PlacementUndo& apply_at(int idx, bool floor_inference);
   void revert(const PlacementUndo& undo);
   void set_best_height(int64_t h) noexcept { best_height_ = h; }
@@ -123,15 +118,12 @@ class Partition {
 
   // Reorder allocations by `heuristic`: each character is a descending sort
   // key (one of A, C, L, O, T, U, W, Z; throws otherwise), original index
-  // breaks ties. Preserves the section grid (floors, totals). The partition
-  // remembers `heuristic` and reuses it to preorder `decompose` sub-parts.
+  // breaks ties. Preserves the section grid; `decompose` reuses the order.
   [[nodiscard]] Partition reorder(const std::string& heuristic) const;
 
   // Split the partition at zero-cut boundaries into independent sub-parts, or
-  // nullopt when no live boundary has a zero cut. A partition reordered by a
-  // non-empty heuristic preorders each sub-part on its own live section
-  // totals (as minimalloc's SubSolve does), since the parent's order goes
-  // stale once the problem shrinks.
+  // nullopt when no live boundary has a zero cut. Each sub-part preorders on
+  // its own live totals; the parent's goes stale once the problem shrinks.
   [[nodiscard]] std::optional<std::vector<Partition>> decompose() const;
 
  private:
@@ -209,22 +201,16 @@ class Partition {
   std::vector<int> touched_sections_;
 };
 
-// Run `partition.greedy_pack` under each heuristic ordering across
-// `num_threads` and return the best packing; ties go to the lowest heuristic
-// index for determinism. Heuristics claimed after `timeout` elapse are
-// skipped, except the first, so a packing always exists (nullopt disables
-// the deadline). Throws std::invalid_argument when `heuristics` is empty or
-// contains an unknown sort key.
+// Run `partition.greedy_pack` under each heuristic across `num_threads` and
+// return the best packing, ties to the lowest index. Heuristics claimed after
+// `timeout` are skipped except the first. Throws on an empty/unknown heuristic.
 [[nodiscard]] Solution greedy_pack_portfolio(
     const Partition& partition, const std::vector<std::string>& heuristics,
     std::optional<double> timeout, int num_threads);
 
-// Run `partitions` (typically the same problem under different heuristic
-// orderings) as an independent-search portfolio across `num_threads`, sharing
-// one atomic best bound so a solution found by any search prunes the others.
-// `max_nodes` caps each member's search independently (nullopt = unbounded).
-// Returns the lowest solution found, or nullopt if none beats `best_bound` —
-// a valid answer, hence the try_ prefix.
+// Run `partitions` as an independent-search portfolio across `num_threads`,
+// sharing one atomic bound so any solution prunes the rest; `max_nodes` caps
+// each member. Returns the best solution beating `best_bound`, else nullopt.
 [[nodiscard]] std::optional<Solution> try_solve_many(
     const std::vector<Partition>& partitions, int64_t best_bound,
     std::optional<int64_t> max_nodes, SearchOptions options,

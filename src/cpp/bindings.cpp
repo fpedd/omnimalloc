@@ -4,6 +4,7 @@
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/unordered_map.h>
@@ -22,9 +23,11 @@
 #include "allocators/telamalloc.hpp"
 #include "analysis/antichain.hpp"
 #include "analysis/closure.hpp"
+#include "analysis/collision.hpp"
 #include "analysis/conflicts.hpp"
 #include "analysis/linearize.hpp"
 #include "analysis/placement.hpp"
+#include "common/parallel.hpp"
 #include "primitives/allocation.hpp"
 #include "primitives/allocation_kind.hpp"
 #include "primitives/id_type.hpp"
@@ -93,7 +96,7 @@ NB_MODULE(_cpp, m) {
       .def("conflicts_with", &Allocation::conflicts_with, "other"_a)
       .def("overlaps_spatially", &Allocation::overlaps_spatially, "other"_a)
       .def("overlaps", &Allocation::overlaps, "other"_a)
-      .def("with_offset", &Allocation::with_offset, "offset"_a,
+      .def("with_offset", &Allocation::with_offset, "offset"_a.none(),
            nb::rv_policy::move)
       .def("__str__", &stream_str<Allocation>)
       .def("__repr__", &stream_str<Allocation>)
@@ -125,14 +128,50 @@ NB_MODULE(_cpp, m) {
                                  std::get<4>(state), std::get<5>(state));
            });
 
+  // Worker ceiling for every native kernel; 0 lifts it to the usable cores
+  m.def("set_max_threads", &set_max_threads, "value"_a);
+  m.def("max_threads", &max_threads);
+  m.def("usable_cores", &usable_cores);
+
+  m.def("find_collision", &find_collision, "allocations"_a,
+        nb::call_guard<nb::gil_scoped_release>());
   m.def("conflicts", &conflicts, "allocations"_a, "work_budget"_a.none(),
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
+
+  // Streaming counterpart of `conflicts`: the relation stays in CSR form on
+  // the C++ side and rows cross the boundary one at a time
+  nb::class_<ConflictGraph>(m, "ConflictGraph")
+      .def(nb::init<const std::vector<Allocation>&, std::optional<uint64_t>,
+                    std::optional<uint64_t>>(),
+           "allocations"_a, "work_budget"_a.none(),
+           "max_entries"_a.none() = nb::none(),
+           nb::call_guard<nb::gil_scoped_release>())
+      .def("__len__", &ConflictGraph::size)
+      .def_prop_ro("pair_count", &ConflictGraph::pair_count)
+      .def("degree", &ConflictGraph::degree, "index"_a)
+      .def("neighbors", &ConflictGraph::neighbors, "index"_a,
+           nb::rv_policy::move);
   m.def("conflict_degrees", &conflict_degrees, "allocations"_a,
         "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>(),
         nb::rv_policy::move);
-  m.def("try_linearize", &try_linearize, "allocations"_a,
-        "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>(),
-        nb::rv_policy::move);
+  // Budget exhaustion and "not an interval order" are different answers, so
+  // the Python surface separates them the way every other budgeted analysis
+  // does: raise past the budget, return None for the structural obstruction
+  m.def(
+      "try_linearize",
+      [](const std::vector<Allocation>& allocations,
+         std::optional<uint64_t> work_budget) {
+        bool undecided = false;
+        auto linearized = try_linearize(allocations, work_budget, &undecided);
+        if (undecided) {
+          throw std::runtime_error(
+              "Linearize work exceeds work_budget; pass None to always "
+              "decide linearizability");
+        }
+        return linearized;
+      },
+      "allocations"_a, "work_budget"_a.none(),
+      nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
   m.def("antichain_pressure", &antichain_pressure, "allocations"_a,
         "work_budget"_a.none(), nb::call_guard<nb::gil_scoped_release>());
   m.def("closure_pressure", &closure_pressure, "allocations"_a,
@@ -149,20 +188,16 @@ NB_MODULE(_cpp, m) {
   m.def("first_fit_place", &first_fit_place, "allocations"_a,
         nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
-  // FirstFitPlacer class: resident placer for the order-search allocators.
   // Standing invariant for every gil_scoped_release-guarded method in this
-  // module: it must be const and stateless-or-synchronized, because
-  // releasing the GIL admits concurrent same-object calls; every guarded
-  // path is also Python-free (IdType/TimePoint are std variants).
+  // module: const and stateless-or-synchronized, because releasing the GIL
+  // admits concurrent same-object calls. Every guarded path is Python-free.
   nb::class_<FirstFitPlacer>(m, "FirstFitPlacer")
       .def(nb::init<std::vector<Allocation>>(), "allocations"_a,
            nb::call_guard<nb::gil_scoped_release>())
       .def("peak", &FirstFitPlacer::peak, "order"_a,
            nb::call_guard<nb::gil_scoped_release>())
       .def("place", &FirstFitPlacer::place, "order"_a,
-           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move)
-      .def_prop_ro("conflicts", &FirstFitPlacer::conflicts,
-                   nb::rv_policy::copy);
+           nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
   // Placement functions: data types and flat functions cross the
   // boundary, nothing else. The config structs stay C++-internal; each

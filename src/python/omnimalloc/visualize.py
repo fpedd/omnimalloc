@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import logging
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -46,7 +45,9 @@ except ImportError:
     MaxNLocator = None  # type: ignore[assignment,misc]
     MultipleLocator = None  # type: ignore[assignment,misc]
 
-logger = logging.getLogger(__name__)
+# Rendering guard: plot annotation gives up within tens of milliseconds
+# rather than stall on a second-scale conflict sweep.
+_RENDER_SWEEP_BUDGET: Final[int] = 100_000_000
 
 _BYTE_UNITS: Final[tuple[tuple[int, str], ...]] = (
     (1024**3, "GB"),
@@ -90,11 +91,7 @@ PANEL_CAVEAT: Final[str] = (
 
 
 def _get_allocation_color(kind: AllocationKind | None) -> str:
-    if kind is None:
-        kind = AllocationKind.WORKSPACE
-    if kind not in KIND_COLOR_MAP:
-        raise ValueError(f"Unknown allocation kind: {kind}")
-    return KIND_COLOR_MAP[kind]
+    return KIND_COLOR_MAP[kind if kind is not None else AllocationKind.WORKSPACE]
 
 
 def _memory_dim(memory: Memory) -> int:
@@ -141,7 +138,10 @@ def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
     """Projected lifetimes for one memory's panel; True when conflict-exact."""
     allocations = _memory_allocations(memory)
     if len({alloc.dim for alloc in allocations}) == 1:
-        linearized = try_linearize(tuple(allocations))
+        try:
+            linearized = try_linearize(tuple(allocations))
+        except RuntimeError:
+            linearized = None  # Over budget: fall back to the summed extents
         if linearized is not None:
             return {
                 id(alloc): (lin.start, lin.end)
@@ -153,7 +153,7 @@ def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
 def _conflict_pairs(allocations: tuple[Allocation, ...]) -> int | None:
     """Count conflicting allocation pairs, or None once over budget."""
     try:
-        degrees = conflict_degrees(allocations)
+        degrees = conflict_degrees(allocations, work_budget=_RENDER_SWEEP_BUDGET)
     except RuntimeError:
         return None
     return sum(degrees) // 2
@@ -223,12 +223,8 @@ def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
         size = memory.size
         used = memory.used_size
 
-        if size is None:
-            # No size declared, scale to 1.2x used
-            y_limit = used * 1.2
-
-        elif used > size:
-            # Usage exceeds the declared size, scale to 1.2x usage
+        if size is None or used > size:
+            # No declared size (or usage exceeds it), scale to 1.2x used
             y_limit = used * 1.2
 
         elif used >= size * 0.5:
@@ -558,16 +554,8 @@ def plot_allocation(
 ) -> None:
     """Plot an allocated entity: `path=None` displays the figure, `path=...` saves it.
 
-    Accepts a System, Memory, Pool, or raw sequence of Allocations
-    (plotted as a single pool). `capacities` draws extra horizontal limit
-    lines, keyed by label then memory id. `view="panel"` draws each
-    memory once over a happens-before-monotone virtual time (exact for
-    scalar or linearizable lifetimes, else a sound projection annotated
-    with its conflict coverage); `view="lanes"` draws one subplot per
-    thread's local-time projection, capped to the top `max_lanes` threads
-    by peak definitely-live occupancy. Both views only ever show genuine
-    conflicts as temporal overlaps. Raises `ImportError` without
-    matplotlib.
+    `view="panel"` draws each memory over a happens-before-monotone virtual time,
+    `view="lanes"` one subplot per thread. Neither shows a false overlap.
     """
     if view not in ("panel", "lanes"):
         raise ValueError(f'view must be "panel" or "lanes", got {view!r}')

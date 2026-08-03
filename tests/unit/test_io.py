@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from omnimalloc.io import load_allocation, save_allocation
-from omnimalloc.primitives import Allocation, Memory, Pool, System
+from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, System
 
 
 def make_pool(pool_id: str = "p0") -> Pool:
@@ -194,3 +194,27 @@ def test_save_load_round_trip_preserves_vector_time(tmp_path: Path) -> None:
 def test_save_scalar_files_stay_minimalloc_format(tmp_path: Path) -> None:
     (file_path,) = save_allocation(make_pool(), tmp_path / "problem.csv")
     assert ":" not in file_path.read_text()
+
+
+def test_round_trip_preserves_integer_ids_and_kinds(tmp_path: Path) -> None:
+    allocations = (
+        Allocation(
+            id=7, size=10, start=0, end=5, offset=0, kind=AllocationKind.CONSTANT
+        ),
+        Allocation(id="named", size=4, start=2, end=8, offset=16),
+    )
+    path = tmp_path / "pool.csv"
+    save_allocation(allocations, path)
+    assert load_allocation(path).allocations == allocations
+
+
+def test_round_trip_keeps_digit_like_string_ids_as_integers(tmp_path: Path) -> None:
+    path = tmp_path / "pool.csv"
+    save_allocation((Allocation(id="12", size=4, start=0, end=1),), path)
+    assert load_allocation(path).allocations[0].id == 12
+
+
+def test_files_without_kinds_stay_minimalloc_shaped(tmp_path: Path) -> None:
+    path = tmp_path / "pool.csv"
+    save_allocation((Allocation(id=1, size=4, start=0, end=1),), path)
+    assert path.read_text().splitlines()[0] == "id,lower,upper,size"

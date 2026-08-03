@@ -3,25 +3,30 @@
 #
 
 from dataclasses import dataclass
-
-import numpy as np
+from statistics import mean, median, stdev
 
 from omnimalloc.allocators import BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.primitives import IdType
 
 from .result import BenchmarkResult
+from .utils import source_label
 
 
 @dataclass(frozen=True)
 class BenchmarkReport:
-    """Aggregates results (iterations) of one allocator/source/variant combination."""
+    """Aggregates results (iterations) of one allocator/source/variant combination.
+
+    The iterations re-run one fixed problem instance, so their dispersion
+    measures timing jitter, not instance-to-instance variance.
+    """
 
     id: IdType
     results: tuple[BenchmarkResult, ...]
     allocator: BaseAllocator | type[BaseAllocator] | str | None = None
     source: BaseSource | type[BaseSource] | str | None = None
     variant_id: IdType | None = None
+    known_optimum: int | None = None
 
     def __post_init__(self) -> None:
         if not self.results:
@@ -54,7 +59,7 @@ class BenchmarkReport:
     def source_name(self) -> str:
         if self.source is None:
             return self.results[0].source_name
-        return str(self.source)
+        return source_label(self.source)
 
     @property
     def variant_label(self) -> str:
@@ -72,10 +77,7 @@ class BenchmarkReport:
 
     @property
     def num_allocations(self) -> int:
-        num_allocs = {r.num_allocations for r in self.results}
-        if len(num_allocs) != 1:
-            raise ValueError("results in report have different number of allocations")
-        return num_allocs.pop()
+        return self.results[0].num_allocations
 
     @property
     def total_num_allocations(self) -> int:
@@ -87,19 +89,52 @@ class BenchmarkReport:
 
     @property
     def mean_seconds(self) -> float:
-        return float(np.mean([r.duration for r in self.results]))
+        return mean(r.duration for r in self.results)
 
     @property
     def median_seconds(self) -> float:
-        return float(np.median([r.duration for r in self.results]))
+        return median(r.duration for r in self.results)
 
     @property
-    def mean_allocation_efficiency(self) -> float:
-        return float(np.mean([r.allocation_efficiency for r in self.results]))
+    def stdev_seconds(self) -> float | None:
+        """Timing jitter across iterations; None below two iterations."""
+        if len(self.results) < 2:
+            return None
+        return stdev(r.duration for r in self.results)
 
     @property
-    def median_allocation_efficiency(self) -> float:
-        return float(np.median([r.allocation_efficiency for r in self.results]))
+    def min_seconds(self) -> float:
+        return min(r.duration for r in self.results)
+
+    @property
+    def max_seconds(self) -> float:
+        return max(r.duration for r in self.results)
+
+    @property
+    def mean_allocation_efficiency(self) -> float | None:
+        """Mean over the iterations whose pressure could be measured."""
+        measured = [
+            efficiency
+            for efficiency in (r.allocation_efficiency for r in self.results)
+            if efficiency is not None
+        ]
+        return mean(measured) if measured else None
+
+    @property
+    def mean_peak_size(self) -> float:
+        return mean(r.peak_size for r in self.results)
+
+    @property
+    def lower_bound(self) -> int | None:
+        """Peak pressure of the instance, identical across iterations."""
+        return self.results[0].lower_bound
+
+    @property
+    def optimum_ratio(self) -> float | None:
+        """Achieved peak over the source's known optimum; 1.0 is optimal."""
+        if not self.known_optimum:
+            return None
+        return self.mean_peak_size / self.known_optimum
 
     def with_results(self, results: tuple[BenchmarkResult, ...]) -> "BenchmarkReport":
         return BenchmarkReport(
@@ -107,5 +142,6 @@ class BenchmarkReport:
             allocator=self.allocator,
             source=self.source,
             variant_id=self.variant_id,
+            known_optimum=self.known_optimum,
             results=self.results + results,
         )

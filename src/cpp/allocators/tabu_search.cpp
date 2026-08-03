@@ -55,9 +55,6 @@ std::vector<Allocation> tabu_search_place(
 
     const std::vector<size_t> peaks =
         peak_positions(current_placed, current_peak);
-    if (peaks.empty()) {
-      break;  // no placed allocation reaches the peak: nothing to perturb
-    }
 
     // Sample a neighborhood of candidate swaps and keep the best admissible
     // one: non-tabu, or tabu but beating the best-ever solution (aspiration).
@@ -68,8 +65,13 @@ std::vector<Allocation> tabu_search_place(
     bool best_is_tabu = false;
 
     for (int sample = 0; sample < config.neighborhood_size; ++sample) {
+      // Each sample costs a full placement, so the budget is read here too:
+      // checking only per iteration lets a whole neighborhood run past it
+      if (deadline_expired(deadline)) {
+        break;
+      }
       const auto proposal =
-          propose_peak_swap(peaks, order, allocations, placer.conflicts(), rng);
+          propose_peak_swap(peaks, order, placer.indices(), rng);
       if (!proposal) {
         continue;
       }

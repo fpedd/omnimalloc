@@ -3,9 +3,12 @@
 #
 
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from omnimalloc.allocators import BaseAllocator
+from omnimalloc.benchmark.sources import BaseSource
 
 # Headless backend: plot_allocation(path=None) displays the figure, which
 # must never block the test run on an interactive backend.
@@ -30,3 +33,15 @@ def artifacts_dir(request: pytest.FixtureRequest) -> Path:
     test_dir.mkdir(parents=True)
 
     return Path(test_dir)
+
+
+@pytest.fixture(autouse=True)  # type: ignore[misc]
+def isolated_registries() -> Iterator[None]:
+    # Defining a Registered subclass registers it process-wide, so a
+    # throwaway allocator or source declared inside one test would otherwise
+    # be picked up by every later test that sweeps the registry.
+    snapshots = [(cls, cls.registry()) for cls in (BaseAllocator, BaseSource)]
+    yield
+    for cls, snapshot in snapshots:
+        cls._registry.clear()
+        cls._registry.update(snapshot)

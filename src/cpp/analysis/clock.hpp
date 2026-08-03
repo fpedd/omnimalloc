@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -20,10 +22,9 @@
 #include "common/parallel.hpp"
 #include "primitives/allocation.hpp"
 
-// Shared clock-row utilities for the exact vector-time analyses
-// (linearize, antichain, closure) and the conflict-graph consumers: row
-// deduplication, componentwise dominance, lifetime grouping, the scalar
-// sweep peaks, and the pruned pairwise conflict sweep.
+// Shared clock-row utilities for the exact vector-time analyses (linearize,
+// antichain, closure) and the conflict-graph consumers: deduplication, column
+// reduction, dominance, lifetime grouping, and the sweep peaks.
 
 namespace omnimalloc {
 
@@ -62,6 +63,78 @@ inline ClockSpans gather_clock_spans(
   return spans;
 }
 
+// Fold one clock component into a column fingerprint (boost's hash_combine).
+// Fingerprints only prune the exact comparison below, so their quality
+// bounds redundant work and never correctness.
+inline uint64_t hash_component(uint64_t seed, int64_t value) noexcept {
+  return seed ^ (static_cast<uint64_t>(value) + 0x9e3779b97f4a7c15ULL +
+                 (seed << 6) + (seed >> 2));
+}
+
+// Collapse degenerate clock columns in place, returning the reduced rows'
+// backing storage (empty when every column survives; it must outlive `spans`).
+// A constant column never decides a dominance test and a duplicate repeats one.
+[[nodiscard]] inline std::vector<int64_t> reduce_columns(ClockSpans& spans) {
+  const size_t n = spans.starts.size();
+  const size_t d = spans.dim;
+  if (d == 1 || n == 0) {
+    return {};
+  }
+  std::vector<uint64_t> fingerprint(d, 0);
+  std::vector<char> constant(d, 1);
+  const std::span<const int64_t> first = spans.starts[0];
+  for (size_t i = 0; i < n; ++i) {
+    const std::span<const int64_t> start = spans.starts[i];
+    const std::span<const int64_t> end = spans.ends[i];
+    for (size_t c = 0; c < d; ++c) {
+      fingerprint[c] =
+          hash_component(hash_component(fingerprint[c], start[c]), end[c]);
+      if (start[c] != first[c] || end[c] != first[c]) {
+        constant[c] = 0;
+      }
+    }
+  }
+  const auto column_equal = [&](size_t a, size_t b) {
+    for (size_t i = 0; i < n; ++i) {
+      if (spans.starts[i][a] != spans.starts[i][b] ||
+          spans.ends[i][a] != spans.ends[i][b]) {
+        return false;
+      }
+    }
+    return true;
+  };
+  std::vector<size_t> keep;
+  for (size_t c = 0; c < d; ++c) {
+    if (constant[c] != 0) {
+      continue;
+    }
+    const bool duplicate = std::ranges::any_of(keep, [&](size_t kc) {
+      return fingerprint[kc] == fingerprint[c] && column_equal(kc, c);
+    });
+    if (!duplicate) {
+      keep.push_back(c);
+    }
+  }
+  // All-constant clocks would need start == end, which validation rejects
+  assert(!keep.empty());
+  if (keep.size() == d) {
+    return {};
+  }
+  std::vector<int64_t> backing(2 * n * keep.size());
+  for (size_t i = 0; i < n; ++i) {
+    for (size_t c = 0; c < keep.size(); ++c) {
+      backing[i * keep.size() + c] = spans.starts[i][keep[c]];
+      backing[(n + i) * keep.size() + c] = spans.ends[i][keep[c]];
+    }
+  }
+  for (size_t i = 0; i < n; ++i) {
+    spans.starts[i] = {backing.data() + i * keep.size(), keep.size()};
+    spans.ends[i] = {backing.data() + (n + i) * keep.size(), keep.size()};
+  }
+  spans.dim = keep.size();
+  return backing;
+}
+
 // Distinct clock rows in lexicographic order (so component 0 ascends), with
 // per-row multiplicities and each input's row index.
 struct DedupedRows {
@@ -72,6 +145,19 @@ struct DedupedRows {
 
   size_t count() const noexcept { return weights.size(); }
   const int64_t* row(size_t r) const noexcept { return rows.data() + r * dim; }
+
+  // Rows ascend lexicographically, so component 0 admits binary search:
+  // number of rows with row[0] < v, and with row[0] <= v respectively.
+  size_t prefix_lt(int64_t v) const noexcept {
+    return *std::ranges::partition_point(
+        std::views::iota(size_t{0}, count()),
+        [&](size_t r) { return row(r)[0] < v; });
+  }
+  size_t prefix_leq(int64_t v) const noexcept {
+    return *std::ranges::partition_point(
+        std::views::iota(size_t{0}, count()),
+        [&](size_t r) { return row(r)[0] <= v; });
+  }
 };
 
 inline DedupedRows dedupe_rows(
@@ -106,9 +192,8 @@ inline bool dominates(const int64_t* end, const int64_t* start,
 }
 
 // Allocations grouped by identical (start, end) clock pairs: one
-// representative lifetime per group with the group's summed size. Identical
-// lifetimes are mutually concurrent and relate identically to everything
-// else, so exact pressure computations may treat each group as one unit.
+// representative lifetime per group with the group's summed size. Such
+// lifetimes relate identically to everything else, so a group is one unit.
 struct LifetimeGroups {
   std::vector<std::span<const int64_t>> starts;  // representative per group
   std::vector<std::span<const int64_t>> ends;
@@ -256,14 +341,14 @@ struct CsrAdjacency {
   std::vector<int32_t> neighbors;
 };
 
-// Pairwise happens-before conflict sweep, O(n^2 * T) worst case; no single
-// timeline to sweep once lifetimes are vector clocks. Clocks are regathered
-// contiguously in min-start order: once the smallest start component of row
-// b reaches the largest end component of row a, every start component of b
-// dominates every end component of a, so a happens-before b and the row
-// scan for a stops there. The pruning makes the quadratic pair sweep
-// output-sensitive on loosely coupled workloads (and a plain sweep line on
-// scalar timelines).
+// Ceiling on the neighbor entries one adjacency may materialize, 4 bytes each.
+// No work budget bounds the CSR: budgets count the sweep, and the sweep is what
+// fills the rows. A guard against taking the host down, not a tuning knob.
+inline constexpr uint64_t kMaxAdjacencyEntries = uint64_t{1} << 31;
+
+// Pairwise happens-before conflict sweep, O(n^2 * T) worst case; vector clocks
+// leave no single timeline. Min-start row order lets a's scan stop once b's
+// smallest start passes a's largest end, keeping the sweep output-sensitive.
 class ConflictSweep {
  public:
   ConflictSweep(const std::vector<std::span<const int64_t>>& starts,
@@ -299,6 +384,7 @@ class ConflictSweep {
   }
 
   size_t count() const noexcept { return n_; }
+  size_t dim() const noexcept { return dim_; }
 
   // Work the pruned pair sweep will perform, in component comparisons: row
   // a scans until the ascending min-starts reach its cutoff, so each scan
@@ -320,15 +406,10 @@ class ConflictSweep {
     for_each_row_block(n_, num_threads, [&](size_t a) {
       const int64_t cutoff = cutoff_[a];
       for (size_t b = a + 1; b < n_ && min_start_[b] < cutoff; ++b) {
-        // Branchless over the dim components; conflict = neither
-        // happens-before
-        bool ab = false;
-        bool ba = false;
-        for (size_t t = 0; t < dim_; ++t) {
-          ab |= ends_[a * dim_ + t] > starts_[b * dim_ + t];
-          ba |= ends_[b * dim_ + t] > starts_[a * dim_ + t];
-        }
-        if (ab && ba) {
+        // Conflict = neither happens-before; each dominance test exits on
+        // its first violating component, so conflicting pairs resolve fast
+        if (!dominates(&ends_[a * dim_], &starts_[b * dim_], dim_) &&
+            !dominates(&ends_[b * dim_], &starts_[a * dim_], dim_)) {
           on_pair(static_cast<size_t>(original_[a]),
                   static_cast<size_t>(original_[b]));
         }
@@ -336,21 +417,55 @@ class ConflictSweep {
     });
   }
 
-  // CSR adjacency over two sweeps: count degrees, then fill through atomic
-  // per-row cursors.
-  CsrAdjacency adjacency(unsigned num_threads) const {
-    std::vector<std::atomic<int64_t>> slots(n_);
+  // Conflict count per input index. Scalar timelines skip the pair sweep: two
+  // binary searches on the sorted bounds give everything started before a's
+  // end minus everything ended by its start, less a itself (half-open).
+  [[nodiscard]] std::vector<int64_t> degrees(unsigned num_threads) const {
+    std::vector<int64_t> result(n_);
+    if (dim_ == 1) {
+      std::vector<int64_t> sorted_ends(cutoff_);
+      std::ranges::sort(sorted_ends);
+      for (size_t a = 0; a < n_; ++a) {
+        const auto started = std::ranges::lower_bound(min_start_, cutoff_[a]) -
+                             min_start_.begin();
+        const auto ended =
+            std::ranges::upper_bound(sorted_ends, min_start_[a]) -
+            sorted_ends.begin();
+        result[static_cast<size_t>(original_[a])] = started - ended - 1;
+      }
+      return result;
+    }
+    std::vector<std::atomic<int64_t>> counts(n_);
     for_each_pair(num_threads, [&](size_t i, size_t j) {
-      slots[i].fetch_add(1, std::memory_order_relaxed);
-      slots[j].fetch_add(1, std::memory_order_relaxed);
+      counts[i].fetch_add(1, std::memory_order_relaxed);
+      counts[j].fetch_add(1, std::memory_order_relaxed);
     });
+    for (size_t i = 0; i < n_; ++i) {
+      result[i] = counts[i].load(std::memory_order_relaxed);
+    }
+    return result;
+  }
+
+  // CSR adjacency: degrees first (binary searches on scalar timelines, a
+  // counting sweep on vector clocks), then one fill sweep through atomic
+  // per-row cursors. The prefix sum is exact, so the ceiling refuses early.
+  [[nodiscard]] CsrAdjacency adjacency(
+      unsigned num_threads, uint64_t max_entries = kMaxAdjacencyEntries) const {
+    const std::vector<int64_t> degree = degrees(num_threads);
     CsrAdjacency adj;
     adj.offsets.resize(n_ + 1);
     adj.offsets[0] = 0;
+    std::vector<std::atomic<int64_t>> slots(n_);
     for (size_t i = 0; i < n_; ++i) {
-      adj.offsets[i + 1] =
-          adj.offsets[i] + slots[i].load(std::memory_order_relaxed);
+      adj.offsets[i + 1] = adj.offsets[i] + degree[i];
       slots[i].store(adj.offsets[i], std::memory_order_relaxed);
+    }
+    if (static_cast<uint64_t>(adj.offsets[n_]) > max_entries) {
+      throw std::runtime_error(
+          "Conflict adjacency needs " + std::to_string(adj.offsets[n_]) +
+          " neighbor entries at 4 bytes each, over the " +
+          std::to_string(max_entries) +
+          " ceiling; the conflict relation is too dense to materialize");
     }
     adj.neighbors.resize(static_cast<size_t>(adj.offsets[n_]));
     for_each_pair(num_threads, [&](size_t i, size_t j) {
@@ -359,6 +474,13 @@ class ConflictSweep {
       adj.neighbors[static_cast<size_t>(slots[j].fetch_add(
           1, std::memory_order_relaxed))] = static_cast<int32_t>(i);
     });
+    // dim==1 sizes rows by formula but fills by sweep; disagreement would
+    // silently corrupt adjacent rows, so pin it where debug builds see it
+#ifndef NDEBUG
+    for (size_t i = 0; i < n_; ++i) {
+      assert(slots[i].load(std::memory_order_relaxed) == adj.offsets[i + 1]);
+    }
+#endif
     return adj;
   }
 

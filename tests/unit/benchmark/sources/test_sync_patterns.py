@@ -3,7 +3,7 @@
 #
 
 import pytest
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import pressure, try_linearize
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation
@@ -117,3 +117,80 @@ def test_sync_patterns_pressure_is_bounded(pattern: str) -> None:
     peak = pressure(allocations)
     assert peak >= max(a.size for a in allocations)
     assert peak <= sum(a.size for a in allocations)
+
+
+def test_every_pattern_runs_at_a_high_thread_count() -> None:
+    for pattern in SYNC_PATTERNS:
+        source = SyncPatternSource(
+            num_allocations=64, num_threads=64, pattern=pattern, seed=3
+        )
+        allocations = source.get_allocations()
+        assert len(allocations) == 64
+        assert all(a.dim == 64 for a in allocations), pattern
+
+
+def test_speed_skew_staggers_the_thread_clocks() -> None:
+    source = SyncPatternSource(
+        num_allocations=64, num_threads=4, pattern="independent", speed_skew=4
+    )
+    allocations = source.get_allocations()
+    lane_maxima = [max(a.end[lane] for a in allocations) for lane in range(4)]
+    assert len(set(lane_maxima)) > 1
+
+
+def test_speed_skew_keeps_every_lifetime_non_empty() -> None:
+    for skew in (1, 2, 3, 5):
+        source = SyncPatternSource(
+            num_allocations=128, num_threads=8, pattern="barrier", speed_skew=skew
+        )
+        allocations = source.get_allocations()
+        assert all(a.start != a.end for a in allocations), skew
+
+
+def test_speed_skew_of_one_leaves_the_instance_unchanged() -> None:
+    plain = SyncPatternSource(num_allocations=48, num_threads=4, seed=5)
+    skewed = SyncPatternSource(num_allocations=48, num_threads=4, speed_skew=1, seed=5)
+    assert plain.get_allocations() == skewed.get_allocations()
+
+
+def test_size_distribution_reaches_the_allocations() -> None:
+    flat = SyncPatternSource(num_allocations=200, size_distribution="uniform")
+    dominant = SyncPatternSource(num_allocations=200, size_distribution="dominant")
+    largest_flat = max(a.size for a in flat.get_allocations())
+    sizes = sorted((a.size for a in dominant.get_allocations()), reverse=True)
+    assert sizes[0] > 10 * sizes[1]
+    assert largest_flat > 0
+
+
+def test_label_carries_thread_count_and_topology() -> None:
+    source = SyncPatternSource(num_threads=16, pattern="tree")
+    assert source.label() == (
+        "sync_pattern[num_threads=16,pattern=tree,speed_skew=1,size_distribution=uniform]"
+    )
+
+
+def test_label_differs_between_thread_counts() -> None:
+    assert SyncPatternSource(num_threads=4).label() != (
+        SyncPatternSource(num_threads=16).label()
+    )
+
+
+def test_unknown_size_distribution_rejected() -> None:
+    with pytest.raises(ValueError, match="distribution must be one of"):
+        SyncPatternSource(size_distribution="normal")
+
+
+def test_non_positive_speed_skew_rejected() -> None:
+    with pytest.raises(ValueError, match="speed_skew must be positive"):
+        SyncPatternSource(speed_skew=0)
+
+
+def test_every_step_barrier_linearizes_while_a_sparser_one_does_not() -> None:
+    tight = SyncPatternSource(
+        num_allocations=128, num_threads=8, pattern="barrier", sync_period=1, seed=1
+    ).get_allocations()
+    loose = SyncPatternSource(
+        num_allocations=128, num_threads=8, pattern="pairs", sync_period=16, seed=1
+    ).get_allocations()
+    assert try_linearize(tight, work_budget=None) is not None
+    assert try_linearize(loose, work_budget=None) is None

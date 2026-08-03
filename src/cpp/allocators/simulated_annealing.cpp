@@ -41,12 +41,9 @@ std::vector<Allocation> simulated_annealing_place(
 
     const std::vector<size_t> peaks =
         peak_positions(current_placed, current_peak);
-    if (peaks.empty()) {
-      break;  // no placed allocation reaches the peak: nothing to perturb
-    }
 
     const auto proposal =
-        propose_peak_swap(peaks, order, allocations, placer.conflicts(), rng);
+        propose_peak_swap(peaks, order, placer.indices(), rng);
     if (!proposal) {
       temperature *= config.cooling_rate;
       continue;

@@ -14,11 +14,6 @@
 
 namespace omnimalloc {
 
-// Throw unless every allocation has scalar (interval) lifetimes; `who` names
-// the rejecting entry point in the message.
-void require_scalar_time(const std::vector<Allocation>& allocations,
-                         const char* who);
-
 // Occupied (offset, end) spans of the already-placed neighbors of one
 // allocation, sorted by offset so the gap scans can go left-to-right
 void gather_spans(const std::vector<size_t>& neighbors,
@@ -36,12 +31,12 @@ struct PortfolioPlacement {
   int64_t peak = 0;
 };
 
-// First-fit placement over the 7-order greedy portfolio (mirroring the
-// greedy_by_* allocators) in parallel, keeping the lowest peak; ties break
-// by the fixed order sequence, so the result is deterministic. Pre-existing
-// offsets are ignored.
+// First-fit over the 7-order greedy portfolio in parallel, keeping the lowest
+// peak; ties break by the fixed order sequence. A pre-existing offset pins its
+// allocation; `surrogate` appends 3 orders.
 [[nodiscard]] PortfolioPlacement place_portfolio(
-    const std::vector<Allocation>& allocations, const CsrAdjacency& adj);
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj,
+    const std::vector<Allocation>* surrogate = nullptr);
 
 // Greedily place allocations in input order using first-fit; computes the
 // conflict relation natively (unbudgeted by design: placement kernels never
@@ -54,30 +49,34 @@ struct PortfolioPlacement {
 [[nodiscard]] std::vector<Allocation> first_fit_place_indexed(
     const std::vector<Allocation>& allocations, const ConflictIndices& indices);
 
-// Shared placement skeleton of the first-fit and best-fit placers: place
-// allocations in index order, choosing each offset with `choose_offset` over
-// the sorted spans of the allocation's already-placed neighbors
+// Shared placement skeleton of the first-fit and best-fit placers: place in
+// index order, choosing each offset with `choose_offset` over the sorted spans
+// of already-placed neighbors. Seeding pins makes them obstacles throughout.
 template <typename OffsetFn>
 [[nodiscard]] std::vector<Allocation> place_indexed(
     const std::vector<Allocation>& allocations, const ConflictIndices& indices,
     OffsetFn choose_offset) {
   check_total_size(allocations);
   std::vector<std::optional<int64_t>> offsets(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    offsets[i] = allocations[i].offset();
+  }
   std::vector<std::pair<int64_t, int64_t>> spans;
   std::vector<Allocation> placed;
   placed.reserve(allocations.size());
   for (size_t i = 0; i < allocations.size(); ++i) {
-    gather_spans(indices[i], offsets, allocations, spans);
-    offsets[i] = choose_offset(allocations[i].size(), spans);
+    if (!allocations[i].offset().has_value()) {
+      gather_spans(indices[i], offsets, allocations, spans);
+      offsets[i] = choose_offset(allocations[i].size(), spans);
+    }
     placed.push_back(allocations[i].with_offset(*offsets[i]));
   }
   return placed;
 }
 
 // Resident first-fit placer for the order-search allocators (genetic, random,
-// hill-climb): owns the allocations and their conflict maps (computed once) so
-// that placing many candidate orderings only passes an index permutation across
-// the Python boundary, never re-marshaling the loop-invariant conflict map.
+// hill-climb): owns the allocations and their conflict maps, so placing many
+// candidate orders passes only an index permutation across the Python boundary.
 class FirstFitPlacer {
  public:
   explicit FirstFitPlacer(std::vector<Allocation> allocations);
@@ -91,9 +90,9 @@ class FirstFitPlacer {
   [[nodiscard]] std::vector<Allocation> place(
       const std::vector<size_t>& order) const;
 
-  // The resident conflict map, keyed by allocation id.
-  [[nodiscard]] const ConflictMap& conflicts() const noexcept {
-    return conflicts_;
+  // The resident index adjacency, for the local searches' inner loops.
+  [[nodiscard]] const ConflictIndices& indices() const noexcept {
+    return indices_;
   }
 
  private:
@@ -108,7 +107,6 @@ class FirstFitPlacer {
 
   std::vector<Allocation> allocations_;
   ConflictIndices indices_;
-  ConflictMap conflicts_;  // derived from indices_, initialized after it
 };
 
 }  // namespace omnimalloc

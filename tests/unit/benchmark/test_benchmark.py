@@ -3,16 +3,19 @@
 #
 
 
+import inspect
+
 import pytest
 from omnimalloc.allocators import GreedyAllocator, NaiveAllocator
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.benchmark.benchmark import run_benchmark
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.generator import RandomSource
+from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
+from omnimalloc.benchmark.sources.tiling import TilingSource
 
 
 def test_run_benchmark_basic() -> None:
-    """Test basic run_benchmark function."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
 
@@ -28,7 +31,6 @@ def test_run_benchmark_basic() -> None:
 
 
 def test_run_benchmark_multiple_allocators() -> None:
-    """Test run_benchmark with multiple allocators."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator1 = GreedyAllocator()
     allocator2 = NaiveAllocator()
@@ -44,7 +46,6 @@ def test_run_benchmark_multiple_allocators() -> None:
 
 
 def test_run_benchmark_multiple_iterations() -> None:
-    """Test run_benchmark with multiple iterations."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
 
@@ -59,7 +60,6 @@ def test_run_benchmark_multiple_iterations() -> None:
 
 
 def test_run_benchmark_metadata() -> None:
-    """Test that run_benchmark includes metadata."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
 
@@ -142,3 +142,123 @@ def test_run_benchmark_raises_when_all_pairs_skipped() -> None:
             iterations=1,
             variants=16,
         )
+
+
+def test_run_benchmark_validates_by_default() -> None:
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(RandomSource(num_allocations=10, seed=42),),
+        iterations=1,
+        variants=10,
+    )
+
+    assert inspect.signature(run_benchmark).parameters["validate"].default is True
+    assert campaign.num_reports == 1
+
+
+def test_run_benchmark_records_skipped_allocators_in_metadata() -> None:
+    source = ConcurrentTilingSource(num_allocations=16, num_threads=2, num_syncs=8)
+
+    campaign = run_benchmark(
+        allocators=(SupermallocAllocator(), GreedyAllocator()),
+        sources=(source,),
+        iterations=1,
+        variants=(16, 32),
+    )
+
+    skipped = campaign.metadata["skipped_allocators"]
+    assert skipped == [
+        {
+            "source": source.label(),
+            "allocator": "supermalloc",
+            "reason": "requires scalar (interval) lifetimes",
+        }
+    ]
+
+
+def test_run_benchmark_metadata_lists_no_skips_when_all_supported() -> None:
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(RandomSource(num_allocations=10, seed=42),),
+        iterations=1,
+        variants=10,
+    )
+
+    assert campaign.metadata["skipped_allocators"] == []
+
+
+def test_run_benchmark_records_known_optimum_when_available() -> None:
+    capacity = 1024 * 1024
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(TilingSource(num_allocations=32, capacity=capacity),),
+        iterations=1,
+        variants=32,
+    )
+
+    report = campaign.reports[0]
+    assert report.known_optimum == capacity
+    assert report.optimum_ratio is not None
+    assert report.optimum_ratio >= 1.0
+
+
+def test_run_benchmark_leaves_known_optimum_empty_without_ground_truth() -> None:
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(RandomSource(num_allocations=10, seed=42),),
+        iterations=1,
+        variants=10,
+    )
+
+    assert campaign.reports[0].known_optimum is None
+    assert campaign.reports[0].optimum_ratio is None
+
+
+def test_run_benchmark_keeps_thread_counts_as_separate_series() -> None:
+    few = SyncPatternSource(num_allocations=16, num_threads=2)
+    many = SyncPatternSource(num_allocations=16, num_threads=8)
+
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(few, many),
+        iterations=1,
+        variants=16,
+    )
+
+    assert campaign.num_sources == 2
+    assert campaign.source_names == tuple(sorted((few.label(), many.label())))
+
+
+def test_run_benchmark_variants_can_be_keyed_by_label() -> None:
+    few = SyncPatternSource(num_allocations=16, num_threads=2)
+    many = SyncPatternSource(num_allocations=16, num_threads=8)
+
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(few, many),
+        iterations=1,
+        variants={few.label(): 16, "sync_pattern": (24, 32)},
+    )
+
+    by_source = campaign.reports_by_source_allocator_variant
+    assert set(by_source[few.label()]["greedy"]) == {"16"}
+    assert set(by_source[many.label()]["greedy"]) == {"24", "32"}
+
+
+def test_run_benchmark_tolerates_unmeasurable_pressure() -> None:
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(
+            SyncPatternSource(
+                num_allocations=2000, num_threads=64, pattern="independent"
+            ),
+        ),
+        iterations=1,
+        variants=2000,
+    )
+
+    report = campaign.reports[0]
+    assert report.num_allocations == 2000
+    assert report.mean_seconds > 0
+    assert report.mean_allocation_efficiency is None
+    assert report.lower_bound is None

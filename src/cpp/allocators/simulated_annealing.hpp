@@ -23,18 +23,14 @@ struct SimulatedAnnealingConfig {
   double initial_temperature{};
   double cooling_rate{};
   // Wall-clock budget checked once per iteration; nullopt disables it. Each
-  // iteration re-evaluates a full O(n) placement, so `max_iterations` alone
-  // does not bound runtime as `allocations` grows - this does.
+  // iteration re-evaluates a full O(n) placement, so only this bounds runtime
+  // as `allocations` grows, never `max_iterations` alone.
   std::optional<double> timeout;
 };
 
-// Simulated annealing over first-fit placement orders. Each iteration swaps a
-// currently-peak allocation with an earlier temporal neighbor, accepting the
-// swap outright when it does not worsen the peak and otherwise with a
-// Metropolis probability that anneals to zero over `max_iterations`. The
-// entire search runs natively (no Python round trip per candidate), so it can
-// evaluate far more candidate placements per second than an
-// equivalent Python-orchestrated local search.
+// Simulated annealing over first-fit placement orders: each iteration swaps a
+// currently-peak allocation with an earlier temporal neighbor, taking it
+// outright unless it worsens the peak, else with Metropolis probability.
 [[nodiscard]] std::vector<Allocation> simulated_annealing_place(
     const std::vector<Allocation>& allocations,
     const SimulatedAnnealingConfig& config);
