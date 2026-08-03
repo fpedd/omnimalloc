@@ -2,25 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from importlib.metadata import version
+"""Static memory allocation: place buffers with temporal bounds, minimize peak."""
 
-__version__ = version("omnimalloc")
+from importlib.metadata import version as _version
 
-from ._allocate import allocate as allocate
-from .allocators import OmniAllocator as OmniAllocator
-from .analysis import conflicts as conflicts
-from .analysis import pressure as pressure
-from .analysis import try_linearize as try_linearize
-from .common.parallel import max_threads as max_threads
-from .common.parallel import set_max_threads as set_max_threads
-from .io import load_allocation as load_allocation
-from .io import save_allocation as save_allocation
-from .primitives import Allocation as Allocation
-from .primitives import AllocationKind as AllocationKind
-from .primitives import IdType as IdType
-from .primitives import Memory as Memory
-from .primitives import Pool as Pool
-from .primitives import System as System
-from .primitives import TimePoint as TimePoint
-from .validate import validate_allocation as validate_allocation
-from .visualize import plot_allocation as plot_allocation
+__version__ = _version("omnimalloc")
+
+from ._allocate import allocate
+from .primitives import Allocation, Memory, Pool, System
+from .validate import validate_allocation
+from .visualize import plot_allocation
+
+__all__ = [
+    "Allocation",
+    "Memory",
+    "Pool",
+    "System",
+    "__version__",
+    "allocate",
+    "plot_allocation",
+    "validate_allocation",
+]

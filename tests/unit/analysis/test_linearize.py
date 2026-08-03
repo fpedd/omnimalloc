@@ -5,9 +5,9 @@
 import random
 
 import pytest
-from omnimalloc import try_linearize
 from omnimalloc._cpp import conflicts
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
+from omnimalloc.analysis import try_linearize
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation

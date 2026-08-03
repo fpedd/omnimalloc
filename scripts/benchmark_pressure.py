@@ -14,7 +14,7 @@ from statistics import mean
 from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
-from omnimalloc import OmniAllocator
+from omnimalloc.allocators import OmniAllocator
 from omnimalloc.analysis import (
     closure_pressure,
     closure_pressure_per_allocation,
