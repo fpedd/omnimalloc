@@ -3,20 +3,17 @@
 #
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any
 
-from .allocation import Allocation, IdType
-
-
-class HasId(Protocol):
-    @property
-    def id(self) -> IdType: ...
+from .allocation import Allocation
 
 
-def ensure_unique_ids(entities: Sequence[HasId], kind: str) -> None:
+def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
     """Raise if any id repeats; id-keyed placement assumes uniqueness."""
-    seen: dict[IdType, int] = {}
+    seen: dict[Any, int] = {}
     for index, entity in enumerate(entities):
+        if not hasattr(entity, "id"):
+            raise TypeError(f"Expected an entity with an id, got {type(entity)!r}")
         if entity.id in seen:
             raise ValueError(
                 f"{kind} ids must be unique: duplicate id {entity.id!r} "

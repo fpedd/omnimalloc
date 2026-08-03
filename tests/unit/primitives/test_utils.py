@@ -35,6 +35,13 @@ def test_ensure_unique_ids_reports_kind_id_and_indices() -> None:
         ensure_unique_ids(pools, "pool")
 
 
+def test_ensure_unique_ids_rejects_entities_without_an_id() -> None:
+    with pytest.raises(TypeError, match="Expected an entity with an id"):
+        ensure_unique_ids(
+            (Allocation(id=1, size=8, start=0, end=4), object()), "allocation"
+        )
+
+
 def test_ensure_unique_ids_reports_first_duplicate_of_several() -> None:
     allocations = (
         Allocation(id=1, size=8, start=0, end=4),
