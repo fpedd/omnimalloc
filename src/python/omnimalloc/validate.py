@@ -98,14 +98,20 @@ def _check_size(memory: Memory, require_capacity: bool) -> None:
         raise ValueError(f"used size {memory.extent} exceeds memory size {memory.size}")
 
 
+def _validate_memory(
+    memory: Memory, require_capacity: bool, alignment: int | None
+) -> None:
+    _validate_pools(memory.pools, alignment)
+    _check_size(memory, require_capacity)
+
+
 def _validate_memories(
     memories: tuple[Memory, ...], require_capacity: bool, alignment: int | None
 ) -> None:
     _check_unique_ids(memories)
     for memory in memories:
         try:
-            _validate_pools(memory.pools, alignment)
-            _check_size(memory, require_capacity)
+            _validate_memory(memory, require_capacity, alignment)
         except ValueError as e:
             raise ValueError(f"in memory {memory.id!r}, {e}") from e
 
@@ -131,7 +137,9 @@ def validate_allocation(
         if isinstance(entity, System):
             _validate_memories(entity.memories, require_capacity, alignment)
         elif isinstance(entity, Memory):
-            _validate_memories((entity,), require_capacity, alignment)
+            # Directly, not through `_validate_memories`: `described` already
+            # names this memory, and the wrapper would name it a second time
+            _validate_memory(entity, require_capacity, alignment)
         elif isinstance(entity, Pool):
             _validate_allocations(entity.allocations, alignment)
         else:

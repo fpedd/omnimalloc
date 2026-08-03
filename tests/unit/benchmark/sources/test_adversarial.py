@@ -85,6 +85,18 @@ def test_two_plus_two_generates_vector_clocks() -> None:
     assert all(a.dim == 2 for a in allocations)
 
 
+def test_two_plus_two_refuses_a_count_below_one_obstruction() -> None:
+    for count in (1, 2, 3):
+        with pytest.raises(ValueError, match="a 2\\+2 obstruction needs"):
+            TwoPlusTwoSource(num_allocations=count).get_allocations()
+
+
+def test_two_plus_two_never_linearizes_at_its_smallest_count() -> None:
+    allocations = TwoPlusTwoSource(num_allocations=4).get_allocations()
+    assert len(allocations) == 4
+    assert try_linearize(allocations, work_budget=None) is None
+
+
 def test_sample_sizes_is_empty_for_a_non_positive_count() -> None:
     assert sample_sizes(random.Random(0), 0, "uniform", 1, 2) == []
 

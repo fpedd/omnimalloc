@@ -37,7 +37,7 @@ std::vector<Allocation> best_fit_place(
     const std::vector<Allocation>& allocations) {
   // Lambda rather than the function pointer so the placement loop inlines
   // the offset scan instead of an indirect call per allocation
-  return place_indexed(allocations, compute_conflict_indices(allocations),
+  return place_indexed(allocations, build_conflict_adjacency(allocations),
                        [](int64_t size, const auto& spans) {
                          return find_best_fit_offset(size, spans);
                        });

@@ -37,16 +37,6 @@ void check_sweep_budget(const ConflictSweep& sweep,
   }
 }
 
-// Pairwise happens-before adjacency unpacked from CSR form
-ConflictIndices indices_from_adjacency(size_t n, const CsrAdjacency& adj) {
-  ConflictIndices indices(n);
-  for (size_t i = 0; i < n; ++i) {
-    indices[i].assign(adj.neighbors.begin() + adj.offsets[i],
-                      adj.neighbors.begin() + adj.offsets[i + 1]);
-  }
-  return indices;
-}
-
 // Total id-keyed conflict map straight from CSR: the index adjacency in
 // between would cost a widening copy of every directed edge.
 ConflictMap conflict_map_from_adjacency(
@@ -72,12 +62,6 @@ CsrAdjacency build_conflict_adjacency(
     const std::vector<Allocation>& allocations) {
   const ConflictSweep sweep = build_conflict_sweep(allocations);
   return sweep.adjacency(parallel_threads(sweep.count()));
-}
-
-ConflictIndices compute_conflict_indices(
-    const std::vector<Allocation>& allocations) {
-  return indices_from_adjacency(allocations.size(),
-                                build_conflict_adjacency(allocations));
 }
 
 ConflictMap conflicts(const std::vector<Allocation>& allocations,

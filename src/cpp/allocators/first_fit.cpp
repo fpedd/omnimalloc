@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -302,12 +303,13 @@ PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
   return best;
 }
 
-void gather_spans(const std::vector<size_t>& neighbors,
+void gather_spans(std::span<const int32_t> neighbors,
                   const std::vector<std::optional<int64_t>>& offsets,
                   const std::vector<Allocation>& allocations,
                   std::vector<std::pair<int64_t, int64_t>>& spans) {
   spans.clear();
-  for (size_t j : neighbors) {
+  for (const int32_t neighbor : neighbors) {
+    const auto j = static_cast<size_t>(neighbor);
     if (offsets[j].has_value()) {
       spans.emplace_back(*offsets[j], *offsets[j] + allocations[j].size());
     }
@@ -328,25 +330,23 @@ int64_t first_fit_offset(
 }
 
 std::vector<Allocation> first_fit_place_indexed(
-    const std::vector<Allocation>& allocations,
-    const ConflictIndices& indices) {
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj) {
   // Lambda rather than the function pointer so the placement loop inlines
   // the offset scan instead of an indirect call per allocation
-  return place_indexed(allocations, indices,
-                       [](int64_t size, const auto& spans) {
-                         return first_fit_offset(size, spans);
-                       });
+  return place_indexed(allocations, adj, [](int64_t size, const auto& spans) {
+    return first_fit_offset(size, spans);
+  });
 }
 
 std::vector<Allocation> first_fit_place(
     const std::vector<Allocation>& allocations) {
   return first_fit_place_indexed(allocations,
-                                 compute_conflict_indices(allocations));
+                                 build_conflict_adjacency(allocations));
 }
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)
     : allocations_(std::move(allocations)),
-      indices_(compute_conflict_indices(allocations_)) {
+      adj_(build_conflict_adjacency(allocations_)) {
   check_total_size(allocations_);
 }
 
@@ -379,7 +379,7 @@ std::vector<std::optional<int64_t>> FirstFitPlacer::place_offsets(
     if (alloc.offset().has_value()) {
       continue;
     }
-    gather_spans(indices_[idx], offsets, allocations_, spans);
+    gather_spans(adj_.row(idx), offsets, allocations_, spans);
     offsets[idx] = first_fit_offset(alloc.size(), spans);
   }
   return offsets;

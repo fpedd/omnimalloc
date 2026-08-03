@@ -3,6 +3,7 @@
 #
 
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -109,6 +110,7 @@ STACKING_BUDGET = 10.0
 
 CORE_COUNT_PROBE = """
 import json
+import os
 import random
 import sys
 
@@ -163,9 +165,32 @@ print(json.dumps(report))
 """
 
 
+SPAWN_CEILING_PROBE = """
+import multiprocessing
+
+from omnimalloc.common.parallel import adopt_max_threads, max_threads, set_max_threads
+
+
+def report(_arg):
+    return max_threads()
+
+
+if __name__ == "__main__":
+    set_max_threads(2)
+    context = multiprocessing.get_context("spawn")
+    with context.Pool(1, initializer=adopt_max_threads, initargs=(2,)) as pool:
+        print(pool.map(report, [0])[0])
+"""
+
+
 class FailingVariant:
     def allocate(self, _allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         raise RuntimeError("Variant failure")
+
+
+class SuicidalVariant:
+    def allocate(self, _allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        os._exit(1)
 
 
 def _dense_instance(num_allocations: int, seed: int) -> tuple[Allocation, ...]:
@@ -440,6 +465,32 @@ def test_one_failing_variant_does_not_sink_the_parallel_call() -> None:
     assert len(placed) == len(allocations)
     assert placement_pressure(placed) == placement_pressure(
         GreedyAllocator().allocate(allocations)
+    )
+
+
+def test_a_spawned_worker_inherits_the_thread_ceiling(tmp_path: Path) -> None:
+    # Spawn re-imports rather than copying the parent, so the native ceiling
+    # only reaches the worker if the pool hands it down. A script, not -c: the
+    # spawned child has to import __main__ to unpickle the task.
+    probe = tmp_path / "spawn_ceiling_probe.py"
+    probe.write_text(SPAWN_CEILING_PROBE)
+    completed = subprocess.run(
+        [sys.executable, str(probe)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=True,
+    )
+    assert completed.stdout.strip() == "2"
+
+
+def test_a_dying_worker_does_not_sink_the_parallel_call() -> None:
+    allocations = _small_instance(80, seed=3)
+    variants = (SuicidalVariant(), GreedyAllocator(), GreedyBySizeAllocator())
+    placed = allocate_parallel(allocations, variants, num_threads=4)
+    assert placement_pressure(placed) == min(
+        placement_pressure(GreedyAllocator().allocate(allocations)),
+        placement_pressure(GreedyBySizeAllocator().allocate(allocations)),
     )
 
 

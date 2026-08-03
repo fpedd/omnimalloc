@@ -70,7 +70,8 @@ class TwoPlusTwoSource(BaseSource):
     """Vector-clock instances that provably are not interval orders.
 
     Every group of four allocations is a 2+2, inducing a chordless 4-cycle no set
-    of intervals can realize, so `try_linearize` always returns None here.
+    of intervals can realize, so `try_linearize` always returns None here. Below
+    four allocations there is no room for the obstruction, and the source says so.
     """
 
     _GROUP = 4
@@ -99,6 +100,12 @@ class TwoPlusTwoSource(BaseSource):
         self, num_allocations: int | None = None, skip: int = 0
     ) -> tuple[Allocation, ...]:
         num = num_allocations if num_allocations is not None else self.num_allocations
+        # A truncated group is no obstruction, so the source cannot express a
+        # count below one: refuse rather than hand back a linearizable instance
+        if num < self._GROUP:
+            raise ValueError(
+                f"a 2+2 obstruction needs {self._GROUP} allocations, got {num}"
+            )
         rng = random.Random(None if self.seed is None else self.seed + skip)
         obstructions = max(1, round(num * (1.0 - self.noise)) // self._GROUP)
 
@@ -119,7 +126,7 @@ class TwoPlusTwoSource(BaseSource):
 
         while len(allocations) < num:
             lane = rng.randrange(2)
-            step = rng.randrange(self._GROUP * obstructions or 1)
+            step = rng.randrange(self._GROUP * obstructions)
             start = (step, 0) if lane == 0 else (0, step)
             end = (step + 1, 0) if lane == 0 else (0, step + 1)
             allocations.append(

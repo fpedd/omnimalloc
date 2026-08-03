@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import os
 import platform
 import subprocess
 from datetime import datetime
@@ -11,6 +10,7 @@ from typing import Any
 from omnimalloc import __version__
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.common.directories import PROJECT_DIR
+from omnimalloc.common.parallel import available_cores
 
 
 def source_label(source: BaseSource | type[BaseSource] | str) -> str:
@@ -45,5 +45,5 @@ def get_environment_metadata() -> dict[str, Any]:
         "omnimalloc_git_hash": _get_git_hash(),
         "os_info": f"{platform.system()} {platform.release()}",
         "cpu_info": platform.processor(),
-        "num_cores": os.cpu_count() or 1,
+        "num_cores": available_cores(),
     }
