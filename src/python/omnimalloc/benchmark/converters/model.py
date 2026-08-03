@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-import numpy as np
+if TYPE_CHECKING:
+    import numpy as np
 
 from omnimalloc.primitives import (
     Allocation,
@@ -20,7 +23,7 @@ from omnimalloc.primitives import (
 class Buffer:
     id: IdType
     shape: tuple[int, ...]
-    dtype: np.dtype[np.generic]
+    dtype: "np.dtype[np.generic]"
     kind: AllocationKind
 
     def __post_init__(self) -> None:
@@ -33,7 +36,7 @@ class Buffer:
 
     @property
     def size(self) -> int:
-        return int(self.dtype.itemsize * np.prod(self.shape, dtype=int))
+        return int(self.dtype.itemsize * math.prod(self.shape))
 
 
 @dataclass(frozen=True)
