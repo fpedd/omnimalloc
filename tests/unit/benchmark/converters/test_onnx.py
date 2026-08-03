@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,7 @@ from omnimalloc.benchmark.converters.onnx import HAS_ONNX
 
 if HAS_ONNX:
     import onnx
-    from omnimalloc.benchmark.converters.model import ITEMSIZE
+    from omnimalloc.benchmark.converters.model import ITEMBITS
     from omnimalloc.benchmark.converters.onnx import (
         _node_to_op,
         _tensor_proto_to_buffer,
@@ -67,13 +68,32 @@ def simple_onnx_model() -> "onnx.ModelProto":
     return helper.make_model(graph_def, producer_name="test")
 
 
-def test_itemsize_covers_every_onnx_dtype() -> None:
-    """ITEMSIZE must stay in step with the dtypes ONNX maps to numpy."""
-    for value in TensorProto.DataType.values():
+# The widths onnx.helper.make_tensor packs a raw tensor to, for the types numpy
+# has no storage for; every other type is one numpy itemsize per element.
+SUB_BYTE_BITS = {"INT2": 2, "UINT2": 2, "INT4": 4, "UINT4": 4, "FLOAT4E2M1": 4}
+
+
+def test_itembits_covers_every_onnx_dtype() -> None:
+    """ITEMBITS must stay in step with the dtypes ONNX can hand the converter."""
+    for name, value in TensorProto.DataType.items():
         if value == TensorProto.UNDEFINED:
             continue
         dtype = onnx.helper.tensor_dtype_to_np_dtype(value)
-        assert ITEMSIZE.get(dtype.name) == dtype.itemsize, dtype.name
+        expected = SUB_BYTE_BITS.get(name, dtype.itemsize * 8)
+        assert ITEMBITS.get(dtype.name) == expected, name
+
+
+@pytest.mark.parametrize(
+    ("dtype_name", "count"), [("INT4", 8), ("INT4", 7), ("UINT4", 3)]
+)
+def test_sub_byte_buffers_are_sized_packed(dtype_name: str, count: int) -> None:
+    """A 4-bit tensor occupies half a byte per element, not numpy's full one."""
+    value = TensorProto.DataType.Value(dtype_name)
+    packed = helper.make_tensor(
+        dtype_name, value, [count], b"\x00" * math.ceil(count / 2), raw=True
+    )
+
+    assert _tensor_proto_to_buffer(packed).size == len(packed.raw_data)
 
 
 def test_tensor_proto_to_buffer() -> None:

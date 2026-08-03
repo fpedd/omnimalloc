@@ -81,6 +81,16 @@ def test_buffer_size_complex_shape() -> None:
     assert buffer.size == 2 * 3 * 4 * 5 * 4
 
 
+def test_buffer_size_packs_sub_byte_dtypes() -> None:
+    buffer = Buffer(id=0, shape=(10, 20), dtype="int4", kind=AllocationKind.WORKSPACE)
+    assert buffer.size == 10 * 20 // 2
+
+
+def test_buffer_size_rounds_an_odd_sub_byte_count_up() -> None:
+    buffer = Buffer(id=0, shape=(7,), dtype="uint4", kind=AllocationKind.WORKSPACE)
+    assert buffer.size == 4
+
+
 def test_buffer_unknown_dtype() -> None:
     with pytest.raises(ValueError, match="unknown dtype 'float24'"):
         Buffer(id=0, shape=(10,), dtype="float24", kind=AllocationKind.WORKSPACE)
