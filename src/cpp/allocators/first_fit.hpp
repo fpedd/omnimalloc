@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -16,7 +17,7 @@ namespace omnimalloc {
 
 // Occupied (offset, end) spans of the already-placed neighbors of one
 // allocation, sorted by offset so the gap scans can go left-to-right
-void gather_spans(const std::vector<size_t>& neighbors,
+void gather_spans(std::span<const int32_t> neighbors,
                   const std::vector<std::optional<int64_t>>& offsets,
                   const std::vector<Allocation>& allocations,
                   std::vector<std::pair<int64_t, int64_t>>& spans);
@@ -47,14 +48,14 @@ struct PortfolioPlacement {
 // Greedily place allocations in order using first-fit over an index-based
 // adjacency (the fast path: each step only visits the allocation's neighbors)
 [[nodiscard]] std::vector<Allocation> first_fit_place_indexed(
-    const std::vector<Allocation>& allocations, const ConflictIndices& indices);
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj);
 
 // Shared placement skeleton of the first-fit and best-fit placers: place in
 // index order, choosing each offset with `choose_offset` over the sorted spans
 // of already-placed neighbors. Seeding pins makes them obstacles throughout.
 template <typename OffsetFn>
 [[nodiscard]] std::vector<Allocation> place_indexed(
-    const std::vector<Allocation>& allocations, const ConflictIndices& indices,
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj,
     OffsetFn choose_offset) {
   check_total_size(allocations);
   std::vector<std::optional<int64_t>> offsets(allocations.size());
@@ -66,7 +67,7 @@ template <typename OffsetFn>
   placed.reserve(allocations.size());
   for (size_t i = 0; i < allocations.size(); ++i) {
     if (!allocations[i].offset().has_value()) {
-      gather_spans(indices[i], offsets, allocations, spans);
+      gather_spans(adj.row(i), offsets, allocations, spans);
       offsets[i] = choose_offset(allocations[i].size(), spans);
     }
     placed.push_back(allocations[i].with_offset(*offsets[i]));
@@ -91,9 +92,7 @@ class FirstFitPlacer {
       const std::vector<size_t>& order) const;
 
   // The resident index adjacency, for the local searches' inner loops.
-  [[nodiscard]] const ConflictIndices& indices() const noexcept {
-    return indices_;
-  }
+  [[nodiscard]] const CsrAdjacency& adjacency() const noexcept { return adj_; }
 
  private:
   // Throw std::invalid_argument unless every index in `order` is in range
@@ -106,7 +105,7 @@ class FirstFitPlacer {
       const std::vector<size_t>& order) const;
 
   std::vector<Allocation> allocations_;
-  ConflictIndices indices_;
+  CsrAdjacency adj_;
 };
 
 }  // namespace omnimalloc

@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import os
-
 from omnimalloc._cpp import max_threads as _max_threads
 from omnimalloc._cpp import set_max_threads as _set_max_threads
+from omnimalloc._cpp import usable_cores as _usable_cores
 
 
 def set_max_threads(value: int | None) -> None:
@@ -24,6 +23,15 @@ def max_threads() -> int:
     return _max_threads()
 
 
+def adopt_max_threads(value: int) -> None:
+    """Worker-process entry point: take `value` as this process's ceiling.
+
+    The ceiling lives in native process-global state, which a forked worker
+    inherits and a spawned one does not, so a pool passes it down explicitly.
+    """
+    set_max_threads(value)
+
+
 def ensure_valid_num_threads(num_threads: int | None) -> None:
     """Raise ValueError if num_threads is not positive or None (disabled)."""
     if num_threads is not None and num_threads < 1:
@@ -39,9 +47,7 @@ def available_cores() -> int:
     Under an affinity mask or a CPU-limited container `os.cpu_count()` still
     reports the whole machine, oversubscribing every pool by the ratio.
     """
-    if hasattr(os, "sched_getaffinity"):
-        return len(os.sched_getaffinity(0)) or 1
-    return os.cpu_count() or 1
+    return _usable_cores()
 
 
 def resolve_num_threads(num_threads: int | None) -> int:

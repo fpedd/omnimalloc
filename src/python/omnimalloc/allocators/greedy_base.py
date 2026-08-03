@@ -3,12 +3,18 @@
 #
 
 import logging
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 from omnimalloc.analysis import conflict_degrees, placement_pressure
 from omnimalloc.analysis.clock import uniform_dim
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
-from omnimalloc.common.parallel import resolve_num_threads
+from omnimalloc.common.parallel import (
+    adopt_max_threads,
+    max_threads,
+    resolve_num_threads,
+)
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -77,6 +83,73 @@ def _allocate(
     return allocator.allocate(allocations)
 
 
+def _run_here(
+    variant: BaseAllocator, allocations: tuple[Allocation, ...]
+) -> tuple[Allocation, ...] | None:
+    """One variant's placement in this process, or None once it has failed."""
+    try:
+        return variant.allocate(allocations)
+    except Exception:  # noqa: BLE001
+        logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
+        return None
+
+
+def _worker_ceiling(workers: int) -> int:
+    """Thread ceiling one pool worker gets, so the pool respects the whole one.
+
+    Workers run the native kernels too, and the ceiling is native process-global
+    state a spawned worker does not inherit, so a pool hands down its share.
+    """
+    return max(1, max_threads() // workers)
+
+
+def _run_in_pool(
+    allocations: tuple[Allocation, ...],
+    variants: Sequence[BaseAllocator],
+    workers: int,
+) -> tuple[list[tuple[Allocation, ...]], list[BaseAllocator]]:
+    """Placements from the pool, plus the variants a broken pool took down.
+
+    A worker dying abruptly (OOM kill, segfault) breaks the executor, so every
+    future still in flight fails alongside it. Those variants never produced an
+    answer at all, and come back for a retry rather than counting as failures.
+    """
+    results = []
+    stranded = []
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        initializer=adopt_max_threads,
+        initargs=(_worker_ceiling(workers),),
+    ) as pool:
+        futures = [pool.submit(_allocate, v, allocations) for v in variants]
+        for variant, future in zip(variants, futures, strict=True):
+            try:
+                results.append(future.result())
+            except BrokenProcessPool:
+                stranded.append(variant)
+            except Exception:  # noqa: BLE001
+                logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
+    return results, stranded
+
+
+def _rerun_stranded(
+    allocations: tuple[Allocation, ...], stranded: list[BaseAllocator]
+) -> list[tuple[Allocation, ...]]:
+    """Retry the variants a broken pool took down, one pool each.
+
+    One at a time, and never in this process: whatever killed the worker would
+    kill the caller too, and a shared retry pool would just strand them again.
+    """
+    logger.warning("Worker pool broke; retrying %d variant(s)", len(stranded))
+    results = []
+    for variant in stranded:
+        placed, failed = _run_in_pool(allocations, [variant], workers=1)
+        results += placed
+        if failed:
+            logger.warning("Variant %s took its worker down; skipping it", variant)
+    return results
+
+
 def allocate_parallel(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
@@ -95,25 +168,13 @@ def allocate_parallel(
     if num_threads is None:
         workers = min(workers, len(variants))
 
-    # One variant dying (raised, or its worker OOM-killed) must not discard
-    # the placements the others already produced, on either path
-    results = []
     if workers <= 1:
-        for variant in variants:
-            try:
-                results.append(variant.allocate(allocations))
-            except Exception:  # noqa: BLE001
-                logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
+        placements = (_run_here(variant, allocations) for variant in variants)
+        results = [placed for placed in placements if placed is not None]
     else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_allocate, v, allocations) for v in variants]
-            for variant, future in zip(variants, futures, strict=True):
-                try:
-                    results.append(future.result())
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "Variant %s failed; skipping it", variant, exc_info=True
-                    )
+        results, stranded = _run_in_pool(allocations, variants, workers)
+        if stranded:
+            results += _rerun_stranded(allocations, stranded)
 
     if not results:
         raise RuntimeError("Every allocator variant failed")

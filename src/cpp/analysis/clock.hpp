@@ -339,11 +339,22 @@ inline std::vector<int64_t> interval_peaks(
 struct CsrAdjacency {
   std::vector<int64_t> offsets;
   std::vector<int32_t> neighbors;
+
+  [[nodiscard]] size_t size() const noexcept { return offsets.size() - 1; }
+
+  // One row as a view into the shared storage, so walking the relation costs
+  // no copy and the 4-bytes-per-edge accounting holds all the way through.
+  [[nodiscard]] std::span<const int32_t> row(size_t index) const noexcept {
+    return {neighbors.data() + offsets[index],
+            static_cast<size_t>(offsets[index + 1] - offsets[index])};
+  }
 };
 
-// Ceiling on the neighbor entries one adjacency may materialize, 4 bytes each.
-// No work budget bounds the CSR: budgets count the sweep, and the sweep is what
-// fills the rows. A guard against taking the host down, not a tuning knob.
+// Ceiling on the neighbor entries one adjacency may materialize, 4 bytes each
+// and 4 all the way through: every consumer walks the CSR rows in place, so the
+// accounting is the whole cost, not a stage of it. No work budget bounds the
+// CSR: budgets count the sweep, and the sweep is what fills the rows. A guard
+// against taking the host down, not a tuning knob.
 inline constexpr uint64_t kMaxAdjacencyEntries = uint64_t{1} << 31;
 
 // Pairwise happens-before conflict sweep, O(n^2 * T) worst case; vector clocks
