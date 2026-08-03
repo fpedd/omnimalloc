@@ -635,9 +635,9 @@ def test_model_to_system_empty_model() -> None:
     assert len(system.memories[0].pools) == 0
 
 
-def test_model_to_pools_skips_unreferenced_buffers() -> None:
+def test_model_to_pools_skips_unreferenced_workspace_buffers() -> None:
     used = _buf("used")
-    unused = _buf("unused", AllocationKind.INPUT)
+    unused = _buf("unused")
     op = Op(id=0, outputs={used})
     model = Model(id=0, ops={0: op}, buffers={"used": used, "unused": unused})
 
@@ -645,6 +645,23 @@ def test_model_to_pools_skips_unreferenced_buffers() -> None:
 
     allocation_ids = {a.id for pool in pools for a in pool.allocations}
     assert allocation_ids == {"used"}
+
+
+def test_model_to_pools_keeps_unreferenced_io_and_constant_buffers() -> None:
+    used = _buf("used")
+    spare_input = _buf("spare_input", AllocationKind.INPUT)
+    spare_const = _buf("spare_const", AllocationKind.CONSTANT)
+    op = Op(id=0, outputs={used})
+    model = Model(
+        id=0,
+        ops={0: op},
+        buffers={"used": used, "spare_input": spare_input, "spare_const": spare_const},
+    )
+
+    pools = model_to_pools(model)
+
+    allocation_ids = {a.id for pool in pools for a in pool.allocations}
+    assert allocation_ids == {"used", "spare_input", "spare_const"}
 
 
 def test_model_to_allocations_skips_unreferenced_buffers() -> None:

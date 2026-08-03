@@ -140,8 +140,8 @@ def model_to_pools(
     model: Model,
     include_const: bool = True,
     include_io: bool = True,
-    const_inf_lifetime: bool = False,
-    io_inf_lifetime: bool = False,
+    const_inf_lifetime: bool = True,
+    io_inf_lifetime: bool = True,
 ) -> tuple[Pool, ...]:
     """Extract Pools grouped by buffer kind."""
     buffer_to_first_index, buffer_to_last_index = _compute_buffer_lifetimes(
