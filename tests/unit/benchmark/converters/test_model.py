@@ -21,28 +21,24 @@ def _buf(
     kind: AllocationKind = AllocationKind.WORKSPACE,
     shape: tuple[int, ...] = (10,),
 ) -> Buffer:
-    return Buffer(id=buf_id, shape=shape, dtype="float32", itemsize=4, kind=kind)
+    return Buffer(id=buf_id, shape=shape, dtype="float32", kind=kind)
 
 
 def test_buffer_basic_creation_int_id() -> None:
     buffer = Buffer(
-        id=0, shape=(10, 20), dtype="float32", itemsize=4, kind=AllocationKind.WORKSPACE
+        id=0, shape=(10, 20), dtype="float32", kind=AllocationKind.WORKSPACE
     )
     assert buffer.id == 0
     assert buffer.shape == (10, 20)
     assert buffer.dtype == "float32"
-    assert buffer.itemsize == 4
     assert buffer.kind == AllocationKind.WORKSPACE
 
 
 def test_buffer_basic_creation_str_id() -> None:
-    buffer = Buffer(
-        id="buf_0", shape=(10,), dtype="int8", itemsize=1, kind=AllocationKind.CONSTANT
-    )
+    buffer = Buffer(id="buf_0", shape=(10,), dtype="int8", kind=AllocationKind.CONSTANT)
     assert buffer.id == "buf_0"
     assert buffer.shape == (10,)
     assert buffer.dtype == "int8"
-    assert buffer.itemsize == 1
     assert buffer.kind == AllocationKind.CONSTANT
 
 
@@ -60,22 +56,18 @@ def test_buffer_ndim_4d() -> None:
 
 def test_buffer_size_float32() -> None:
     buffer = Buffer(
-        id=0, shape=(10, 20), dtype="float32", itemsize=4, kind=AllocationKind.WORKSPACE
+        id=0, shape=(10, 20), dtype="float32", kind=AllocationKind.WORKSPACE
     )
     assert buffer.size == 10 * 20 * 4
 
 
 def test_buffer_size_int8() -> None:
-    buffer = Buffer(
-        id=0, shape=(100,), dtype="int8", itemsize=1, kind=AllocationKind.WORKSPACE
-    )
+    buffer = Buffer(id=0, shape=(100,), dtype="int8", kind=AllocationKind.WORKSPACE)
     assert buffer.size == 100
 
 
 def test_buffer_size_float64() -> None:
-    buffer = Buffer(
-        id=0, shape=(5, 5), dtype="float64", itemsize=8, kind=AllocationKind.WORKSPACE
-    )
+    buffer = Buffer(id=0, shape=(5, 5), dtype="float64", kind=AllocationKind.WORKSPACE)
     assert buffer.size == 5 * 5 * 8
 
 
@@ -84,21 +76,14 @@ def test_buffer_size_complex_shape() -> None:
         id=0,
         shape=(2, 3, 4, 5),
         dtype="float32",
-        itemsize=4,
         kind=AllocationKind.WORKSPACE,
     )
     assert buffer.size == 2 * 3 * 4 * 5 * 4
 
 
-def test_buffer_invalid_itemsize() -> None:
-    with pytest.raises(ValueError, match="itemsize must be a positive integer"):
-        Buffer(
-            id=0,
-            shape=(10,),
-            dtype="float32",
-            itemsize=0,
-            kind=AllocationKind.WORKSPACE,
-        )
+def test_buffer_unknown_dtype() -> None:
+    with pytest.raises(ValueError, match="unknown dtype 'float24'"):
+        Buffer(id=0, shape=(10,), dtype="float24", kind=AllocationKind.WORKSPACE)
 
 
 def test_buffer_invalid_shape_zero() -> None:

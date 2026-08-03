@@ -10,6 +10,7 @@ from omnimalloc.benchmark.converters.onnx import HAS_ONNX
 
 if HAS_ONNX:
     import onnx
+    from omnimalloc.benchmark.converters.model import ITEMSIZE
     from omnimalloc.benchmark.converters.onnx import (
         _node_to_op,
         _tensor_proto_to_buffer,
@@ -66,6 +67,15 @@ def simple_onnx_model() -> "onnx.ModelProto":
     return helper.make_model(graph_def, producer_name="test")
 
 
+def test_itemsize_covers_every_onnx_dtype() -> None:
+    """ITEMSIZE must stay in step with the dtypes ONNX maps to numpy."""
+    for value in TensorProto.DataType.values():
+        if value == TensorProto.UNDEFINED:
+            continue
+        dtype = onnx.helper.tensor_dtype_to_np_dtype(value)
+        assert ITEMSIZE.get(dtype.name) == dtype.itemsize, dtype.name
+
+
 def test_tensor_proto_to_buffer() -> None:
     tensor = helper.make_tensor(
         "test_tensor",
@@ -80,7 +90,6 @@ def test_tensor_proto_to_buffer() -> None:
     assert buffer.id == "test_tensor"
     assert buffer.shape == (2, 3, 4)
     assert buffer.dtype == "float32"
-    assert buffer.itemsize == 4
     assert buffer.kind == AllocationKind.CONSTANT
 
 
@@ -98,7 +107,6 @@ def test_tensor_proto_to_buffer_different_dtype() -> None:
     assert buffer.id == "int_tensor"
     assert buffer.shape == (3, 5)
     assert buffer.dtype == "int64"
-    assert buffer.itemsize == 8
     assert buffer.kind == AllocationKind.CONSTANT
 
 
@@ -110,7 +118,6 @@ def test_value_info_to_buffer() -> None:
     assert buffer.id == "test_value"
     assert buffer.shape == (5, 10)
     assert buffer.dtype == "int32"
-    assert buffer.itemsize == 4
     assert buffer.kind == AllocationKind.WORKSPACE
 
 

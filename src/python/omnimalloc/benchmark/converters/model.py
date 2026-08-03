@@ -4,6 +4,7 @@
 
 import math
 from dataclasses import dataclass, field
+from typing import Final
 
 from omnimalloc.primitives import (
     Allocation,
@@ -14,22 +15,46 @@ from omnimalloc.primitives import (
     System,
 )
 
+ITEMSIZE: Final[dict[str, int]] = {
+    "bool": 1,
+    "int4": 1,
+    "int8": 1,
+    "uint4": 1,
+    "uint8": 1,
+    "float4_e2m1fn": 1,
+    "float8_e4m3fn": 1,
+    "float8_e4m3fnuz": 1,
+    "float8_e5m2": 1,
+    "float8_e5m2fnuz": 1,
+    "float8_e8m0fnu": 1,
+    "int16": 2,
+    "uint16": 2,
+    "float16": 2,
+    "bfloat16": 2,
+    "int32": 4,
+    "uint32": 4,
+    "float32": 4,
+    "int64": 8,
+    "uint64": 8,
+    "float64": 8,
+    "complex64": 8,
+    "object": 8,
+    "complex128": 16,
+}
+
 
 @dataclass(frozen=True)
 class Buffer:
     id: IdType
     shape: tuple[int, ...]
-    # Element type as a name, e.g. "float32", paired with its width in bytes:
-    # the sizing never needs more, and the converter feeding it knows both.
     dtype: str
-    itemsize: int
     kind: AllocationKind
 
     def __post_init__(self) -> None:
         if not all(isinstance(dim, int) and dim > 0 for dim in self.shape):
             raise ValueError("shape dimensions must be positive integers")
-        if self.itemsize <= 0:
-            raise ValueError("itemsize must be a positive integer")
+        if self.dtype not in ITEMSIZE:
+            raise ValueError(f"unknown dtype {self.dtype!r}")
 
     @property
     def ndim(self) -> int:
@@ -37,7 +62,7 @@ class Buffer:
 
     @property
     def size(self) -> int:
-        return self.itemsize * math.prod(self.shape)
+        return ITEMSIZE[self.dtype] * math.prod(self.shape)
 
 
 @dataclass(frozen=True)
