@@ -4,7 +4,6 @@
 
 import json
 import random
-import resource
 import shutil
 import subprocess
 import sys
@@ -12,6 +11,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
+
+try:
+    import resource
+except ModuleNotFoundError:  # Windows has no resource module
+    resource = None
 
 import pytest
 from omnimalloc._cpp import FirstFitPlacer
@@ -561,6 +565,7 @@ def test_stacking_around_a_pin_still_places_every_allocation() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(resource is None, reason="resource is unavailable")
 def test_soak_of_random_instances_keeps_memory_bounded() -> None:
     rng = random.Random(99)
     baseline = 0
