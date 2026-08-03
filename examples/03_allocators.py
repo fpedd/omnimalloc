@@ -23,9 +23,9 @@ def main() -> None:
 
     # Get and run the default allocator
     print(f"Running allocation with default allocator: {DEFAULT_ALLOCATOR}")
-    pool = om.allocate(pool, allocator=DEFAULT_ALLOCATOR, validate=True)
-    print(f"Pool {pool.id!r} size: {pool.size}")
-    om.plot_allocation(pool, example_dir / f"{DEFAULT_ALLOCATOR}_default.pdf")
+    placed = om.allocate(pool, allocator=DEFAULT_ALLOCATOR, validate=True)
+    print(f"Pool {placed.id!r} size: {placed.size}")
+    om.plot_allocation(placed, example_dir / f"{DEFAULT_ALLOCATOR}_default.pdf")
 
     # Run allocation with all available allocators
     for allocator_name in available_allocators():
@@ -34,9 +34,9 @@ def main() -> None:
             print(f"Skipping unavailable allocator: {allocator_name}")
             continue
         print(f"Running allocation with allocator: {allocator_name}")
-        pool = om.allocate(pool, allocator_name, validate=True)
-        print(f"Pool {pool.id!r} size: {pool.size}")
-        om.plot_allocation(pool, example_dir / f"{allocator_name}.pdf")
+        placed = om.allocate(pool, allocator_name, validate=True)
+        print(f"Pool {placed.id!r} size: {placed.size}")
+        om.plot_allocation(placed, example_dir / f"{allocator_name}.pdf")
 
 
 if __name__ == "__main__":

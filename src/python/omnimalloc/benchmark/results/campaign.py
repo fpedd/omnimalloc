@@ -60,34 +60,11 @@ class BenchmarkCampaign:
 
     @property
     def allocator_names(self) -> tuple[str, ...]:
-        names = {r.allocator_name for r in self.reports if r.allocator_name is not None}
-        return tuple(sorted(names))
+        return tuple(sorted({r.allocator_name for r in self.reports}))
 
     @property
     def source_names(self) -> tuple[str, ...]:
-        names = {r.source_name for r in self.reports if r.source_name is not None}
-        return tuple(sorted(names))
-
-    @property
-    def reports_by_num_allocations(self) -> dict[int, tuple[BenchmarkReport, ...]]:
-        grouped: defaultdict[int, list[BenchmarkReport]] = defaultdict(list)
-        for r in self.reports:
-            grouped[r.num_allocations].append(r)
-        return {k: tuple(v) for k, v in grouped.items()}
-
-    @property
-    def reports_by_allocator(self) -> dict[str, tuple[BenchmarkReport, ...]]:
-        grouped: defaultdict[str, list[BenchmarkReport]] = defaultdict(list)
-        for r in self.reports:
-            grouped[r.allocator_name].append(r)
-        return {k: tuple(v) for k, v in grouped.items()}
-
-    @property
-    def reports_by_source(self) -> dict[str, tuple[BenchmarkReport, ...]]:
-        grouped: defaultdict[str, list[BenchmarkReport]] = defaultdict(list)
-        for r in self.reports:
-            grouped[r.source_name].append(r)
-        return {k: tuple(v) for k, v in grouped.items()}
+        return tuple(sorted({r.source_name for r in self.reports}))
 
     @property
     def reports_by_source_allocator_variant(

@@ -11,13 +11,12 @@ from .base import BaseAllocator
 class BestFitAllocator(BaseAllocator):
     """Greedy allocator that places each buffer in the smallest sufficient gap.
 
-    Unlike first-fit (which takes the first gap wide enough among overlapping
-    placements), best-fit scans every such gap and picks the tightest one, a
-    classic bin-packing strategy that tends to leave larger, more broadly
-    useful gaps free for later, bigger allocations.
+    Where first-fit takes the first gap wide enough, best-fit scans every gap
+    and picks the tightest, leaving larger ones free for later allocations.
     """
 
     supports_vector_time = True
+    supports_pinned = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return tuple(best_fit_place(allocations))

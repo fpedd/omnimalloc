@@ -4,6 +4,7 @@
 
 import random
 from bisect import bisect_right
+from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import TimePoint, VectorClock
@@ -18,15 +19,11 @@ _SyncHistory = tuple[list[int], list[VectorClock]]
 class ConcurrentTilingSource(TilingSource):
     """Guillotine tilings sharded across partially-synchronized workers.
 
-    Each of ``num_threads`` workers tiles its own ``capacity / num_threads``
-    memory band over a private local timeline, so lifetimes become vector
-    clocks of a simulated execution with ``num_syncs`` random cross-thread
-    sync messages (send/receive max-merge). Stacking the bands packs the whole
-    problem into ``capacity``, which therefore stays a provably achievable
-    optimum regardless of the sync rate. Sweeping ``num_syncs`` interpolates
-    between ``num_threads`` independent problems (0) and one near-lockstep
-    scalar problem (dense).
+    Each worker tiles its own memory band over a private timeline joined by
+    ``num_syncs`` messages, so ``capacity`` stays a provably achievable optimum.
     """
+
+    _label_fields: ClassVar[tuple[str, ...]] = ("num_threads",)
 
     def __init__(
         self,

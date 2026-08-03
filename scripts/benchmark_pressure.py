@@ -3,39 +3,9 @@
 #
 """Benchmark exact pressure lower bounds on vector-clock workloads.
 
-Compares the shipping ``pressure`` (linearize then sweep, else the exact
-antichain, under the default work budget) against the two exact C++ methods:
-
-- ``pressure(work_budget=None)``: unbudgeted max-weight antichain
-  (weighted Dilworth via min flow), the tightest sound lower bound on any
-  placement's peak and the reference every ratio is measured against
-- ``closure_pressure``: realizable peak via join-closure enumeration;
-  instances whose closure exceeds ``--closure-cap`` are reported as capped
-  and excluded from the means. Instances where ``pressure`` exceeds its
-  default work budget are reported the same way
-
-and their per-allocation counterparts (dashed in the figures; ratios are
-means over the per-allocation pinned antichain):
-
-- ``pressure_per_allocation``: pinned antichain per distinct lifetime
-- ``closure_pressure_per_allocation``: realizable peak per allocation
-- ``placement_pressure_per_allocation``: placement-certified bound read
-  off an untimed ``OmniAllocator`` placement
-
-Each sample also places the workload with ``OmniAllocator`` and reports its
-peak over the antichain bound, so a ratio of 1.000 certifies the placement
-optimal. Every sample cross-checks the bound order — globally ``pressure``
-equal to the antichain, closure at or below it, omni peak at or above it,
-antichain at or below the tiling optimum; per allocation closure <= pinned
-antichain <= placement, with each per-allocation max matching its global
-counterpart and the placement max matching the placement's peak — so the
-sweep doubles as a torture pass for the exact primitives. Any method whose
-single run exceeds ``--budget`` seconds is dropped for the rest of the sweep.
-
-    uv run python scripts/benchmark_pressure.py --out benchmark_results_pressure
+Compares the shipping ``pressure`` against the exact C++ methods and their
+per-allocation counterparts, cross-checking the bound order on every sample.
 """
-
-from __future__ import annotations
 
 import argparse
 from math import isnan, nan
@@ -108,8 +78,8 @@ Sample = dict[str, Any]
 
 
 def _capped(
-    query: Callable[..., Any], allocations: tuple[Allocation, ...], cap: int
-) -> Value:
+    query: "Callable[..., Any]", allocations: "tuple[Allocation, ...]", cap: int
+) -> "Value":
     """None instead of raising when the join closure exceeds the cap."""
     try:
         return query(allocations, closure_cap=cap)
@@ -117,7 +87,7 @@ def _capped(
         return None
 
 
-def _budgeted(allocations: tuple[Allocation, ...]) -> Value:
+def _budgeted(allocations: "tuple[Allocation, ...]") -> "Value":
     """None instead of raising when pressure exceeds its work budget."""
     try:
         return pressure(allocations)
@@ -126,11 +96,11 @@ def _budgeted(allocations: tuple[Allocation, ...]) -> Value:
 
 
 def _sample_runners(
-    allocations: tuple[Allocation, ...],
-    placed: tuple[Allocation, ...],
+    allocations: "tuple[Allocation, ...]",
+    placed: "tuple[Allocation, ...]",
     allocator: OmniAllocator,
     args: argparse.Namespace,
-) -> dict[str, Runner]:
+) -> "dict[str, Runner]":
     return {
         "pressure": lambda: _budgeted(allocations),
         REFERENCE: lambda: pressure(allocations, work_budget=None),
@@ -148,14 +118,14 @@ def _sample_runners(
     }
 
 
-def _timed(runner: Runner) -> tuple[float, Value]:
-    timer = Timer(auto_start=True)
+def _timed(runner: "Runner") -> "tuple[float, Value]":
+    timer = Timer().start()
     value = runner()
     timer.stop()
     seconds = timer.elapsed_s
     if seconds < 1e-3:
         for _ in range(4):
-            timer = Timer(auto_start=True)
+            timer = Timer().start()
             runner()
             timer.stop()
             seconds = min(seconds, timer.elapsed_s)
@@ -163,7 +133,7 @@ def _timed(runner: Runner) -> tuple[float, Value]:
 
 
 def _run_methods(
-    runners: dict[str, Runner],
+    runners: "dict[str, Runner]",
     dropped: set[str],
     capped: dict[str, dict[int, int]],
     size: int,
@@ -189,7 +159,7 @@ def _run_methods(
 
 
 def _finish_sample(
-    sample: Sample, placed: tuple[Allocation, ...], optimum: int | None
+    sample: Sample, placed: "tuple[Allocation, ...]", optimum: int | None
 ) -> Sample:
     """Cross-check the bound order and identities, attach ratios."""
     values = sample.pop("values")
@@ -206,7 +176,7 @@ def _finish_sample(
 
 
 def _check_per_allocation(
-    values: dict[str, Any], reference: int, placed: tuple[Allocation, ...]
+    values: dict[str, Any], reference: int, placed: "tuple[Allocation, ...]"
 ) -> None:
     """Per-allocation identities: maxima match globals, bounds are ordered."""
     per_alloc = values.get(PER_ALLOCATION_REFERENCE)
@@ -351,7 +321,7 @@ def _print_summary(
     print()
 
 
-def _style_axes(ax: Axes) -> None:
+def _style_axes(ax: "Axes") -> None:
     ax.set_facecolor(SURFACE)
     ax.grid(visible=True, which="major", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
@@ -362,7 +332,7 @@ def _style_axes(ax: Axes) -> None:
         ax.spines[side].set_color(AXIS)
 
 
-def _plot_series(ax: Axes, sizes: list[int], values: list[float], name: str) -> None:
+def _plot_series(ax: "Axes", sizes: list[int], values: list[float], name: str) -> None:
     ax.plot(
         sizes,
         values,
@@ -377,7 +347,7 @@ def _plot_series(ax: Axes, sizes: list[int], values: list[float], name: str) -> 
     )
 
 
-def _finish_time_axes(ax: Axes, sizes: list[int]) -> None:
+def _finish_time_axes(ax: "Axes", sizes: list[int]) -> None:
     _style_axes(ax)
     ax.set_yscale("log")
     ax.set_xscale("log")
@@ -386,7 +356,7 @@ def _finish_time_axes(ax: Axes, sizes: list[int]) -> None:
     ax.set_ylabel("wall time [s]", color=INK_SECONDARY, fontsize=10)
 
 
-def _titles(ax: Axes, title: str, caption: str) -> None:
+def _titles(ax: "Axes", title: str, caption: str) -> None:
     ax.set_title(title, loc="left", color=INK, fontsize=12, fontweight="medium", pad=22)
     note = ax.text(
         0.0, 1.04, caption, transform=ax.transAxes, fontsize=8.5, color=INK_MUTED
@@ -401,7 +371,7 @@ def _render_family(
     title: str,
     caption: str,
     expected: int,
-) -> Figure:
+) -> "Figure":
     fig, (ax_time, ax_ratio) = plt.subplots(
         2,
         1,

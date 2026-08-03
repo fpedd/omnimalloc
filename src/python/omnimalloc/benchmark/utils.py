@@ -6,10 +6,7 @@ from typing import Any
 
 try:
     from tqdm.auto import tqdm
-
-    HAS_TQDM = True
 except ImportError:
-    HAS_TQDM = False
 
     class _DummyProgressBar:
         """No-op stand-in for tqdm's total=... progress bar."""

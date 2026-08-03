@@ -6,6 +6,7 @@ from itertools import combinations
 from random import Random
 
 import pytest
+from omnimalloc import allocate
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.analysis import (
     antichain_pressure,
@@ -325,6 +326,15 @@ def test_placement_pressure_requires_offsets() -> None:
         placement_pressure(unplaced)
 
 
+def test_placement_pressure_rejects_mixed_dimensions() -> None:
+    mixed = (
+        Allocation(id=1, size=8, start=(0, 0), end=(1, 1), offset=0),
+        Allocation(id=2, size=8, start=(0, 0, 0), end=(1, 1, 1), offset=8),
+    )
+    with pytest.raises(ValueError, match="dimension"):
+        placement_pressure(mixed)
+
+
 def test_per_allocation_placement_pressure_max_equals_peak() -> None:
     placed = (
         Allocation(id="x", size=5, start=0, end=2, offset=0),
@@ -463,6 +473,137 @@ def test_per_allocation_pressures_match_brute_force() -> None:
         assert closure == _brute_pinned_closure(allocations)
 
 
+def _brute_placement(allocations: tuple[Allocation, ...]) -> dict[int | str, int]:
+    peaks = {}
+    for pin in allocations:
+        top = pin.offset + pin.size
+        for other in allocations:
+            if other is not pin and pin.conflicts_with(other):
+                top = max(top, other.offset + other.size)
+        peaks[pin.id] = top
+    return peaks
+
+
+def test_per_allocation_placement_pressure_matches_brute_force() -> None:
+    rng = Random(19)
+    allocator = OmniAllocator()
+    for _ in range(60):
+        allocations = _random_instance(rng)
+        placed = allocator.allocate(allocations)
+        assert placement_pressure_per_allocation(placed) == _brute_placement(placed)
+        scrambled = tuple(a.with_offset(rng.randint(0, 300)) for a in allocations)
+        assert placement_pressure_per_allocation(
+            scrambled, work_budget=None
+        ) == _brute_placement(scrambled)
+
+
+def _assert_matches_brute(allocations: tuple[Allocation, ...]) -> None:
+    assert placement_pressure_per_allocation(allocations) == _brute_placement(
+        allocations
+    )
+
+
+def test_per_allocation_placement_pressure_on_a_shared_offset() -> None:
+    _assert_matches_brute(
+        tuple(Allocation(id=i, size=8, start=i, end=i + 3, offset=0) for i in range(40))
+    )
+
+
+def test_per_allocation_placement_pressure_on_one_shared_instant() -> None:
+    _assert_matches_brute(
+        tuple(Allocation(id=i, size=8, start=0, end=1, offset=8 * i) for i in range(40))
+    )
+
+
+def test_per_allocation_placement_pressure_on_a_nested_staircase() -> None:
+    _assert_matches_brute(
+        tuple(
+            Allocation(id=i, size=4, start=i, end=80 - i, offset=4 * i)
+            for i in range(40)
+        )
+    )
+
+
+def test_per_allocation_placement_pressure_on_a_reversed_staircase() -> None:
+    _assert_matches_brute(
+        tuple(
+            Allocation(id=i, size=4, start=i, end=80 - i, offset=4 * (40 - i))
+            for i in range(40)
+        )
+    )
+
+
+def test_per_allocation_placement_pressure_on_disjoint_unit_lifetimes() -> None:
+    _assert_matches_brute(
+        tuple(Allocation(id=i, size=8, start=i, end=i + 1, offset=0) for i in range(40))
+    )
+
+
+def test_per_allocation_placement_pressure_under_one_tall_spanner() -> None:
+    _assert_matches_brute(
+        (
+            Allocation(id="span", size=1, start=0, end=100, offset=0),
+            *(
+                Allocation(id=i, size=100, start=i, end=i + 1, offset=1)
+                for i in range(1, 40)
+            ),
+        )
+    )
+
+
+def test_per_allocation_placement_pressure_matches_brute_force_on_scalar_time() -> None:
+    rng = Random(23)
+    for _ in range(200):
+        horizon = rng.choice((1, 2, 5, 40))
+        drawn = []
+        for i in range(rng.randint(1, 40)):
+            start = rng.randint(0, horizon)
+            drawn.append(
+                Allocation(
+                    id=i,
+                    size=rng.randint(1, 16),
+                    start=start,
+                    end=start + rng.randint(1, 4),
+                    offset=rng.choice((0, 0, rng.randint(0, 64))),
+                )
+            )
+        allocations = tuple(drawn)
+        assert placement_pressure_per_allocation(
+            allocations, work_budget=None
+        ) == _brute_placement(allocations)
+
+
+def test_antichain_pressure_column_collapse_admits_wide_lockstep_clocks() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(i,) * 64, end=(i + 2,) * 64)
+        for i in range(3000)
+    )
+    assert antichain_pressure(allocations) == 16
+    assert antichain_pressure(allocations, work_budget=2 * 3000 * 64) == 16
+    with pytest.raises(RuntimeError, match="work_budget"):
+        antichain_pressure(allocations, work_budget=0)
+
+
+def test_per_allocation_placement_pressure_default_budget_admits_wide_sweep() -> None:
+    zero = (0,) * 64
+    ahead = (1, *(0,) * 63)
+    aside = (0, 1, *(0,) * 62)
+    clique = [
+        Allocation(id=i, size=8, start=zero, end=(1,) * 64, offset=8 * i)
+        for i in range(3000)
+    ]
+    sweep_forcing_two_plus_two = [
+        Allocation(id="a", size=8, start=zero, end=ahead, offset=24_000),
+        Allocation(id="b", size=8, start=ahead, end=(2, *(0,) * 63), offset=24_008),
+        Allocation(id="c", size=8, start=zero, end=aside, offset=24_016),
+        Allocation(id="d", size=8, start=aside, end=(0, 2, *(0,) * 62), offset=24_024),
+    ]
+    allocations = tuple(clique + sweep_forcing_two_plus_two)
+    peaks = placement_pressure_per_allocation(allocations)
+    assert peaks["c"] == 24_024
+    assert set(peaks.values()) == {24_024, 24_032}
+
+
 def test_per_allocation_bound_order_and_peak_identities() -> None:
     rng = Random(17)
     allocator = OmniAllocator()
@@ -478,3 +619,74 @@ def test_per_allocation_bound_order_and_peak_identities() -> None:
         for alloc_id in pinned:
             assert closure[alloc_id] <= pinned[alloc_id]
             assert pinned[alloc_id] <= placement[alloc_id]
+
+
+def test_placement_pressure_per_allocation_paints_nested_lifetimes() -> None:
+    allocations = (
+        Allocation(id="long", size=8, start=0, end=10, offset=0),
+        Allocation(id="tall", size=100, start=2, end=4, offset=8),
+        Allocation(id="short", size=10, start=6, end=8, offset=8),
+    )
+    peaks = placement_pressure_per_allocation(allocations)
+    assert peaks == {"long": 108, "tall": 108, "short": 18}
+
+
+def test_placement_pressure_per_allocation_ignores_uncovered_slots() -> None:
+    allocations = (
+        Allocation(id="a", size=8, start=0, end=2, offset=0),
+        Allocation(id="b", size=64, start=8, end=10, offset=0),
+    )
+    peaks = placement_pressure_per_allocation(allocations)
+    assert peaks == {"a": 8, "b": 64}
+
+
+def test_placement_pressure_per_allocation_survives_degenerate_columns() -> None:
+    rng = Random(23)
+    for _ in range(40):
+        base = [
+            (i, rng.randint(1, 40), rng.randint(0, 20), rng.randint(1, 6))
+            for i in range(rng.randint(1, 25))
+        ]
+        scalar = tuple(
+            Allocation(id=i, size=z, start=s, end=s + d, offset=8 * i)
+            for i, z, s, d in base
+        )
+        padded = tuple(
+            Allocation(id=i, size=z, start=(s, 0), end=(s + d, 0), offset=8 * i)
+            for i, z, s, d in base
+        )
+        lockstep = tuple(
+            Allocation(id=i, size=z, start=(s,) * 3, end=(s + d,) * 3, offset=8 * i)
+            for i, z, s, d in base
+        )
+        expected = placement_pressure_per_allocation(scalar)
+        assert placement_pressure_per_allocation(padded) == expected
+        assert placement_pressure_per_allocation(lockstep) == expected
+
+
+def test_closure_bound_is_strictly_looser_than_the_antichain_bound() -> None:
+    allocations = (
+        Allocation(id=0, size=20, start=(1, 0, 0), end=(1, 2, 1)),
+        Allocation(id=1, size=20, start=(0, 2, 0), end=(1, 2, 1)),
+        Allocation(id=2, size=30, start=(1, 0, 0), end=(1, 2, 0)),
+    )
+    assert all(
+        a.conflicts_with(b)
+        for a, b in ((allocations[0], allocations[1]), (allocations[0], allocations[2]))
+    )
+    assert closure_pressure(allocations) == 50
+    assert antichain_pressure(allocations, work_budget=None) == 70
+
+
+def test_the_bound_chain_holds_on_the_no_common_cut_clique() -> None:
+    allocations = (
+        Allocation(id=0, size=20, start=(1, 0, 0), end=(1, 2, 1)),
+        Allocation(id=1, size=20, start=(0, 2, 0), end=(1, 2, 1)),
+        Allocation(id=2, size=30, start=(1, 0, 0), end=(1, 2, 0)),
+    )
+    placed = allocate(allocations, "omni")
+    assert (
+        closure_pressure(allocations)
+        <= antichain_pressure(allocations, work_budget=None)
+        <= placement_pressure(placed)
+    )

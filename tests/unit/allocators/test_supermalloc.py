@@ -165,3 +165,25 @@ def test_interleaved_lifetimes() -> None:
     result = SupermallocAllocator().allocate(allocations)
     _assert_valid(result)
     assert placement_pressure(result) == 300
+
+
+def test_solve_reports_a_proved_optimum() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(12))
+    result = SupermallocAllocator(timeout=5.0).solve(allocations)
+    assert result.peak == result.lower_bound
+    assert result.proved_optimal
+
+
+def test_solve_reports_an_empty_problem_as_optimal() -> None:
+    result = SupermallocAllocator().solve(())
+    assert result.allocations == ()
+    assert result.proved_optimal
+
+
+def test_solve_agrees_with_allocate() -> None:
+    allocations = tuple(
+        Allocation(id=i, size=(i % 5) + 1, start=i % 9, end=i % 9 + 4)
+        for i in range(30)
+    )
+    allocator = SupermallocAllocator(timeout=5.0)
+    assert allocator.solve(allocations).allocations == allocator.allocate(allocations)

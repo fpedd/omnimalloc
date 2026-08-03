@@ -15,25 +15,26 @@ from omnimalloc._cpp import (
 from omnimalloc._cpp import (
     placement_pressure_per_allocation as _placement_pressure_per_allocation,
 )
-from omnimalloc.common.constants import DEFAULT_CLOSURE_CAP, DEFAULT_WORK_BUDGET
+from omnimalloc.common.constants import (
+    DEFAULT_CLOSURE_CAP,
+    DEFAULT_MATERIALIZE_BUDGET,
+    DEFAULT_WORK_BUDGET,
+)
 from omnimalloc.common.deadline import ensure_valid_budget
 from omnimalloc.primitives.allocation import Allocation, IdType
 from omnimalloc.primitives.utils import ensure_unique_ids
 
+from .clock import uniform_dim
+
 
 def antichain_pressure(
-    allocations: Sequence[Allocation], work_budget: int | None = DEFAULT_WORK_BUDGET
+    allocations: Sequence[Allocation],
+    work_budget: int | None = DEFAULT_MATERIALIZE_BUDGET,
 ) -> int:
     """Peak memory pressure: exact max-weight antichain of the happens-before order.
 
-    The tightest order-derived lower bound on any placement's peak: pairwise
-    conflicts force disjoint address ranges. Linearizable instances take the
-    O(N log N) sweep — pairwise-overlapping intervals share a common time
-    point (Helly), so the peak cut attains the max-weight antichain. Genuinely
-    partial orders solve the exact C++ antichain (weighted Dilworth via min
-    flow), built to certify allocator optimality on small and medium
-    instances, not for the 10k+ hot path. Raises `RuntimeError` once
-    the flow work exceeds `work_budget`; pass `None` to always compute.
+    The tightest order-derived lower bound on any placement's peak, to certify
+    optimality rather than run hot. Raises `RuntimeError` past `work_budget`.
     """
     ensure_valid_budget(work_budget)
     return _antichain_pressure(allocations, work_budget)
@@ -42,13 +43,10 @@ def antichain_pressure(
 def closure_pressure(
     allocations: Sequence[Allocation], closure_cap: int | None = DEFAULT_CLOSURE_CAP
 ) -> int:
-    """Exact realizable peak: the max total size jointly live at one cut.
+    """Lower bound on any placement's peak: max total size jointly live at one cut.
 
-    C++ enumeration of the join-closure of the birth clocks. Pairwise-
-    concurrent allocations need not share a cut, so this can sit strictly
-    below `antichain_pressure`; both soundly lower-bound any placement's
-    peak. Raises `RuntimeError` once the closure exceeds `closure_cap`;
-    pass `None` to always enumerate — memory then grows with the closure.
+    The looser bound: pairwise-concurrent allocations need not share a cut, so
+    this can sit below `antichain_pressure`. Raises past `closure_cap`.
     """
     ensure_valid_budget(closure_cap, name="closure_cap")
     return _closure_pressure(allocations, closure_cap)
@@ -57,10 +55,10 @@ def closure_pressure(
 def placement_pressure(allocations: Sequence[Allocation]) -> int:
     """Peak of a placement: the highest occupied address, max(offset + size).
 
-    An upper bound on `antichain_pressure` (and so on `closure_pressure`),
-    equal to the max entry of `placement_pressure_per_allocation`. Raises
-    `ValueError` on unplaced input.
+    An upper bound on `antichain_pressure`, equal to the max entry of
+    `placement_pressure_per_allocation`. Raises on unplaced input.
     """
+    uniform_dim(allocations)
     heights = []
     for alloc in allocations:
         height = alloc.height
@@ -71,15 +69,13 @@ def placement_pressure(allocations: Sequence[Allocation]) -> int:
 
 
 def antichain_pressure_per_allocation(
-    allocations: Sequence[Allocation], work_budget: int | None = DEFAULT_WORK_BUDGET
+    allocations: Sequence[Allocation],
+    work_budget: int | None = DEFAULT_MATERIALIZE_BUDGET,
 ) -> dict[IdType, int]:
     """Peak pressure over each allocation's own lifetime, keyed by id.
 
-    `antichain_pressure` restricted to cuts where each allocation is live;
-    the max entry equals `antichain_pressure`. Genuinely partial orders
-    solve one pinned antichain per distinct lifetime. Raises
-    `RuntimeError` once the linearize attempt or a pinned flow exceeds
-    `work_budget`; pass `None` to always compute.
+    `antichain_pressure` restricted to cuts where each allocation is live; the
+    max entry equals `antichain_pressure`. Raises past `work_budget`.
     """
     ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations)
@@ -90,12 +86,10 @@ def antichain_pressure_per_allocation(
 def closure_pressure_per_allocation(
     allocations: Sequence[Allocation], closure_cap: int | None = DEFAULT_CLOSURE_CAP
 ) -> dict[IdType, int]:
-    """Exact realizable peak while each allocation is live, keyed by id.
+    """Lower bound on the peak while each allocation is live, keyed by id.
 
-    `closure_pressure` restricted to cuts where each allocation is live;
-    the max entry equals `closure_pressure`, and entries can sit strictly
-    below `antichain_pressure_per_allocation`. Raises `RuntimeError` once
-    the closure exceeds `closure_cap`; pass `None` to always enumerate.
+    `closure_pressure` restricted to cuts where each allocation is live; the max
+    entry equals `closure_pressure`. Raises past `closure_cap`.
     """
     ensure_valid_budget(closure_cap, name="closure_cap")
     ensure_unique_ids(allocations)
@@ -108,12 +102,8 @@ def placement_pressure_per_allocation(
 ) -> dict[IdType, int]:
     """Placement-certified peak over each allocation's lifetime, keyed by id.
 
-    Read off assigned offsets: the highest occupied address among each
-    allocation and its conflict neighbors, an upper bound on every exact
-    per-allocation pressure whose max entry equals `placement_pressure`.
-    Raises `ValueError` on unplaced input and `RuntimeError` once the
-    vector-clock conflict sweep exceeds `work_budget` (which also bounds
-    the internal linearize attempt); pass `None` to always compute.
+    Read off assigned offsets: the highest occupied address among each allocation
+    and its conflict neighbors, whose max entry equals `placement_pressure`.
     """
     ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations)

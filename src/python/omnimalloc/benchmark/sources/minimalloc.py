@@ -44,9 +44,15 @@ class MinimallocSource(BaseSource):
         if self._cached_pools is None:
             csv_dir = EXTERNAL_DIR / "minimalloc" / self.subset.value
             # Sort for a filesystem-independent, reproducible variant order
-            self._cached_pools = [
-                load_allocation(f) for f in sorted(csv_dir.glob("*.csv"))
-            ]
+            files = sorted(csv_dir.glob("*.csv")) if csv_dir.is_dir() else []
+            if not files:
+                logger.warning(
+                    f"No Minimalloc CSVs found in {csv_dir}; the "
+                    f"{self.subset.value!r} subset yields no variants. The "
+                    "datasets are checked into the repository's external/ "
+                    "directory and are absent from wheel installs."
+                )
+            self._cached_pools = [load_allocation(f) for f in files]
         return self._cached_pools
 
     def _all_allocations(self) -> tuple[Allocation, ...]:

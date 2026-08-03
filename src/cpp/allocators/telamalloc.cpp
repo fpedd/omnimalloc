@@ -14,6 +14,7 @@
 #include <tuple>
 #include <utility>
 
+#include "analysis/clock.hpp"
 #include "common/deadline.hpp"
 #include "first_fit.hpp"
 
@@ -59,25 +60,19 @@ std::vector<std::vector<int>> build_phases(const ConflictIndices& neighbors) {
 // Peak simultaneous load of `phase`: a lower bound on its achievable peak.
 int64_t load_lower_bound(const std::vector<Allocation>& allocations,
                          const std::vector<int>& phase) {
-  std::vector<std::tuple<int64_t, bool, int>> events;
-  events.reserve(2 * phase.size());
+  std::vector<std::pair<int64_t, int64_t>> times;
+  std::vector<int64_t> weights;
+  times.reserve(phase.size());
+  weights.reserve(phase.size());
   for (int idx : phase) {
-    events.emplace_back(allocations[idx].start(), true, idx);
-    events.emplace_back(allocations[idx].end(), false, idx);
+    times.emplace_back(allocations[idx].start(), allocations[idx].end());
+    weights.push_back(allocations[idx].size());
   }
-  std::sort(events.begin(), events.end());
-
-  int64_t load = 0;
-  int64_t peak = 0;
-  for (const auto& [time, is_start, idx] : events) {
-    load += is_start ? allocations[idx].size() : -allocations[idx].size();
-    peak = std::max(peak, load);
-  }
-  return peak;
+  return interval_peak(times, weights);
 }
 
 // Queue order: most-evicted first (squeaky wheel), then the paper's tiers
-// (longest lifetime, largest size — or size-major when `size_major`), then
+// (longest lifetime, largest size, or size-major when `size_major`), then
 // lowest index for determinism.
 using QueueKey = std::tuple<int, int64_t, int64_t, int>;
 
@@ -89,17 +84,9 @@ QueueKey queue_key(const Allocation& alloc, int idx, int evictions,
   return {-evictions, -alloc.duration(), -alloc.size(), idx};
 }
 
-// One capacity attempt over one phase: place buffers in queue order at the
-// lowest fitting gap among placed temporal neighbors; on conflict (minor
-// backtracking), evict the cheapest blocking set (fewest bytes, then fewest
-// buffers, then lowest offset) and place anyway. Evicted buffers re-enter
-// the queue with raised priority. When a restart's share of the eviction
-// budget runs out (major backtracking), every placement is wiped and the
-// phase re-packs from scratch; eviction counts survive the wipe, so
-// contentious buffers get placed first in the next round (squeaky-wheel
-// reordering). Returns nullopt when the total budget or deadline runs out;
-// `capacity` at least the phase's max buffer size guarantees offset 0 is
-// always a repair candidate, so every iteration makes progress.
+// One capacity attempt over one phase: place in queue order at the lowest
+// fitting gap, evicting the cheapest blocking set on conflict and requeueing it
+// at raised priority; a spent eviction budget wipes and re-packs the phase.
 std::optional<std::vector<int64_t>> pack_phase(
     const std::vector<Allocation>& allocations,
     const ConflictIndices& neighbors, const std::vector<int>& phase,
@@ -242,9 +229,8 @@ int64_t phase_peak(const std::vector<Allocation>& allocations,
 }
 
 // Best-effort minimal peak for one phase: first-fit incumbent, then binary
-// search on capacity down toward the load lower bound. Failed attempts are
-// treated as infeasible even though they are only budget-exhausted, keeping
-// the search anytime rather than exact.
+// search on capacity down toward the load lower bound. Budget-exhausted
+// attempts count as infeasible, keeping the search anytime rather than exact.
 void solve_phase(const std::vector<Allocation>& allocations,
                  const ConflictIndices& neighbors,
                  const std::vector<int>& phase, int64_t lower_bound,
@@ -322,13 +308,7 @@ std::vector<Allocation> telamalloc_place(
     solve_phase(allocations, neighbors, phases[p], lower_bound, config,
                 deadline, result);
   }
-
-  std::vector<Allocation> placed;
-  placed.reserve(allocations.size());
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    placed.push_back(allocations[i].with_offset(result[i]));
-  }
-  return placed;
+  return apply_offsets(allocations, result);
 }
 
 }  // namespace omnimalloc

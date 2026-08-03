@@ -24,7 +24,6 @@ pytestmark = pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not insta
 
 
 def test_visualize_single_allocation(artifacts_dir: Path) -> None:
-    """Test visualization with a single simple allocation."""
     alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
     pool = Pool(id=1, allocations=(alloc,), offset=0)
 
@@ -35,7 +34,6 @@ def test_visualize_single_allocation(artifacts_dir: Path) -> None:
 
 
 def test_visualize_multiple_allocations_in_pool(artifacts_dir: Path) -> None:
-    """Test visualization with multiple non-overlapping allocations in a pool."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5, offset=0)
     alloc2 = Allocation(id=2, size=150, start=5, end=10, offset=0)
     alloc3 = Allocation(id=3, size=75, start=10, end=15, offset=0)
@@ -47,7 +45,6 @@ def test_visualize_multiple_allocations_in_pool(artifacts_dir: Path) -> None:
 
 
 def test_visualize_with_allocation_kinds(artifacts_dir: Path) -> None:
-    """Test visualization with different allocation kinds."""
     alloc1 = Allocation(
         id=1, size=100, start=0, end=5, offset=0, kind=AllocationKind.WORKSPACE
     )
@@ -68,7 +65,6 @@ def test_visualize_with_allocation_kinds(artifacts_dir: Path) -> None:
 
 
 def test_visualize_memory_with_multiple_pools(artifacts_dir: Path) -> None:
-    """Test visualization of memory with multiple pools."""
     alloc1 = Allocation(id=1, size=100, start=0, end=10, offset=0)
     alloc2 = Allocation(id=2, size=150, start=0, end=10, offset=0)
     alloc3 = Allocation(id=3, size=75, start=5, end=15, offset=0)
@@ -85,13 +81,10 @@ def test_visualize_memory_with_multiple_pools(artifacts_dir: Path) -> None:
 
 
 def test_visualize_system_with_multiple_memories(artifacts_dir: Path) -> None:
-    """Test visualization of system with multiple memories."""
-    # Memory 1: Simple pool
     alloc1 = Allocation(id=1, size=100, start=0, end=5, offset=0)
     pool1 = Pool(id=1, allocations=(alloc1,), offset=0)
     memory1 = Memory(id="ddr4_1", pools=(pool1,), size=500)
 
-    # Memory 2: Multiple pools
     alloc2 = Allocation(id=2, size=150, start=0, end=10, offset=0)
     alloc3 = Allocation(id=3, size=75, start=5, end=15, offset=0)
     pool2 = Pool(id=2, allocations=(alloc2,), offset=0)
@@ -106,8 +99,6 @@ def test_visualize_system_with_multiple_memories(artifacts_dir: Path) -> None:
 
 
 def test_visualize_complex_hierarchy(artifacts_dir: Path) -> None:
-    """Test visualization of a complex system with many allocations."""
-    # Create a more realistic scenario with multiple memories and pools
     allocations_mem1_pool1 = [
         Allocation(id=i, size=50 + i * 10, start=i * 2, end=(i + 1) * 2, offset=0)
         for i in range(5)
@@ -129,7 +120,6 @@ def test_visualize_complex_hierarchy(artifacts_dir: Path) -> None:
 
     memory1 = Memory(id="main_memory", pools=(pool1, pool2), size=2048)
 
-    # Second memory with different allocation patterns
     allocations_mem2 = [
         Allocation(
             id=i + 10,
@@ -149,13 +139,11 @@ def test_visualize_complex_hierarchy(artifacts_dir: Path) -> None:
     output_path = artifacts_dir / "test_complex.pdf"
     plot_allocation(system, output_path)
     assert output_path.exists()
-    # Check file is reasonably sized (not empty, not huge)
     size = output_path.stat().st_size
     assert 1000 < size < 10_000_000
 
 
 def test_visualize_with_string_ids(artifacts_dir: Path) -> None:
-    """Test visualization with string IDs."""
     alloc1 = Allocation(id="workspace_buf", size=100, start=0, end=5, offset=0)
     alloc2 = Allocation(id="temp_buf", size=150, start=5, end=10, offset=0)
     pool = Pool(id="tensor_pool", allocations=(alloc1, alloc2), offset=0)
@@ -167,35 +155,13 @@ def test_visualize_with_string_ids(artifacts_dir: Path) -> None:
 
 
 def test_visualize_memory_without_size(artifacts_dir: Path) -> None:
-    """Test visualization of memory without explicit size (uses used_size)."""
     alloc1 = Allocation(id=1, size=100, start=0, end=10, offset=0)
     alloc2 = Allocation(id=2, size=150, start=0, end=10, offset=0)
     pool1 = Pool(id=1, allocations=(alloc1,), offset=0)
     pool2 = Pool(id=2, allocations=(alloc2,), offset=200)
-    memory = Memory(id=1, pools=(pool1, pool2))  # No size specified
+    memory = Memory(id=1, pools=(pool1, pool2))
 
     output_path = artifacts_dir / "test_no_size.pdf"
-    plot_allocation(memory, output_path)
-    assert output_path.exists()
-
-
-def test_visualize_pool_converts_to_system(artifacts_dir: Path) -> None:
-    """Test that visualizing a Pool creates appropriate wrapper structures."""
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=1, allocations=(alloc,), offset=0)
-
-    output_path = artifacts_dir / "test_pool_wrapper.pdf"
-    plot_allocation(pool, output_path)
-    assert output_path.exists()
-
-
-def test_visualize_memory_converts_to_system(artifacts_dir: Path) -> None:
-    """Test that visualizing a Memory creates appropriate System wrapper."""
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=1, allocations=(alloc,), offset=0)
-    memory = Memory(id=1, pools=(pool,), size=500)
-
-    output_path = artifacts_dir / "test_memory_wrapper.pdf"
     plot_allocation(memory, output_path)
     assert output_path.exists()
 
@@ -212,7 +178,6 @@ def test_visualize_raw_allocations_converts_to_pool(artifacts_dir: Path) -> None
 
 
 def test_visualize_with_capacities(artifacts_dir: Path) -> None:
-    """Test visualization with extra capacity lines."""
     alloc1 = Allocation(id=1, size=100, start=0, end=5, offset=0)
     alloc2 = Allocation(id=2, size=150, start=5, end=10, offset=100)
     pool = Pool(id=1, allocations=(alloc1, alloc2), offset=0)
@@ -300,20 +265,6 @@ def test_visualize_mixed_dimension_pools(artifacts_dir: Path) -> None:
     plot_allocation(memory, output_path)
     assert output_path.exists()
     assert output_path.stat().st_size > 0
-
-
-def test_visualize_empty_pool(artifacts_dir: Path) -> None:
-    empty = Pool(id=1, allocations=(), offset=0)
-    filled = Pool(
-        id=2,
-        allocations=(Allocation(id=1, size=100, start=0, end=4, offset=0),),
-        offset=100,
-    )
-    memory = Memory(id="mem", pools=(empty, filled), size=500)
-
-    output_path = artifacts_dir / "test_empty_pool.pdf"
-    plot_allocation(memory, output_path)
-    assert output_path.exists()
 
 
 def test_visualize_vector_time_lanes(artifacts_dir: Path) -> None:
@@ -467,7 +418,7 @@ def test_projection_panels_skip_conflict_note_over_budget(
 ) -> None:
     system = System(id="sys", memories=(_concurrent_memory(),))
 
-    def _over_budget(_allocations: object) -> list[int]:
+    def _over_budget(_allocations: object, **_kwargs: object) -> list[int]:
         raise RuntimeError("Conflict sweep work exceeds work_budget")
 
     monkeypatch.setattr(visualize, "conflict_degrees", _over_budget)

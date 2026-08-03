@@ -4,6 +4,7 @@
 
 import pytest
 from omnimalloc._cpp import FirstFitPlacer, first_fit_place
+from omnimalloc.allocators import greedy_base
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
     GreedyByAllAllocator,
@@ -17,11 +18,24 @@ from omnimalloc.allocators.greedy import (
 from omnimalloc.allocators.greedy_base import allocate_parallel
 from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
+from omnimalloc.validate import validate_allocation
 
 
-def test_greedy_allocator_empty() -> None:
-    allocator = GreedyAllocator()
-    result = allocator.allocate(())
+@pytest.mark.parametrize(
+    "allocator_cls",
+    [
+        GreedyAllocator,
+        GreedyByDurationAllocator,
+        GreedyByConflictAllocator,
+        GreedyByAreaAllocator,
+        GreedyBySizeAllocator,
+        GreedyByConflictSizeAllocator,
+        GreedyByStartAllocator,
+        GreedyByAllAllocator,
+    ],
+)
+def test_greedy_allocator_empty(allocator_cls: type[GreedyAllocator]) -> None:
+    result = allocator_cls().allocate(())
     assert len(result) == 0
 
 
@@ -96,12 +110,6 @@ def test_greedy_allocator_preserves_ids() -> None:
     assert result[1].id == "alloc_b"
 
 
-def test_greedy_by_duration_empty() -> None:
-    allocator = GreedyByDurationAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
-
-
 def test_greedy_by_duration_sorts_by_duration() -> None:
     allocator = GreedyByDurationAllocator()
     short = Allocation(id=1, size=100, start=0, end=2)
@@ -120,12 +128,6 @@ def test_greedy_by_duration_allocates_correctly() -> None:
     result = allocator.allocate((short, long))
     assert result[0].offset == 0
     assert result[1].offset == 100
-
-
-def test_greedy_by_conflict_empty() -> None:
-    allocator = GreedyByConflictAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
 
 
 def test_greedy_by_conflict_no_conflicts() -> None:
@@ -157,12 +159,6 @@ def test_greedy_by_conflict_uses_size_as_tiebreaker() -> None:
     assert result[1].id == 1
 
 
-def test_greedy_by_area_empty() -> None:
-    allocator = GreedyByAreaAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
-
-
 def test_greedy_by_area_sorts_by_area() -> None:
     allocator = GreedyByAreaAllocator()
     small_area = Allocation(id=1, size=10, start=0, end=10)
@@ -181,12 +177,6 @@ def test_greedy_by_area_allocates_correctly() -> None:
     result = allocator.allocate((alloc1, alloc2))
     assert result[0].offset == 0
     assert result[1].offset == 100
-
-
-def test_greedy_by_size_empty() -> None:
-    allocator = GreedyBySizeAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
 
 
 def test_greedy_by_size_sorts_by_size() -> None:
@@ -211,12 +201,6 @@ def test_greedy_by_size_allocates_correctly() -> None:
     assert result[1].offset == 200
 
 
-def test_greedy_by_conflict_size_empty() -> None:
-    allocator = GreedyByConflictSizeAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
-
-
 def test_greedy_by_conflict_size_sorts_by_product() -> None:
     allocator = GreedyByConflictSizeAllocator()
     big_lonely = Allocation(id=1, size=1000, start=0, end=5)
@@ -234,12 +218,6 @@ def test_greedy_by_conflict_size_uses_size_as_tiebreaker() -> None:
     result = allocator.allocate((small, large))
     assert result[0].id == 2
     assert result[1].id == 1
-
-
-def test_greedy_by_start_empty() -> None:
-    allocator = GreedyByStartAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
 
 
 def test_greedy_by_start_sorts_by_start() -> None:
@@ -292,20 +270,15 @@ def test_greedy_allocator_partial_overlap_chain() -> None:
     assert result[3].offset == 100
 
 
-def test_greedy_by_duration_deterministic() -> None:
-    allocator = GreedyByDurationAllocator()
+@pytest.mark.parametrize(
+    "allocator_cls",
+    [GreedyByDurationAllocator, GreedyBySizeAllocator, GreedyByAllAllocator],
+)
+def test_greedy_deterministic(allocator_cls: type[GreedyAllocator]) -> None:
+    allocator = allocator_cls()
     allocs = tuple(
-        Allocation(id=i, size=100, start=0, end=i % 5 + 1) for i in range(10)
-    )
-    result1 = allocator.allocate(allocs)
-    result2 = allocator.allocate(allocs)
-    assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
-
-
-def test_greedy_by_size_deterministic() -> None:
-    allocator = GreedyBySizeAllocator()
-    allocs = tuple(
-        Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=10) for i in range(10)
+        Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=i % 7 + 1)
+        for i in range(20)
     )
     result1 = allocator.allocate(allocs)
     result2 = allocator.allocate(allocs)
@@ -321,12 +294,6 @@ def test_greedy_allocator_fits_in_gap() -> None:
     assert result[0].offset == 0
     assert result[1].offset == 50
     assert result[2].offset == 100
-
-
-def test_greedy_by_all_empty() -> None:
-    allocator = GreedyByAllAllocator()
-    result = allocator.allocate(())
-    assert len(result) == 0
 
 
 def test_greedy_by_all_preserves_allocations() -> None:
@@ -364,17 +331,6 @@ def test_greedy_by_all_picks_best_peak() -> None:
     )
     best_variant_peak = min(placement_pressure(v.allocate(allocs)) for v in variants)
     assert peak == best_variant_peak
-
-
-def test_greedy_by_all_deterministic() -> None:
-    allocator = GreedyByAllAllocator()
-    allocs = tuple(
-        Allocation(id=i, size=(i % 5 + 1) * 100, start=0, end=i % 7 + 1)
-        for i in range(20)
-    )
-    result1 = allocator.allocate(allocs)
-    result2 = allocator.allocate(allocs)
-    assert all(r1.offset == r2.offset for r1, r2 in zip(result1, result2, strict=True))
 
 
 def test_allocate_parallel_empty() -> None:
@@ -518,3 +474,36 @@ def test_first_fit_place_matches_greedy_across_orders() -> None:
         assert [(a.id, a.offset) for a in result] == [
             (a.id, a.offset) for a in expected
         ]
+
+
+def test_conflict_orders_refuse_a_vector_instance_over_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(i, 0), end=(i + 2, 1)) for i in range(20)
+    )
+    with pytest.raises(RuntimeError, match="work_budget"):
+        GreedyByConflictAllocator().allocate(allocations)
+    with pytest.raises(RuntimeError, match="work_budget"):
+        GreedyByConflictSizeAllocator().allocate(allocations)
+
+
+def test_greedy_by_all_still_places_when_the_conflict_orders_refuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    allocations = tuple(
+        Allocation(id=i, size=8, start=(i, 0), end=(i + 2, 1)) for i in range(20)
+    )
+    placed = GreedyByAllAllocator(num_threads=1).allocate(allocations)
+    validate_allocation(placed)
+    assert {a.id for a in placed} == {a.id for a in allocations}
+
+
+def test_scalar_conflict_orders_ignore_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(20))
+    validate_allocation(GreedyByConflictAllocator().allocate(allocations))

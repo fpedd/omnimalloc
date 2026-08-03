@@ -12,15 +12,9 @@
 #include "clock.hpp"
 #include "common/parallel.hpp"
 
-// Fishburn's interval-order test without materializing predecessor sets.
-// Validation guarantees `start <= end` and `start != end` componentwise, so
-// happens-before is a strict partial order and no allocation precedes itself:
-// pred(j) = {x : end(x) <= start(j)} depends on the start row alone, and the
-// order is an interval order iff the family {pred(j)} forms an inclusion
-// chain (no induced 2+2). The chain is detected through weighted dominance
-// counts over deduplicated clock rows, and the surrogate times are ranks in
-// that chain, reproducing the canonical construction: end(i) <= start(j) in
-// the surrogate iff i happens-before j in the original.
+// Fishburn's interval-order test without materializing predecessor sets: the
+// order is an interval order iff the family pred(j) = {x : end(x) <= start(j)}
+// forms an inclusion chain, and the surrogate times are ranks in that chain.
 
 namespace omnimalloc {
 
@@ -31,16 +25,7 @@ namespace {
 int64_t dominated_weight(const DedupedRows& ends,
                          const int64_t* start) noexcept {
   const size_t d = ends.dim;
-  size_t lo = 0;
-  size_t hi = ends.count();
-  while (lo < hi) {
-    const size_t mid = lo + (hi - lo) / 2;
-    if (ends.row(mid)[0] <= start[0]) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
+  const size_t lo = ends.prefix_leq(start[0]);
   int64_t count = 0;
   for (size_t j = 0; j < lo; ++j) {
     count += dominates(ends.row(j), start, d) ? ends.weights[j] : 0;
@@ -48,23 +33,13 @@ int64_t dominated_weight(const DedupedRows& ends,
   return count;
 }
 
-// A predecessor of `yes` that is not a predecessor of `no`, probed among
-// the `window` end rows just below the component-0 boundary: rows ascend on
-// component 0, and near-boundary ends are the likeliest to split two
-// predecessor sets apart.
+// A predecessor of `yes` that is not a predecessor of `no`, probed among the
+// `window` end rows just below the component-0 boundary: rows ascend there, so
+// near-boundary ends are the likeliest to split two predecessor sets apart.
 bool split_witness(const DedupedRows& ends, const int64_t* yes,
                    const int64_t* no, size_t window) noexcept {
   const size_t d = ends.dim;
-  size_t lo = 0;
-  size_t hi = ends.count();
-  while (lo < hi) {
-    const size_t mid = lo + (hi - lo) / 2;
-    if (ends.row(mid)[0] <= yes[0]) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
+  const size_t lo = ends.prefix_leq(yes[0]);
   const size_t begin = lo > window ? lo - window : 0;
   for (size_t j = lo; j-- > begin;) {
     if (dominates(ends.row(j), yes, d) && !dominates(ends.row(j), no, d)) {
@@ -74,16 +49,9 @@ bool split_witness(const DedupedRows& ends, const int64_t* yes,
   return false;
 }
 
-// 2+2 witnesses: ends e1, e2 and starts s1, s2 with e1 dominated by s1 but
-// not s2 and e2 dominated by s2 but not s1 prove two incomparable
-// predecessor sets, so genuinely concurrent (non-linearizable) instances
-// bail here instead of paying the full O(k * m * d) chain test. A random
-// global pass catches coarse concurrency in microseconds; concurrency in
-// realistic workloads is temporally local, so a deterministic
-// O(k * (log m + d)) pass then probes every lexicographically adjacent
-// start-row pair against the end windows just below them. Every hit is a
-// genuine 2+2; a miss just falls through to the exact chain test.
-// Deterministic seed keeps callers reproducible.
+// 2+2 witnesses: two incomparable predecessor sets, so non-linearizable
+// instances bail before the full O(k * m * d) chain test. A random global pass
+// catches coarse concurrency, an adjacent-start-pair pass the local kind.
 bool find_incomparability_witness(const DedupedRows& starts,
                                   const DedupedRows& ends) {
   if (starts.count() < 2 || ends.count() < 2) {
@@ -120,14 +88,22 @@ bool find_incomparability_witness(const DedupedRows& starts,
 
 std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
     const std::vector<Allocation>& allocations,
-    std::optional<uint64_t> work_budget) {
+    std::optional<uint64_t> work_budget, bool* undecided) {
   const size_t n = allocations.size();
   std::vector<std::pair<int64_t, int64_t>> times(n);
   if (n == 0) {
     return times;
   }
 
-  const ClockSpans spans = gather_clock_spans(allocations);
+  ClockSpans spans = gather_clock_spans(allocations);
+  // The reduction scans at least 2 * n * d clock components, so it only runs
+  // when the budget covers that pass; in particular `work_budget=0` (the
+  // contract for disabling linearization) refuses vector input untouched.
+  std::vector<int64_t> backing;
+  if (!work_budget ||
+      2 * static_cast<uint64_t>(n) * spans.dim <= *work_budget) {
+    backing = reduce_columns(spans);
+  }
   const size_t d = spans.dim;
   if (d == 1) {
     for (size_t i = 0; i < n; ++i) {
@@ -145,6 +121,9 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   // budget, give up undecided instead of stalling the caller (and before
   // spending the witness scan on an instance already refused).
   if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
+    if (undecided != nullptr) {
+      *undecided = true;
+    }
     return std::nullopt;
   }
   if (find_incomparability_witness(starts, ends)) {
@@ -158,8 +137,7 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   });
 
   // Chain test on count-sorted starts: adjacent pairs must satisfy
-  // pred(a) ⊆ pred(b), checked as count(meet(a, b)) == count(a) since the
-  // componentwise meet has pred(meet) = pred(a) ∩ pred(b). Inclusion is
+  // pred(a) ⊆ pred(b), checked as count(meet(a, b)) == count(a). Inclusion is
   // transitive, so adjacent pairs cover the whole family.
   std::vector<int32_t> by_count(k);
   std::iota(by_count.begin(), by_count.end(), 0);
@@ -208,12 +186,9 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
                      unique_counts.begin();
   }
 
-  // End rank: smallest rank whose representative start dominates the end
-  // (nested predecessor sets make membership monotone in rank, so binary
-  // search applies); past-the-last-rank when the end precedes nothing.
-  // Strictness end' > start' is structural: an end dominated by a start of
-  // its own rank or below would put the allocation in its own predecessor
-  // set, which validation rules out.
+  // End rank: smallest rank whose representative start dominates the end,
+  // binary-searchable because nested predecessor sets make membership monotone
+  // in rank. Strictness end' > start' follows from validation.
   const auto num_ranks = static_cast<int64_t>(unique_counts.size());
   std::vector<int64_t> end_rank(m);
   for_each_row_block(m, parallel_threads(m), [&](size_t ej) {
@@ -242,8 +217,8 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
 
 std::optional<std::vector<Allocation>> try_linearize(
     const std::vector<Allocation>& allocations,
-    std::optional<uint64_t> work_budget) {
-  const auto times = linearize_times(allocations, work_budget);
+    std::optional<uint64_t> work_budget, bool* undecided) {
+  const auto times = linearize_times(allocations, work_budget, undecided);
   if (!times.has_value()) {
     return std::nullopt;
   }

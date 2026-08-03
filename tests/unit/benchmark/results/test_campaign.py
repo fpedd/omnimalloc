@@ -12,10 +12,10 @@ from omnimalloc.benchmark.results import (
     BenchmarkResult,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
+from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 
 
 def test_benchmark_campaign_creation() -> None:
-    """Test basic benchmark campaign creation."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -31,13 +31,11 @@ def test_benchmark_campaign_creation() -> None:
 
 
 def test_benchmark_campaign_empty_reports_raises_error() -> None:
-    """Test that empty reports raises ValueError."""
     with pytest.raises(ValueError, match="must contain at least one report"):
         BenchmarkCampaign(id="campaign_0", reports=())
 
 
 def test_benchmark_campaign_duplicate_report_ids_raises_error() -> None:
-    """Test that duplicate report IDs raise ValueError."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -57,7 +55,6 @@ def test_benchmark_campaign_duplicate_report_ids_raises_error() -> None:
 
 
 def test_benchmark_campaign_properties() -> None:
-    """Test campaign properties."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -79,7 +76,6 @@ def test_benchmark_campaign_properties() -> None:
 
 
 def test_benchmark_campaign_finalize_metadata() -> None:
-    """Test finalize_metadata method."""
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
     pool = allocate(source.get_pool(), allocator)
@@ -95,3 +91,55 @@ def test_benchmark_campaign_finalize_metadata() -> None:
 
     assert "custom" in finalized.metadata
     assert "num_reports" in finalized.metadata
+
+
+def _report(
+    source: SyncPatternSource, report_id: int, result_id: int
+) -> BenchmarkReport:
+    pool = allocate(source.get_pool(), GreedyAllocator())
+    result = BenchmarkResult(
+        id=result_id,
+        allocator=GreedyAllocator(),
+        source=source,
+        entity=pool,
+        duration=0.5,
+    )
+    return BenchmarkReport(id=report_id, results=(result,), source=source)
+
+
+def test_benchmark_campaign_keeps_thread_counts_apart() -> None:
+    few = SyncPatternSource(num_allocations=16, num_threads=2)
+    many = SyncPatternSource(num_allocations=16, num_threads=8)
+    campaign = BenchmarkCampaign(
+        id="campaign_0", reports=(_report(few, 0, 0), _report(many, 1, 1))
+    )
+
+    assert campaign.num_sources == 2
+    assert campaign.source_names == tuple(sorted((few.label(), many.label())))
+    assert set(campaign.reports_by_source_allocator_variant) == set(
+        campaign.source_names
+    )
+
+
+def test_benchmark_campaign_groups_unlabelled_sources_together() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    pool = allocate(source.get_pool(), GreedyAllocator())
+    reports = tuple(
+        BenchmarkReport(
+            id=i,
+            results=(
+                BenchmarkResult(
+                    id=i,
+                    allocator=GreedyAllocator(),
+                    source=source,
+                    entity=pool,
+                    duration=0.5,
+                ),
+            ),
+            source=source,
+        )
+        for i in range(2)
+    )
+    campaign = BenchmarkCampaign(id="campaign_0", reports=reports)
+
+    assert campaign.source_names == ("random",)

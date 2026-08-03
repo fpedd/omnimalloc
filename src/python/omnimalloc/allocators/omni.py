@@ -13,15 +13,12 @@ from .base import BaseAllocator
 class OmniAllocator(BaseAllocator):
     """Generalized C++ greedy-portfolio allocator for scalar and vector time.
 
-    Linearizes vector-clock lifetimes to surrogate scalars when the
-    happens-before order allows, otherwise places truthfully on the vector
-    conflict graph; either way the best of the seven greedy first-fit orders
-    wins (see src/cpp/allocators/omni.cpp). A finite `linearize_budget`
-    keeps the linearize attempt from dominating the placement it is meant
-    to speed up; pass `None` to always decide linearizability.
+    Linearizes vector-clock lifetimes to surrogate scalars when the order allows,
+    else places on the vector conflict graph. Invariant under permuting lanes.
     """
 
     supports_vector_time = True
+    supports_pinned = True
 
     def __init__(self, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
         ensure_valid_budget(linearize_budget, name="linearize_budget")

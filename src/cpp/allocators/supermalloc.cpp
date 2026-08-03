@@ -35,18 +35,6 @@ namespace omnimalloc {
 
 namespace {
 
-// Placed allocations from an index-aligned offset vector; the Solution shape.
-std::vector<Allocation> apply_offsets(
-    const std::vector<Allocation>& allocations,
-    const std::vector<int64_t>& offsets) {
-  std::vector<Allocation> placed;
-  placed.reserve(allocations.size());
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    placed.push_back(allocations[i].with_offset(offsets[i]));
-  }
-  return placed;
-}
-
 constexpr int kExitEvent = 0;
 constexpr int kEnterEvent = 1;
 
@@ -318,10 +306,9 @@ bool Partition::can_allocate_at(int idx, bool monotonic_floor,
 
 bool Partition::placement_feasible(const PlacementUndo& undo, int64_t offset,
                                    bool monotonic_floor) const noexcept {
-  // With `monotonic_floor`, the parent's placement `offset` acts as a floor
-  // for every section. On the sections the placement spans, this expression
-  // equals the spanned check `can_allocate_at` already passed, so it adds no
-  // false rejections there.
+  // With `monotonic_floor`, the parent's placement `offset` floors every
+  // section. On spanned sections this equals the check `can_allocate_at`
+  // already passed, so it adds no false rejections there.
   const int64_t floor_min = monotonic_floor ? offset : 0;
   for (const auto& [s, old_floor] : undo.floor_changes) {
     if (std::max(section_floors_[s], floor_min) + section_totals_[s] >=
@@ -360,8 +347,7 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
 
   // Propagate the placed allocation's top to overlapping unplaced
   // allocations, tracking affected sections for the floor inference below.
-  // Extract/insert node handles reuse the tree nodes instead of freeing and
-  // reallocating one per update.
+  // Extract/insert node handles reuse tree nodes instead of reallocating.
   for (int j : data_->overlaps[idx]) {
     if (offsets_[j] >= 0) continue;
     const int64_t old_min = min_offsets_[j];
@@ -502,11 +488,7 @@ Solution Partition::first_fit(const std::vector<int>& order) const {
     std::sort(intervals.begin(), intervals.end());
 
     const int64_t size = data_->alloc_sizes[i];
-    int64_t offset = 0;
-    for (const auto& [lo, hi] : intervals) {
-      if (lo - offset >= size) break;
-      offset = std::max(offset, hi);
-    }
+    const int64_t offset = first_fit_offset(size, intervals);
     offsets[i] = offset;
     height = std::max(height, offset + size);
   }
@@ -693,10 +675,9 @@ struct SearchCtx {
   int64_t node_limit;
   std::chrono::steady_clock::time_point deadline;
   SearchOptions opts;
-  // The portfolio-wide best bound and the problem's lower bound: once the
-  // bound reaches the lower bound, the whole portfolio is done. Checked on
-  // every node so even sub-part solves (which otherwise never read the
-  // shared bound) stop promptly.
+  // The portfolio-wide best bound and the problem's lower bound: once they
+  // meet, the whole portfolio is done. Checked on every node so sub-part
+  // solves, which otherwise never read the shared bound, stop promptly.
   const std::atomic<int64_t>* portfolio_best;
   int64_t problem_lower_bound;
   int64_t nodes = 0;
@@ -724,11 +705,8 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
                std::optional<Solution>& best, std::atomic<int64_t>* shared);
 
 // Ratchet a decomposition: solve every sub-part below the node's bound, then
-// keep re-solving the bottleneck sub-parts under each merged height until one
-// proves infeasible. Publishes every improvement, so a decomposable problem
-// optimizes anytime within a single search. Sub-part solves pass a null
-// `shared` since their partial-problem heights must never reach the portfolio
-// bound; only merged results publish.
+// re-solve the bottleneck ones under each merged height until one proves
+// infeasible. Only merged results publish; partial heights are not bounds.
 void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
                       SearchCtx& ctx, std::optional<Solution>& best,
                       std::atomic<int64_t>* shared) {
@@ -766,9 +744,7 @@ void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
 
 // Recursive branch-and-bound descent. `node` is mutated in place via
 // `apply_at`/`revert`; its `best_height` is the live pruning bound, lowered on
-// every improvement and never restored. The best complete solution goes to
-// `best`. `shared` (when non-null) is the portfolio-wide atomic bound; the
-// decompose path merges sub-part solutions through `solve_decomposed`.
+// every improvement and never restored. `shared`, when non-null, is atomic.
 void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
                std::optional<Solution>& best, std::atomic<int64_t>* shared) {
   // A sub-part only has to fit the inherited bound, not reach its own optimum
@@ -924,11 +900,9 @@ void run_worker_threads(std::function<void()>& worker, int count) {
 
 #endif
 
-// Run `work` on `num_threads` sized-stack threads (clamped to [1, num_tasks])
-// and join them; even a single worker gets its own thread so the deep
-// `solve_dfs` recursion never runs on the caller's default stack. The first
-// exception any worker raised is rethrown on the calling thread — letting it
-// escape a thread entry point would call std::terminate.
+// Run `work` on `num_threads` sized-stack threads (clamped to [1, num_tasks]);
+// even a single worker gets its own, so the deep `solve_dfs` recursion never
+// runs on the caller's stack. Worker exceptions rethrow on the calling thread.
 void run_workers(const std::function<void()>& work, int num_threads,
                  size_t num_tasks) {
   std::mutex error_mutex;
@@ -948,10 +922,9 @@ void run_workers(const std::function<void()>& work, int num_threads,
   if (error) std::rethrow_exception(error);
 }
 
-// A nullopt timeout disables the deadline entirely, while a non-positive
-// one is an already-expired budget, so a caller whose wall-clock budget ran
-// out still gets the incumbent back. The expired case is resolved here
-// because make_deadline requires a positive budget.
+// A nullopt timeout disables the deadline; a non-positive one is an expired
+// budget, so a caller out of wall clock still gets the incumbent back. Handled
+// here rather than in make_deadline, which requires a positive budget.
 std::chrono::steady_clock::time_point compute_deadline(
     std::optional<double> timeout) {
   if (!timeout) {

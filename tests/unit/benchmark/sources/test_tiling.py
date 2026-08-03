@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from dataclasses import replace
+
 import pytest
 from omnimalloc import allocate, validate_allocation
 from omnimalloc.analysis import pressure
@@ -117,6 +119,17 @@ def test_tiling_ground_truth_requires_seed() -> None:
         TilingSource(seed=None).get_ground_truth_pool()
 
 
+def test_tiling_known_optimum_is_the_capacity() -> None:
+    capacity = 1024 * 1024
+    source = TilingSource(num_allocations=64, capacity=capacity)
+    assert source.get_known_optimum() == capacity
+    assert source.get_known_optimum(128) == capacity
+
+
+def test_tiling_known_optimum_unknown_without_seed() -> None:
+    assert TilingSource(num_allocations=64, seed=None).get_known_optimum() is None
+
+
 def test_tiling_variant_sweep_builds_ladder() -> None:
     source = TilingSource(capacity=1024 * 1024)
     for num in (64, 128, 256):
@@ -131,3 +144,27 @@ def test_tiling_no_allocator_beats_the_optimum() -> None:
     pool = source.get_pool()
     allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity
+
+
+def test_memory_declares_the_achievable_capacity() -> None:
+    source = TilingSource(num_allocations=64, capacity=4096, makespan=1024)
+    memory = source.get_memory()
+    assert memory.size == 4096
+
+
+def test_memory_capacity_scales_with_the_pool_count() -> None:
+    source = TilingSource(num_allocations=32, capacity=4096, makespan=1024)
+    source.num_pools = 3
+    assert source.get_memory().size == 3 * 4096
+
+
+def test_capacity_constrained_memory_validates_when_placed_well() -> None:
+    source = TilingSource(num_allocations=32, capacity=4096, makespan=1024)
+    validate_allocation(allocate(source.get_memory(), "omni"), require_capacity=True)
+
+
+def test_an_undersized_memory_is_rejected() -> None:
+    source = TilingSource(num_allocations=32, capacity=4096, makespan=1024)
+    memory = replace(source.get_memory(), size=1024)
+    with pytest.raises(ValueError, match="exceeds memory size"):
+        validate_allocation(allocate(memory, "omni"))

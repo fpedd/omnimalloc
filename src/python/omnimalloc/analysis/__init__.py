@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from ._conflicts import ConflictGraph as ConflictGraph
 from ._conflicts import conflict_degrees as conflict_degrees
+from ._conflicts import conflict_graph as conflict_graph
 from ._conflicts import conflicts as conflicts
 from ._pressure import antichain_pressure as antichain_pressure
 from ._pressure import (

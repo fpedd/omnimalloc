@@ -14,7 +14,7 @@ from omnimalloc.analysis._pressure import pressure as _pressure
 from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import Allocation, IdType
-from .utils import ensure_allocations
+from .utils import ensure_allocations, ensure_unique_ids
 
 
 @dataclass(frozen=True)
@@ -26,8 +26,7 @@ class Pool:
     offset: int | None = None
 
     def __post_init__(self) -> None:
-        if len({alloc.id for alloc in self.allocations}) != len(self.allocations):
-            raise ValueError("allocation ids must be unique")
+        ensure_unique_ids(self.allocations)
         if self.offset is not None:
             ensure_non_negative(self.offset, "offset")
 
@@ -41,12 +40,7 @@ class Pool:
         """Memory extent from the pool base (offset 0) to the highest allocated end."""
         if not self.is_allocated:
             raise ValueError("cannot compute size of unallocated pool")
-        ends = [
-            alloc.offset + alloc.size
-            for alloc in self.allocations
-            if alloc.offset is not None
-        ]
-        return max(ends, default=0)
+        return max((alloc.height or 0 for alloc in self.allocations), default=0)
 
     @cached_property
     def pressure(self) -> int:
@@ -86,7 +80,7 @@ class Pool:
         return Pool(id=self.id, offset=self.offset, allocations=allocations)
 
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
-        """Apply allocator to assign memory offsets, preserving allocation order."""
+        """Assign offsets to the unpinned allocations, preserving input order."""
         allocated = allocator.allocate(self.allocations)
         if len(allocated) != len(self.allocations) or {a.id for a in allocated} != {
             a.id for a in self.allocations

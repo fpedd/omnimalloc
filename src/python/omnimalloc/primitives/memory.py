@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import TYPE_CHECKING
 
+from omnimalloc.common.intervals import stack_around_pins
 from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import IdType
@@ -35,6 +36,14 @@ class Memory:
         return sum(pool.size for pool in self.pools)
 
     @cached_property
+    def extent(self) -> int:
+        """Highest address any pool occupies: the capacity this memory needs."""
+        tops = [p.offset + p.size for p in self.pools if p.offset is not None]
+        if len(tops) != len(self.pools):
+            raise ValueError("cannot compute extent while pools are unplaced")
+        return max(tops, default=0)
+
+    @cached_property
     def is_allocated(self) -> bool:
         """True if all pools have been allocated."""
         return all(pool.is_allocated for pool in self.pools)
@@ -49,5 +58,18 @@ class Memory:
         return Memory(id=self.id, size=self.size, pools=pools)
 
     def allocate(self, allocator: "BaseAllocator") -> "Memory":
-        """Apply allocator to all pools."""
-        return self.with_pools(tuple(p.allocate(allocator) for p in self.pools))
+        """Apply allocator to all pools, then give every unplaced pool a base."""
+        return self.with_pools(
+            _place_pools(tuple(p.allocate(allocator) for p in self.pools))
+        )
+
+
+def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
+    """Stack the pools that carry no offset around the ones that do."""
+    offsets = stack_around_pins(
+        [pool.size for pool in pools], [pool.offset for pool in pools]
+    )
+    return tuple(
+        pool if pool.offset is not None else replace(pool, offset=offset)
+        for pool, offset in zip(pools, offsets, strict=True)
+    )

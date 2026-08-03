@@ -3,6 +3,7 @@
 #
 
 import random
+import threading
 from typing import Any, cast
 
 from omnimalloc._cpp import FirstFitPlacer
@@ -33,6 +34,11 @@ try:
 except ImportError:
     HAS_DEAP = False
     algorithms = base = creator = tools = cast("Any", None)
+
+
+# DEAP's operators are hardwired to the global random module, so the seeded
+# section is a process-wide critical section rather than per-instance state
+_GLOBAL_RNG_LOCK = threading.Lock()
 
 
 class GeneticAllocator(GreedyAllocator):
@@ -108,16 +114,21 @@ class GeneticAllocator(GreedyAllocator):
         if len(allocations) < 2:
             return super()._allocate(allocations)
 
-        # DEAP operators draw from the global random module; seed it for
-        # determinism but restore the caller's stream afterwards.
-        random_state = random.getstate()
-        random.seed(self._seed)
-        try:
-            return self._evolve(allocations)
-        finally:
-            random.setstate(random_state)
+        # DEAP operators draw from the global random module, so the seeding is
+        # process-wide: seed, restore the caller's stream afterwards, and lock
+        # so concurrent calls cannot interleave draws or saved state.
+        with _GLOBAL_RNG_LOCK:
+            random_state = random.getstate()
+            random.seed(self._seed)
+            try:
+                return self._evolve(allocations)
+            finally:
+                random.setstate(random_state)
 
     def _evolve(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        # Started before the placer and the seed orders: they are the first
+        # thing a large instance spends its budget on
+        deadline = make_deadline(self._timeout)
         placer = FirstFitPlacer(allocations)
         toolbox = base.Toolbox()
         n = len(allocations)
@@ -148,17 +159,25 @@ class GeneticAllocator(GreedyAllocator):
 
         hall_of_fame = tools.HallOfFame(maxsize=1)
 
-        def evaluate_invalid(individuals: list[Any]) -> None:
+        def evaluate_invalid(individuals: list[Any]) -> list[Any]:
+            """Score until the budget runs out; returns the ones that got one.
+
+            One evaluation is a full greedy placement, so a population dwarfs
+            the budget on a large instance. The first individual always runs.
+            """
+            scored = []
             for individual in individuals:
                 if not individual.fitness.valid:
+                    if scored and deadline_expired(deadline):
+                        break
                     individual.fitness.values = toolbox.evaluate(individual)  # type: ignore[unresolved-attribute]
+                scored.append(individual)
+            return scored
 
         # DEAP's eaSimple, unrolled so a wall-clock deadline can stop between
         # generations; varAnd keeps the RNG stream identical to eaSimple.
         # TODO(fpedd): Try eaMuPlusLambda and eaMuCommaLambda
-        deadline = make_deadline(self._timeout)
-        evaluate_invalid(population)
-        hall_of_fame.update(population)
+        hall_of_fame.update(evaluate_invalid(population))
         for _ in range(self._max_generations):
             if deadline_expired(deadline):
                 break
@@ -166,8 +185,10 @@ class GeneticAllocator(GreedyAllocator):
             offspring = algorithms.varAnd(
                 offspring, toolbox, self._crossover_prob, self._mutation_prob
             )
-            evaluate_invalid(offspring)
-            hall_of_fame.update(offspring)
+            scored = evaluate_invalid(offspring)
+            hall_of_fame.update(scored)
+            if len(scored) < len(offspring):
+                break  # budget gone mid-generation; the rest are unscored
             population[:] = offspring
 
         best_permutation = list(hall_of_fame[0])

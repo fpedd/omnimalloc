@@ -5,6 +5,7 @@
 #include "local_search.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <numeric>
 
 namespace omnimalloc {
@@ -40,16 +41,20 @@ std::vector<size_t> initial_order(const std::vector<Allocation>& allocations) {
   return order;
 }
 
-std::vector<size_t> earlier_neighbors(
-    const std::vector<size_t>& order, size_t target_pos,
-    const std::vector<Allocation>& allocations, const ConflictMap& conflicts) {
+std::vector<size_t> earlier_neighbors(const std::vector<size_t>& order,
+                                      size_t target_pos,
+                                      const ConflictIndices& indices) {
+  // Mark the target's conflicts, then keep the earlier positions holding
+  // one; the marks cost a pass over the order, the alternative a hash
+  // lookup per earlier position
+  std::vector<char> conflicting(order.size(), 0);
+  for (size_t other : indices[order[target_pos]]) {
+    conflicting[other] = 1;
+  }
   std::vector<size_t> neighbors;
-  auto it = conflicts.find(allocations[order[target_pos]].id());
-  if (it != conflicts.end()) {
-    for (size_t pos = 0; pos < target_pos; ++pos) {
-      if (it->second.count(allocations[order[pos]].id())) {
-        neighbors.push_back(pos);
-      }
+  for (size_t pos = 0; pos < target_pos; ++pos) {
+    if (conflicting[order[pos]] != 0) {
+      neighbors.push_back(pos);
     }
   }
   if (neighbors.empty()) {
@@ -61,12 +66,12 @@ std::vector<size_t> earlier_neighbors(
 
 std::optional<std::pair<size_t, size_t>> propose_peak_swap(
     const std::vector<size_t>& peaks, const std::vector<size_t>& order,
-    const std::vector<Allocation>& allocations, const ConflictMap& conflicts,
-    std::mt19937_64& rng) {
+    const ConflictIndices& indices, std::mt19937_64& rng) {
+  assert(!peaks.empty());  // full placements always attain their peak
   std::uniform_int_distribution<size_t> pick_peak(0, peaks.size() - 1);
   const size_t target_pos = peaks[pick_peak(rng)];
   const std::vector<size_t> neighbors =
-      earlier_neighbors(order, target_pos, allocations, conflicts);
+      earlier_neighbors(order, target_pos, indices);
   if (neighbors.empty()) {
     return std::nullopt;
   }

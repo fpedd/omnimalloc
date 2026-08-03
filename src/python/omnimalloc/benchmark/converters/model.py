@@ -72,13 +72,10 @@ def _compute_buffer_lifetimes(
     io_inf_lifetime: bool,
 ) -> tuple[dict[Buffer, int], dict[Buffer, int]]:
     """Compute first and last usage indices for each buffer."""
-    op_to_index = {op_id: idx for idx, op_id in enumerate(model.ops)}
-
     buffer_to_first_index: dict[Buffer, int] = {}
     buffer_to_last_index: dict[Buffer, int] = {}
 
-    for op_id, op in model.ops.items():
-        idx = op_to_index[op_id]
+    for idx, op in enumerate(model.ops.values()):
         for buffer in op.inputs | op.outputs:
             if buffer not in buffer_to_first_index:
                 buffer_to_first_index[buffer] = idx

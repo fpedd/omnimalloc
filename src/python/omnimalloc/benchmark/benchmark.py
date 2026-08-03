@@ -3,6 +3,7 @@
 #
 
 import logging
+from dataclasses import asdict, dataclass
 
 from omnimalloc import allocate, validate_allocation
 from omnimalloc.allocators import BaseAllocator, available_allocators
@@ -15,6 +16,15 @@ from .timer import Timer
 from .utils import tqdm
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SkippedAllocator:
+    """An allocator left out of a campaign because a source outran it."""
+
+    source: str
+    allocator: str
+    reason: str
 
 
 def _resolve_parameterizable_variants(
@@ -68,7 +78,12 @@ def _get_variant_ids(
     variants: VariantSpec | dict[str, VariantSpec],
 ) -> tuple[IdType, ...]:
     if isinstance(variants, dict):
-        variants = variants.get(source_inst.name())
+        # Labelled instances can be addressed individually; the class name
+        # keeps working and covers every instance of that source
+        label = source_inst.label()
+        variants = (
+            variants[label] if label in variants else variants.get(source_inst.name())
+        )
     if source_inst.is_parameterizable():
         return _resolve_parameterizable_variants(variants)
     return _resolve_fixed_variants(source_inst, variants)
@@ -104,7 +119,9 @@ def _benchmark_report(
     report_id: int,
     result_id: int,
     validate: bool,
-) -> BenchmarkReport | None:
+    known_optima: dict[IdType, int | None],
+) -> BenchmarkReport | SkippedAllocator | None:
+    """Time one allocator/source/variant, or report why it was skipped."""
     variant_desc = variant_id if isinstance(variant_id, str) else f"{variant_id} allocs"
 
     # Validate and error out early; a variant the source cannot express
@@ -113,16 +130,20 @@ def _benchmark_report(
     try:
         pool = source.get_variant(variant_id)
     except ValueError as error:
-        logger.warning(f"Skipping {source.name()}[{variant_desc}]: {error}")
+        logger.warning(f"Skipping {source.label()}[{variant_desc}]: {error}")
         return None
     if pool is None:
         raise ValueError(f"source {source.name()} returned no pool")
     if not allocator.supports(pool.allocations):
+        reason = "requires scalar (interval) lifetimes"
         logger.warning(
-            f"Skipping {allocator.name()} on {source.name()}[{variant_desc}]: "
-            "requires scalar (interval) lifetimes"
+            f"Skipping {allocator.name()} on {source.label()}[{variant_desc}]: {reason}"
         )
-        return None
+        return SkippedAllocator(
+            source=source.label(),
+            allocator=allocator.name(),
+            reason=reason,
+        )
 
     results = []
     for _ in tqdm(
@@ -135,12 +156,18 @@ def _benchmark_report(
         results.append(result)
         result_id += 1
 
+    # The ground truth is a property of the instance, not the allocator, and
+    # the tiling sources rebuild their whole construction to read it
+    if variant_id not in known_optima:
+        known_optima[variant_id] = source.get_known_optimum(variant_id)
+
     return BenchmarkReport(
         id=report_id,
         results=tuple(results),
         allocator=allocator,
         source=source,
         variant_id=variant_id,
+        known_optimum=known_optima[variant_id],
     )
 
 
@@ -150,23 +177,19 @@ def run_benchmark(
     variants: VariantSpec | dict[str, VariantSpec] = None,
     campaign_id: IdType | None = None,
     iterations: int = 1,
-    validate: bool = False,
+    validate: bool = True,
 ) -> BenchmarkCampaign:
     """Run a benchmark campaign across multiple allocators and sources.
 
-    `allocators` and `sources` default to all available and the default
-    source. `variants` selects workloads per source: allocation counts
-    (int or tuple) for parameterizable sources; names, indices, or an int
-    meaning "first N" for fixed sources; a dict keyed by source name sets
-    variants per source; `None` uses defaults (all models for fixed, 100
-    for parameterizable). `iterations` repeats each variant for
-    statistical averaging; `validate=True` checks every result.
+    `variants` selects workloads per source: counts, names, indices, or a dict
+    keyed by source. `iterations` re-runs one instance, measuring jitter.
     """
     allocators = allocators or available_allocators()
     sources = sources or (DEFAULT_SOURCE,)
     campaign_id = campaign_id or "campaign_" + get_date_time_snake_case()
 
     reports = []
+    skipped: list[SkippedAllocator] = []
     report_id = 0
     result_id = 0
 
@@ -186,6 +209,9 @@ def run_benchmark(
                 f"gets a different random problem, so results are not comparable"
             )
 
+        variant_ids = _get_variant_ids(source_inst, variants)
+        known_optima: dict[IdType, int | None] = {}
+
         for allocator in tqdm(
             allocators,
             desc=f"Allocators [{source}]",
@@ -193,7 +219,6 @@ def run_benchmark(
             leave=False,
         ):
             allocator_inst = BaseAllocator.resolve(allocator)
-            variant_ids = _get_variant_ids(source_inst, variants)
 
             for variant_id in tqdm(
                 variant_ids,
@@ -209,7 +234,11 @@ def run_benchmark(
                     report_id,
                     result_id,
                     validate,
+                    known_optima,
                 )
+                if isinstance(report, SkippedAllocator):
+                    skipped.append(report)
+                    continue
                 if report is None:
                     continue
                 reports.append(report)
@@ -227,7 +256,12 @@ def run_benchmark(
     campaign = BenchmarkCampaign(
         id=campaign_id,
         reports=tuple(reports),
-        metadata={"total_duration": timer.elapsed},
+        metadata={
+            "total_duration": timer.elapsed,
+            # Same allocator and source repeat once per variant; report the
+            # distinct omissions so a shrunken comparison is visible
+            "skipped_allocators": [asdict(s) for s in dict.fromkeys(skipped)],
+        },
     )
     campaign = campaign.finalize_metadata()
     return campaign

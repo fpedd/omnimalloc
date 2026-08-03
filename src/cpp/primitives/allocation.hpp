@@ -12,6 +12,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -91,16 +92,16 @@ class Allocation {
     return std::nullopt;
   }
 
-  // Pair predicates. `conflicts_with` is the happens-before conflict test
-  // (neither free happens-before the other's alloc; mixed clock dimensions
-  // throw): conflicting allocations must occupy disjoint address ranges.
-  // `overlaps` is the realized collision of two placed rectangles.
+  // Pair predicates. `conflicts_with` is the happens-before test (neither free
+  // happens-before the other's alloc), so conflicting allocations must occupy
+  // disjoint ranges. `overlaps` is the realized collision of two rectangles.
   [[nodiscard]] bool conflicts_with(const Allocation& other) const;
   [[nodiscard]] bool overlaps_spatially(const Allocation& other) const noexcept;
   [[nodiscard]] bool overlaps(const Allocation& other) const;
 
-  // Transformations
-  [[nodiscard]] Allocation with_offset(int64_t new_offset) const;
+  // Transformations. A nullopt offset clears the placement, releasing a pin
+  // so the allocators are free to move the allocation again.
+  [[nodiscard]] Allocation with_offset(std::optional<int64_t> new_offset) const;
 
   // Comparison
   bool operator==(const Allocation& other) const noexcept = default;
@@ -136,11 +137,9 @@ class Allocation {
   void validate() const;
 };
 
-// Throw std::invalid_argument (a precondition on the input sizes) when the
-// total allocation size exceeds `limit`, ruling out signed overflow in
-// downstream sums of sizes: placer offset and cursor arithmetic, sweep
-// deltas, and flow arc capacities. The `limit` default is an internal
-// correctness bound, not a policy value crossing the binding surface.
+// Throw std::invalid_argument when the total allocation size exceeds `limit`,
+// ruling out signed overflow in downstream sums: placer offsets, sweep deltas,
+// flow capacities. An internal correctness bound, not a policy value.
 inline void check_total_size(
     const std::vector<Allocation>& allocations,
     int64_t limit = std::numeric_limits<int64_t>::max() / 2) {
@@ -151,6 +150,31 @@ inline void check_total_size(
     }
     total_size += a.size();
   }
+}
+
+// Throw unless every allocation has scalar (interval) lifetimes; `who` names
+// the rejecting entry point in the message.
+inline void require_scalar_time(const std::vector<Allocation>& allocations,
+                                const char* who) {
+  if (!std::ranges::all_of(allocations, &Allocation::is_scalar_time)) {
+    const size_t max_dim =
+        std::ranges::max_element(allocations, {}, &Allocation::dim)->dim();
+    throw std::invalid_argument(std::string(who) +
+                                " requires scalar (interval) lifetimes, got " +
+                                std::to_string(max_dim) + "-dim vector clocks");
+  }
+}
+
+// Placed allocations from an index-aligned offset vector
+[[nodiscard]] inline std::vector<Allocation> apply_offsets(
+    const std::vector<Allocation>& allocations,
+    const std::vector<int64_t>& offsets) {
+  std::vector<Allocation> placed;
+  placed.reserve(allocations.size());
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    placed.push_back(allocations[i].with_offset(offsets[i]));
+  }
+  return placed;
 }
 
 }  // namespace omnimalloc

@@ -22,6 +22,7 @@ class GreedyAllocator(BaseAllocator):
     """Base greedy allocator using first-fit strategy."""
 
     supports_vector_time = True
+    supports_pinned = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         # The C++ kernel computes the conflict relation natively, unbudgeted:

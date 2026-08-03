@@ -17,6 +17,7 @@ from omnimalloc.common.deadline import (
 )
 from omnimalloc.common.parallel import ensure_valid_num_threads, resolve_num_threads
 from omnimalloc.primitives.allocation import Allocation
+from omnimalloc.primitives.utils import ensure_unique_ids
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,7 @@ class _Portfolio:
         """Run one portfolio round, or None once the budget has expired.
 
         The budget is read once per round so the expiry check and the round's
-        timeout always agree. The five search switches are developer flags
-        that stay enabled here; ablations call `_cpp.try_solve_many` directly.
+        timeout agree. Ablations call `_cpp.try_solve_many` directly.
         """
         remaining = self.remaining()
         if remaining is not None and remaining <= 0:
@@ -104,28 +104,44 @@ def _bound_ladder(low: int, high: int, rungs: int) -> tuple[int, ...]:
     return tuple(b for b in unique if low < b <= high)
 
 
-def _search(portfolio: _Portfolio, low: int, peak: int) -> Solution | None:
-    """Run the concurrent bound-ladder search below the incumbent `peak`."""
+@dataclass(frozen=True)
+class SupermallocResult:
+    """A placement plus the search's own verdict on it."""
+
+    allocations: tuple[Allocation, ...]
+    peak: int
+    lower_bound: int
+    proved_optimal: bool
+
+
+def _search(portfolio: _Portfolio, low: int, peak: int) -> tuple[Solution | None, bool]:
+    """Run the concurrent bound-ladder search below the incumbent `peak`.
+
+    Returns the best solution and whether optimality was proved: the solver
+    reports "none below" and "budget gone" alike, so time left is the proof.
+    """
     best: Solution | None = None
     rungs = max(1, portfolio.threads // len(portfolio.partitions))
+    exhausted = False
     while peak > low:
         result = portfolio.solve(_bound_ladder(low, peak, rungs))
         if result is None:
+            exhausted = not portfolio.expired()
             break
         best, peak = result, result.peak
 
-    if peak > low and portfolio.expired():
+    proved_optimal = peak <= low or exhausted
+    if not proved_optimal:
         logger.debug("Supermalloc timed out above lower bound: %d > %d", peak, low)
 
-    return best
+    return best, proved_optimal
 
 
 class SupermallocAllocator(BaseAllocator):
     """Portfolio branch-and-bound allocator built on a C++ partition solver.
 
-    `timeout` (default 3s) is the wall-clock budget for greedy + search
-    (problem setup is not counted against it); `None` lets the search run to
-    optimality. `num_threads=None` uses all cores.
+    `timeout` (default 3s) budgets the whole call, but building the partition
+    and packing the first heuristic cannot be interrupted, a floor of seconds.
     """
 
     # The partition solver's section grid needs a linear timeline
@@ -145,7 +161,28 @@ class SupermallocAllocator(BaseAllocator):
         self._heuristics = heuristics
         self._num_threads = num_threads
 
+    def solve(self, allocations: tuple[Allocation, ...]) -> SupermallocResult:
+        """Place the allocations and keep the search's verdict on the result.
+
+        `allocate` returns the placement alone, which cannot say whether the
+        search proved optimality or merely ran out of budget.
+        """
+        ensure_unique_ids(allocations)
+        self.ensure_supported(allocations)
+        if not allocations:
+            return SupermallocResult(
+                allocations=(), peak=0, lower_bound=0, proved_optimal=True
+            )
+        return self._solve(allocations)
+
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return self._solve(allocations).allocations
+
+    def _solve(self, allocations: tuple[Allocation, ...]) -> SupermallocResult:
+        # Started before problem setup: on a large instance the partition and
+        # its reorders are themselves seconds of work, and a caller's budget
+        # is the wall clock it is willing to spend, not the search's share
+        deadline = make_deadline(self._timeout)
         threads = resolve_num_threads(self._num_threads)
         base = Partition.from_allocations(allocations)
         heuristic_codes = ["".join(h) for h in self._heuristics]
@@ -156,15 +193,18 @@ class SupermallocAllocator(BaseAllocator):
         portfolio = _Portfolio(
             partitions=[base.reorder(code) for code in heuristic_codes],
             threads=threads,
-            # Deliberately started after partition construction and the
-            # reorders above: the budget covers greedy + search only.
-            deadline=make_deadline(self._timeout),
+            deadline=deadline,
         )
 
         incumbent = greedy_pack_portfolio(
             base, greedy_codes, portfolio.remaining(), threads
         )
-        best = _search(portfolio, base.lower_bound, incumbent.peak)
+        best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
         if best is None:
             best = incumbent
-        return tuple(best.allocations)
+        return SupermallocResult(
+            allocations=tuple(best.allocations),
+            peak=best.peak,
+            lower_bound=base.lower_bound,
+            proved_optimal=proved_optimal,
+        )

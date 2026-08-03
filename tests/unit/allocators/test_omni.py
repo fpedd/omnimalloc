@@ -5,7 +5,12 @@
 import random
 
 import pytest
-from omnimalloc.allocators import BaseAllocator, NaiveAllocator, OmniAllocator
+from omnimalloc.allocators import (
+    BaseAllocator,
+    GreedyByAllAllocator,
+    NaiveAllocator,
+    OmniAllocator,
+)
 from omnimalloc.analysis import placement_pressure, pressure
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
@@ -29,6 +34,25 @@ def _random_scalar(n: int, seed: int) -> tuple[Allocation, ...]:
     return tuple(allocations)
 
 
+def _random_vector(n: int, dim: int, seed: int) -> tuple[Allocation, ...]:
+    rng = random.Random(seed)
+    allocations = []
+    for i in range(n):
+        start = tuple(rng.randint(0, 6) for _ in range(dim))
+        delta = [rng.randint(0, 2) for _ in range(dim)]
+        if sum(delta) == 0:
+            delta[rng.randrange(dim)] = 1
+        allocations.append(
+            Allocation(
+                id=i,
+                size=rng.randint(1, 64),
+                start=start,
+                end=tuple(s + d for s, d in zip(start, delta, strict=True)),
+            )
+        )
+    return tuple(allocations)
+
+
 def _two_plus_two() -> tuple[Allocation, ...]:
     return (
         Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
@@ -36,6 +60,10 @@ def _two_plus_two() -> tuple[Allocation, ...]:
         Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
         Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
     )
+
+
+def _best_greedy_peak(allocations: tuple[Allocation, ...]) -> int:
+    return placement_pressure(GreedyByAllAllocator(num_threads=1).allocate(allocations))
 
 
 def test_omni_is_registered_and_supports_vector_time() -> None:
@@ -105,12 +133,24 @@ def test_omni_is_deterministic() -> None:
     assert [a.offset for a in first] == [a.offset for a in second]
 
 
-def test_omni_ignores_existing_offsets() -> None:
+def test_omni_keeps_existing_offsets_pinned() -> None:
     allocations = tuple(
         Allocation(id=i, size=32, start=0, end=4, offset=1024 * (i + 1))
         for i in range(4)
     )
     placed = OmniAllocator().allocate(allocations)
+    assert [a.offset for a in placed] == [1024, 2048, 3072, 4096]
+
+
+def test_omni_packs_free_allocations_around_pins() -> None:
+    allocations = (
+        Allocation(id="pinned", size=32, start=0, end=4, offset=64),
+        *(Allocation(id=i, size=32, start=0, end=4) for i in range(3)),
+    )
+    placed = OmniAllocator().allocate(allocations)
+    offsets = {a.id: a.offset for a in placed}
+    assert offsets["pinned"] == 64
+    assert sorted(offsets[i] for i in range(3)) == [0, 32, 96]
     assert placement_pressure(placed) == 128
 
 
@@ -139,6 +179,62 @@ def test_omni_rejects_mixed_dimensions() -> None:
     )
     with pytest.raises(ValueError, match="dimension"):
         OmniAllocator().allocate(allocations)
+
+
+def test_omni_matches_greedy_portfolio_on_scalar_input() -> None:
+    allocations = _random_scalar(120, seed=4)
+    omni = placement_pressure(OmniAllocator().allocate(allocations))
+    assert omni == _best_greedy_peak(allocations)
+
+
+def test_omni_without_linearization_matches_greedy_portfolio() -> None:
+    allocations = _random_vector(30, dim=3, seed=5)
+    omni = placement_pressure(OmniAllocator(linearize_budget=0).allocate(allocations))
+    assert omni == _best_greedy_peak(allocations)
+
+
+def test_omni_linearize_budget_does_not_lower_quality() -> None:
+    allocations = (
+        Allocation(id=0, size=30, start=(0, 2), end=(0, 3)),
+        Allocation(id=1, size=2, start=(0, 2), end=(0, 3)),
+        Allocation(id=2, size=19, start=(0, 1), end=(2, 1)),
+        Allocation(id=3, size=6, start=(4, 0), end=(6, 2)),
+        Allocation(id=4, size=23, start=(4, 4), end=(5, 6)),
+        Allocation(id=5, size=9, start=(1, 1), end=(1, 3)),
+        Allocation(id=6, size=24, start=(0, 3), end=(2, 3)),
+        Allocation(id=7, size=11, start=(2, 3), end=(3, 3)),
+        Allocation(id=8, size=26, start=(4, 0), end=(4, 1)),
+        Allocation(id=9, size=26, start=(2, 4), end=(4, 6)),
+        Allocation(id=10, size=29, start=(1, 4), end=(3, 5)),
+    )
+    unlinearized = OmniAllocator(linearize_budget=0).allocate(allocations)
+    linearized = OmniAllocator(linearize_budget=None).allocate(allocations)
+    assert placement_pressure(unlinearized) == _best_greedy_peak(allocations) == 104
+    assert placement_pressure(linearized) == 104
+
+
+def test_omni_linearization_widens_the_portfolio() -> None:
+    allocations = (
+        Allocation(id=0, size=1, start=(6, 12), end=(9, 15)),
+        Allocation(id=1, size=2, start=(16, 7), end=(24, 11)),
+        Allocation(id=2, size=16, start=(17, 8), end=(20, 14)),
+        Allocation(id=3, size=16, start=(8, 2), end=(14, 10)),
+        Allocation(id=4, size=4, start=(0, 4), end=(7, 12)),
+        Allocation(id=5, size=32, start=(12, 19), end=(13, 25)),
+        Allocation(id=6, size=2, start=(5, 9), end=(12, 17)),
+        Allocation(id=7, size=8, start=(9, 17), end=(14, 23)),
+        Allocation(id=8, size=1, start=(16, 4), end=(22, 9)),
+        Allocation(id=9, size=16, start=(6, 12), end=(9, 19)),
+        Allocation(id=10, size=8, start=(11, 20), end=(15, 24)),
+        Allocation(id=11, size=8, start=(17, 9), end=(20, 10)),
+        Allocation(id=12, size=16, start=(19, 9), end=(25, 12)),
+        Allocation(id=13, size=32, start=(19, 7), end=(24, 11)),
+        Allocation(id=14, size=16, start=(3, 7), end=(9, 9)),
+    )
+    widened = OmniAllocator().allocate(allocations)
+    base_only = OmniAllocator(linearize_budget=0).allocate(allocations)
+    assert placement_pressure(base_only) == _best_greedy_peak(allocations) == 140
+    assert placement_pressure(widened) == 139
 
 
 @pytest.mark.parametrize("num_syncs", [0, 16, 256])
@@ -173,3 +269,40 @@ def test_omni_torture_across_tiling_variants() -> None:
             )
             placed = OmniAllocator().allocate(source.get_allocations())
             validate_allocation(Pool(id=f"{num_syncs}-{seed}", allocations=placed))
+
+
+def test_omni_linearize_budget_is_quality_monotone() -> None:
+    for seed in range(10):
+        for dim in (2, 3, 4):
+            allocations = _random_vector(24, dim=dim, seed=1000 * dim + seed)
+            default = OmniAllocator().allocate(allocations)
+            unbounded = OmniAllocator(linearize_budget=None).allocate(allocations)
+            floor = _best_greedy_peak(allocations)
+            assert placement_pressure(default) <= floor
+            assert placement_pressure(unbounded) <= floor
+            validate_allocation(Pool(id=f"{dim}-{seed}", allocations=default))
+
+
+def test_omni_degenerate_clock_columns_match_the_scalar_instance() -> None:
+    rng = random.Random(31)
+    for _ in range(60):
+        base = [
+            (i, rng.randint(1, 50), rng.randint(0, 60), rng.randint(1, 12))
+            for i in range(rng.randint(1, 40))
+        ]
+        scalar = tuple(
+            Allocation(id=i, size=z, start=s, end=s + d) for i, z, s, d in base
+        )
+        padded = tuple(
+            Allocation(id=i, size=z, start=(s, 0, 0), end=(s + d, 0, 0))
+            for i, z, s, d in base
+        )
+        lockstep = tuple(
+            Allocation(id=i, size=z, start=(s,) * 3, end=(s + d,) * 3)
+            for i, z, s, d in base
+        )
+        expected = placement_pressure(OmniAllocator().allocate(scalar))
+        for allocations in (padded, lockstep):
+            placed = OmniAllocator().allocate(allocations)
+            validate_allocation(Pool(id="p", allocations=placed))
+            assert placement_pressure(placed) == expected

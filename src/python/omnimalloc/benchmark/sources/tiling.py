@@ -12,11 +12,8 @@ from .tiling_base import TilingBase, _Tile
 class TilingSource(TilingBase):
     """Generate hard packing problems via recursive guillotine cuts.
 
-    Every split runs edge to edge, so the optimum is always recoverable by
-    recursive divide-and-conquer (the guillotine sibling of ``PinwheelSource``).
-    ``mem_cut_prob`` tunes temporal contention (and thus hardness) by biasing
-    cuts toward the memory axis. See ``TilingBase`` for the construction and
-    optimality guarantee.
+    Every split runs edge to edge, so divide-and-conquer always recovers the
+    optimum. ``mem_cut_prob`` biases cuts toward the memory axis.
     """
 
     def __init__(

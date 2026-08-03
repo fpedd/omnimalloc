@@ -6,7 +6,7 @@ import math
 import random
 
 from omnimalloc._cpp import FirstFitPlacer
-from omnimalloc.analysis import placement_pressure
+from omnimalloc.analysis import ConflictGraph, conflict_graph
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import (
     deadline_expired,
@@ -23,12 +23,7 @@ class HillClimbAllocator(GreedyAllocator):
     """Local search over greedy placement orders with simulated annealing.
 
     Starts from a conflict-weighted greedy order and repeatedly swaps two
-    temporal neighbors of a peak allocation, keeping the swap if the greedy
-    peak improves (or occasionally when it worsens, per the annealing
-    schedule). `acceptance_temperature` is the percent worsening accepted
-    with probability 1/e at the start; it cools linearly to zero.
-    `timeout` (default 3s) bounds wall-clock time as the input grows,
-    independent of `max_iterations`; set it to None to disable the deadline.
+    temporal neighbors of a peak allocation, keeping improvements and some not.
     """
 
     def __init__(
@@ -51,47 +46,52 @@ class HillClimbAllocator(GreedyAllocator):
         self,
         idx: int,
         order: list[int],
-        allocations: tuple[Allocation, ...],
-        adjacency: dict[int | str, set[int | str]],
+        position: list[int],
+        graph: ConflictGraph,
+        deadline: float | None,
     ) -> tuple[list[int], list[int]]:
-        """Collect first and second level temporal neighbors placed before idx."""
-        first_level: set[int] = set()
+        """Collect first and second level temporal neighbors placed before idx.
+
+        Walks the conflict rows rather than scanning every earlier position, so
+        the cost is the degrees involved, not the instance size squared.
+        """
+        first_level = sorted(
+            position[other]
+            for other in graph.neighbors(order[idx])
+            if position[other] < idx
+        )
         second_level: set[int] = set()
-        adjacent = adjacency.get(allocations[order[idx]].id, frozenset())
+        for other_pos in first_level:
+            if deadline_expired(deadline):
+                break
+            for candidate in graph.neighbors(order[other_pos]):
+                if position[candidate] < other_pos:
+                    second_level.add(position[candidate])
 
-        for other_pos in range(idx):
-            other = allocations[order[other_pos]]
-            if other.id in adjacent:
-                first_level.add(other_pos)
-
-                other_adjacent = adjacency.get(other.id, frozenset())
-                for candidate_pos in range(other_pos):
-                    if allocations[order[candidate_pos]].id in other_adjacent:
-                        second_level.add(candidate_pos)
-
-        return sorted(first_level), sorted(second_level)
+        return first_level, sorted(second_level)
 
     def _propose_swap(
         self,
         order: list[int],
+        position: list[int],
         placed: tuple[Allocation, ...],
-        peak: int,
+        current_peak: int,
         rng: random.Random,
-        allocations: tuple[Allocation, ...],
-        adjacency: dict[int | str, set[int | str]],
+        graph: ConflictGraph,
+        deadline: float | None,
     ) -> tuple[int, int] | None:
         """Pick two earlier temporal neighbors of a peak allocation to swap."""
         peak_indices = [
             idx
             for idx, alloc in enumerate(placed)
-            if alloc.offset is not None and alloc.offset + alloc.size == peak
+            if alloc.offset is not None and alloc.offset + alloc.size == current_peak
         ]
         if not peak_indices:
             return None
 
         target_idx = rng.choice(peak_indices)
         first_level, second_level = self._collect_neighbors(
-            target_idx, order, allocations, adjacency
+            target_idx, order, position, graph, deadline
         )
         if not first_level:
             return None
@@ -121,10 +121,11 @@ class HillClimbAllocator(GreedyAllocator):
         deadline = make_deadline(self._timeout)
         rng = random.Random(self._seed)
         placer = FirstFitPlacer(allocations)
-        adjacency = placer.conflicts
-        # Ids are unique (enforced by allocate()), so the placer's resident
-        # conflict map doubles as the degree source for the starting order.
-        degrees = [len(adjacency[alloc.id]) for alloc in allocations]
+        # Unbudgeted: the search must not degrade into a different heuristic
+        # halfway through a large instance. The CSR form keeps that
+        # affordable; the id-keyed map costs two orders of magnitude more.
+        graph = conflict_graph(allocations, work_budget=None)
+        degrees = [graph.degree(i) for i in range(len(allocations))]
 
         # Start from size * conflicts^2, size, then id for deterministic ordering
         order = sorted(
@@ -136,31 +137,41 @@ class HillClimbAllocator(GreedyAllocator):
             ),
             reverse=True,
         )
+        # position[i] is where allocation i sits in `order`; kept in step so
+        # neighbor lookups cost a degree, not a scan
+        position = [0] * len(order)
+        for pos, idx in enumerate(order):
+            position[idx] = pos
+
+        def swap_positions(pos1: int, pos2: int) -> None:
+            order[pos1], order[pos2] = order[pos2], order[pos1]
+            position[order[pos1]], position[order[pos2]] = pos1, pos2
 
         # Greedy placement preserves order, so placed[i] corresponds to order[i]
         current = tuple(placer.place(order))
-        current_peak = placement_pressure(current)
+        current_peak = placer.peak(order)
         best, best_peak = current, current_peak
 
         for iteration in range(self._max_iterations):
             if deadline_expired(deadline):
                 break
             swap = self._propose_swap(
-                order, current, current_peak, rng, allocations, adjacency
+                order, position, current, current_peak, rng, graph, deadline
             )
             if swap is None:
                 continue
 
             idx1, idx2 = swap
-            order[idx1], order[idx2] = order[idx2], order[idx1]
-            candidate = tuple(placer.place(order))
-            candidate_peak = placement_pressure(candidate)
+            swap_positions(idx1, idx2)
+            # Scoring stays native: only an accepted swap needs the placement
+            # itself, and acceptances thin out as the schedule cools
+            candidate_peak = placer.peak(order)
 
             if self._should_accept(candidate_peak, current_peak, iteration, rng):
-                current, current_peak = candidate, candidate_peak
+                current, current_peak = tuple(placer.place(order)), candidate_peak
                 if candidate_peak < best_peak:
-                    best, best_peak = candidate, candidate_peak
+                    best, best_peak = current, candidate_peak
             else:
-                order[idx1], order[idx2] = order[idx2], order[idx1]
+                swap_positions(idx1, idx2)
 
         return best

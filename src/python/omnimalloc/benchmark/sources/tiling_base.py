@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from omnimalloc.primitives import Allocation, Pool, TimePoint
+from omnimalloc.primitives import Allocation, IdType, Pool, TimePoint
 
 from .base import BaseSource
 
@@ -19,11 +19,8 @@ TimeT_co = TypeVar("TimeT_co", bound=TimePoint, covariant=True)
 class _Tile(Generic[TimeT_co]):
     """A leaf rectangle in the (time x memory) plane.
 
-    The split recursion works on a scalar timeline (``_Tile[int]``); sources
-    with vector-clock lifetimes re-time tiles to tuple clocks before they
-    become Allocations. ``offset`` is the leaf's memory position in the
-    ground-truth packing; it is discarded when handed to an allocator but kept
-    for validation/reference.
+    The split recursion works on a scalar timeline; vector-clock sources re-time
+    tiles first. ``offset`` is the ground-truth position, kept for validation.
     """
 
     start: TimeT_co
@@ -35,13 +32,8 @@ class _Tile(Generic[TimeT_co]):
 class TilingBase(BaseSource):
     """Reverse-constructed packing problems with a known, tight optimum.
 
-    A ``capacity x makespan`` rectangle is recursively split into leaf tiles
-    until ``num_allocations`` is reached; each leaf becomes one allocation with
-    its time span and memory height. Because the leaves perfectly tile the
-    rectangle, peak pressure equals ``capacity`` exactly, so ``capacity`` is a
-    provably achievable optimum. Subclasses supply the cut geometry via
-    ``_can_split`` and ``_split``; sweeping ``num_allocations`` yields a
-    difficulty ladder.
+    A ``capacity x makespan`` rectangle splits recursively into leaf tiles, one
+    allocation each. They tile it perfectly, so ``capacity`` is the optimum.
     """
 
     def __init__(
@@ -63,6 +55,15 @@ class TilingBase(BaseSource):
         self.min_size = min_size
         self.min_duration = min_duration
         self.seed = seed
+
+    @property
+    def memory_capacity(self) -> int:
+        """Exactly what an optimal placement of every pool needs, and no more.
+
+        The leaves tile the rectangle, so a memory of `num_pools` optima is
+        barely feasible. Lower it to build an infeasible instance.
+        """
+        return self.num_pools * self.capacity
 
     @abstractmethod
     def _can_split(self, tile: _Tile[int]) -> bool: ...
@@ -126,3 +127,14 @@ class TilingBase(BaseSource):
             raise ValueError("ground truth requires a fixed seed")
         allocations = self._tile_allocations(num_allocations, skip, with_offsets=True)
         return Pool(id=f"{self.name()}_ground_truth", allocations=allocations)
+
+    def get_known_optimum(self, variant_id: IdType | None = None) -> int | None:
+        """Peak of the construction packing, which is optimal by tiling.
+
+        Unknown without a fixed seed: the ground truth is then a different
+        random packing than the one that was benchmarked.
+        """
+        if self.seed is None:
+            return None
+        num = variant_id if isinstance(variant_id, int) else None
+        return self.get_ground_truth_pool(num).size

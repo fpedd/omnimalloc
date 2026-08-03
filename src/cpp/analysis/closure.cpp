@@ -15,12 +15,9 @@
 #include "clock.hpp"
 #include "common/parallel.hpp"
 
-// Join-closure enumeration of the cut lattice. Cuts live in a flat row
-// arena behind a hash set of row indices: a candidate join is written
-// provisionally at the arena tail and rolled back when already present, so
-// the arena always holds exactly the distinct cuts, ready for parallel
-// scoring. Identical (start, end) lifetimes are pre-merged; each cut then
-// scores the summed weight of groups born at or before it and not yet dead.
+// Join-closure enumeration of the cut lattice. Cuts live in a flat row arena
+// behind a hash set of row indices, each candidate join written provisionally
+// at the tail and rolled back when already present, so the arena stays exact.
 
 namespace omnimalloc {
 

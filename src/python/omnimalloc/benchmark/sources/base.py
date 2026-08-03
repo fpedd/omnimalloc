@@ -6,19 +6,19 @@ from abc import abstractmethod
 from typing import ClassVar
 
 from omnimalloc.common.registry import Registered
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation, IdType, Memory, Pool, System
 
 
 class BaseSource(Registered):
     """Base class for benchmark allocation sources with automatic registry.
 
-    Subclasses implement `get_allocations()`; the pool/memory/system
-    methods build on it. Sources are either parameterizable (generate any
-    allocation count, e.g. RandomSource) or fixed (predetermined
-    models/pools with set counts, e.g. Huggingface).
+    Subclasses implement `get_allocations()`. `_label_fields` names the
+    parameters making one instance a different workload, keeping sweeps separable.
     """
 
     _strip_suffix: ClassVar[str] = "Source"
+    _label_fields: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -28,18 +28,10 @@ class BaseSource(Registered):
         num_systems: int = 1,
     ) -> None:
         super().__init__()
-        if num_allocations <= 0:
-            raise ValueError("num_allocations must be positive")
-        if num_pools <= 0:
-            raise ValueError("num_pools must be positive")
-        if num_memories <= 0:
-            raise ValueError("num_memories must be positive")
-        if num_systems <= 0:
-            raise ValueError("num_systems must be positive")
-        self._num_allocations = num_allocations
-        self._num_pools = num_pools
-        self._num_memories = num_memories
-        self._num_systems = num_systems
+        self.num_allocations = num_allocations
+        self.num_pools = num_pools
+        self.num_memories = num_memories
+        self.num_systems = num_systems
 
     @property
     def num_allocations(self) -> int:
@@ -47,8 +39,7 @@ class BaseSource(Registered):
 
     @num_allocations.setter
     def num_allocations(self, value: int) -> None:
-        if value <= 0:
-            raise ValueError("num_allocations must be positive")
+        ensure_positive(value, "num_allocations")
         self._num_allocations = value
 
     @property
@@ -57,8 +48,7 @@ class BaseSource(Registered):
 
     @num_pools.setter
     def num_pools(self, value: int) -> None:
-        if value <= 0:
-            raise ValueError("num_pools must be positive")
+        ensure_positive(value, "num_pools")
         self._num_pools = value
 
     @property
@@ -67,8 +57,7 @@ class BaseSource(Registered):
 
     @num_memories.setter
     def num_memories(self, value: int) -> None:
-        if value <= 0:
-            raise ValueError("num_memories must be positive")
+        ensure_positive(value, "num_memories")
         self._num_memories = value
 
     @property
@@ -77,13 +66,39 @@ class BaseSource(Registered):
 
     @num_systems.setter
     def num_systems(self, value: int) -> None:
-        if value <= 0:
-            raise ValueError("num_systems must be positive")
+        ensure_positive(value, "num_systems")
         self._num_systems = value
+
+    @property
+    def memory_capacity(self) -> int | None:
+        """Declared size for the memories this source builds.
+
+        A generated workload models no hardware, so it declares no capacity;
+        sources knowing an achievable optimum override it.
+        """
+        return None
+
+    def label(self) -> str:
+        """Registry name, plus the `_label_fields` that make this instance distinct.
+
+        Two instances configured differently must not collapse into one series,
+        so the label carries their parameters: `sync_pattern[num_threads=16]`.
+        """
+        if not self._label_fields:
+            return self.name()
+        fields = ",".join(f"{f}={getattr(self, f)}" for f in self._label_fields)
+        return f"{self.name()}[{fields}]"
 
     def is_parameterizable(self) -> bool:
         """Whether this source can generate arbitrary allocation counts."""
         return True
+
+    def get_known_optimum(self, variant_id: IdType | None = None) -> int | None:
+        """Provably achievable peak size for a variant, or None if unknown.
+
+        Sources that reverse-construct their instances from a packing know
+        the optimum and override this; everyone else leaves it unknown.
+        """
 
     def get_available_variants(
         self, variants: int | None = None
@@ -138,7 +153,13 @@ class BaseSource(Registered):
             )
             if not pools:
                 raise ValueError(f"source {self.name()} returned no pools")
-            memories.append(Memory(id=f"{self.name()}_memory_{i}", pools=pools))
+            memories.append(
+                Memory(
+                    id=f"{self.name()}_memory_{i}",
+                    pools=pools,
+                    size=self.memory_capacity,
+                )
+            )
         return tuple(memories)
 
     def get_systems(
