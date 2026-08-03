@@ -66,9 +66,6 @@ allocation.pdf
 Thumbs.db
 
 # Misc
-# Note: no repo-wide *.json or *.pdf rule. Both used to be ignored everywhere,
-# which silently swallowed any config or asset added later; the generated ones
-# are covered by the output directories above.
 *.log
 .env
 CLAUDE.md

@@ -84,10 +84,12 @@ def _tensor_proto_to_buffer(tensor: onnx.TensorProto) -> Buffer:
             f"Dropped dimensions with size <=0 in tensor '{tensor.name}': "
             f"{original_shape} -> {shape}"
         )
+    dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type)
     return Buffer(
         id=tensor.name,
         shape=shape,
-        dtype=onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type),
+        dtype=dtype.name,
+        itemsize=dtype.itemsize,
         kind=AllocationKind.CONSTANT,
     )
 
@@ -103,10 +105,12 @@ def _value_info_to_buffer(
             f"Dropped dimensions with size <=0 in value '{value_info.name}': "
             f"{original_shape} -> {shape}"
         )
+    dtype = onnx.helper.tensor_dtype_to_np_dtype(tt.elem_type)
     return Buffer(
         id=value_info.name,
         shape=shape,
-        dtype=onnx.helper.tensor_dtype_to_np_dtype(tt.elem_type),
+        dtype=dtype.name,
+        itemsize=dtype.itemsize,
         kind=kind,
     )
 

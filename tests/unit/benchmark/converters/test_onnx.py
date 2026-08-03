@@ -79,7 +79,8 @@ def test_tensor_proto_to_buffer() -> None:
 
     assert buffer.id == "test_tensor"
     assert buffer.shape == (2, 3, 4)
-    assert buffer.dtype == np.float32
+    assert buffer.dtype == "float32"
+    assert buffer.itemsize == 4
     assert buffer.kind == AllocationKind.CONSTANT
 
 
@@ -96,7 +97,8 @@ def test_tensor_proto_to_buffer_different_dtype() -> None:
 
     assert buffer.id == "int_tensor"
     assert buffer.shape == (3, 5)
-    assert buffer.dtype == np.int64
+    assert buffer.dtype == "int64"
+    assert buffer.itemsize == 8
     assert buffer.kind == AllocationKind.CONSTANT
 
 
@@ -107,7 +109,8 @@ def test_value_info_to_buffer() -> None:
 
     assert buffer.id == "test_value"
     assert buffer.shape == (5, 10)
-    assert buffer.dtype == np.int32
+    assert buffer.dtype == "int32"
+    assert buffer.itemsize == 4
     assert buffer.kind == AllocationKind.WORKSPACE
 
 

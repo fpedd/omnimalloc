@@ -4,10 +4,6 @@
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import numpy as np
 
 from omnimalloc.primitives import (
     Allocation,
@@ -23,12 +19,17 @@ from omnimalloc.primitives import (
 class Buffer:
     id: IdType
     shape: tuple[int, ...]
-    dtype: "np.dtype[np.generic]"
+    # Element type as a name, e.g. "float32", paired with its width in bytes:
+    # the sizing never needs more, and the converter feeding it knows both.
+    dtype: str
+    itemsize: int
     kind: AllocationKind
 
     def __post_init__(self) -> None:
         if not all(isinstance(dim, int) and dim > 0 for dim in self.shape):
             raise ValueError("shape dimensions must be positive integers")
+        if self.itemsize <= 0:
+            raise ValueError("itemsize must be a positive integer")
 
     @property
     def ndim(self) -> int:
@@ -36,7 +37,7 @@ class Buffer:
 
     @property
     def size(self) -> int:
-        return int(self.dtype.itemsize * math.prod(self.shape))
+        return self.itemsize * math.prod(self.shape)
 
 
 @dataclass(frozen=True)
