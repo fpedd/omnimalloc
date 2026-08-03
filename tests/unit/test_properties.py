@@ -9,7 +9,6 @@ from omnimalloc import (
     Allocation,
     Pool,
     allocate,
-    try_linearize,
     validate_allocation,
 )
 from omnimalloc.allocators import BaseAllocator, available_allocators
@@ -20,6 +19,7 @@ from omnimalloc.analysis import (
     conflict_graph,
     conflicts,
     placement_pressure,
+    try_linearize,
 )
 from omnimalloc.benchmark.sources import (
     ConcurrentTilingSource,
