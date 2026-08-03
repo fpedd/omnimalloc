@@ -65,6 +65,7 @@ jobs:
     # Force matplotlib's non-interactive backend; runners lack a working Tcl/Tk.
     env:
       MPLBACKEND: Agg
+      UV_PYTHON: ${{ matrix.python-version }} # outranks .python-version, which pins 3.10
     strategy:
       fail-fast: false
       matrix:
