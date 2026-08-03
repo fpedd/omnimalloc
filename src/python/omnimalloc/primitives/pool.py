@@ -26,7 +26,7 @@ class Pool:
     offset: int | None = None
 
     def __post_init__(self) -> None:
-        ensure_unique_ids(self.allocations)
+        ensure_unique_ids(self.allocations, "allocation")
         if self.offset is not None:
             ensure_non_negative(self.offset, "offset")
 

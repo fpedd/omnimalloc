@@ -3,14 +3,23 @@
 #
 
 from collections.abc import Sequence
+from typing import Any
 
 from .allocation import Allocation
 
 
-def ensure_unique_ids(allocations: Sequence[Allocation]) -> None:
-    """Raise if any allocation id repeats; id-keyed placement assumes uniqueness."""
-    if len({alloc.id for alloc in allocations}) != len(allocations):
-        raise ValueError("allocation ids must be unique")
+def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
+    """Raise if any id repeats; id-keyed placement assumes uniqueness."""
+    seen: dict[Any, int] = {}
+    for index, entity in enumerate(entities):
+        if not hasattr(entity, "id"):
+            raise TypeError(f"Expected an entity with an id, got {type(entity)!r}")
+        if entity.id in seen:
+            raise ValueError(
+                f"{kind} ids must be unique: duplicate id {entity.id!r} "
+                f"at indices {seen[entity.id]} and {index}"
+            )
+        seen[entity.id] = index
 
 
 def ensure_allocations(allocations: object) -> tuple[Allocation, ...]:

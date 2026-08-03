@@ -41,7 +41,7 @@ class BaseAllocator(Registered):
         self, allocations: tuple["Allocation", ...]
     ) -> tuple["Allocation", ...]:
         """Validate shared preconditions, then run the allocator."""
-        ensure_unique_ids(allocations)
+        ensure_unique_ids(allocations, "allocation")
         uniform_dim(allocations)
         self.ensure_supported(allocations)
         if not allocations:

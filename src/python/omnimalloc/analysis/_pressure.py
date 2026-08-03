@@ -78,7 +78,7 @@ def antichain_pressure_per_allocation(
     max entry equals `antichain_pressure`. Raises past `work_budget`.
     """
     ensure_valid_budget(work_budget)
-    ensure_unique_ids(allocations)
+    ensure_unique_ids(allocations, "allocation")
     peaks = _antichain_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
 
@@ -92,7 +92,7 @@ def closure_pressure_per_allocation(
     entry equals `closure_pressure`. Raises past `closure_cap`.
     """
     ensure_valid_budget(closure_cap, name="closure_cap")
-    ensure_unique_ids(allocations)
+    ensure_unique_ids(allocations, "allocation")
     peaks = _closure_pressure_per_allocation(allocations, closure_cap)
     return _keyed_by_id(allocations, peaks)
 
@@ -106,7 +106,7 @@ def placement_pressure_per_allocation(
     and its conflict neighbors, whose max entry equals `placement_pressure`.
     """
     ensure_valid_budget(work_budget)
-    ensure_unique_ids(allocations)
+    ensure_unique_ids(allocations, "allocation")
     peaks = _placement_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
 

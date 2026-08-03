@@ -11,6 +11,7 @@ from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import IdType
 from .pool import Pool
+from .utils import ensure_unique_ids
 
 if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
@@ -25,8 +26,7 @@ class Memory:
     size: int | None = None
 
     def __post_init__(self) -> None:
-        if len({pool.id for pool in self.pools}) != len(self.pools):
-            raise ValueError("pool ids must be unique")
+        ensure_unique_ids(self.pools, "pool")
         if self.size is not None:
             ensure_non_negative(self.size, "size")
 

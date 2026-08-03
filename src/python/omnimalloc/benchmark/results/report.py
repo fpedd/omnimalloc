@@ -8,6 +8,7 @@ from statistics import mean, median, stdev
 from omnimalloc.allocators import BaseAllocator
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.primitives import IdType
+from omnimalloc.primitives.utils import ensure_unique_ids
 
 from .result import BenchmarkResult
 from .utils import source_label
@@ -32,8 +33,7 @@ class BenchmarkReport:
         if not self.results:
             raise ValueError("BenchmarkReport must contain at least one result")
 
-        if len({r.id for r in self.results}) != len(self.results):
-            raise ValueError("result ids must be unique")
+        ensure_unique_ids(self.results, "result")
 
         num_allocs = {r.num_allocations for r in self.results}
         if len(num_allocs) > 1:
