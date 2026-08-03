@@ -50,6 +50,7 @@ class BaseAllocator(Registered):
         if pins:
             self._ensure_pins_placeable(allocations)
         placed = self._allocate(allocations)
+        self._ensure_same_set(allocations, placed)
         self._ensure_placed(placed, pins)
         return placed
 
@@ -90,6 +91,15 @@ class BaseAllocator(Registered):
                 f"pinned allocations {pinned[first].id!r} and "
                 f"{pinned[second].id!r} already collide"
             )
+
+    def _ensure_same_set(
+        self, allocations: tuple["Allocation", ...], placed: tuple["Allocation", ...]
+    ) -> None:
+        """Refuse a dropped or padded result; ranked by peak, it would win."""
+        placed_ids = {alloc.id for alloc in placed}
+        wanted_ids = {alloc.id for alloc in allocations}
+        if len(placed) != len(allocations) or placed_ids != wanted_ids:
+            raise ValueError(f"{self.name()} returned a different allocation set")
 
     def _ensure_placed(
         self, placed: tuple["Allocation", ...], pins: dict["IdType", int | None]

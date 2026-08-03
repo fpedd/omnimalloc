@@ -26,6 +26,7 @@ class Pool:
     offset: int | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "allocations", ensure_allocations(self.allocations))
         ensure_unique_ids(self.allocations, "allocation")
         if self.offset is not None:
             ensure_non_negative(self.offset, "offset")
@@ -82,12 +83,6 @@ class Pool:
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
         """Assign offsets to the unpinned allocations, preserving input order."""
         allocated = allocator.allocate(self.allocations)
-        if len(allocated) != len(self.allocations) or {a.id for a in allocated} != {
-            a.id for a in self.allocations
-        }:
-            raise ValueError(
-                f"allocator {allocator!s} returned a different allocation set"
-            )
         # Allocators may reorder internally; restore the pool's input order so
         # positions in the returned tuple keep corresponding to the request
         placed_by_id = {a.id: a for a in allocated}

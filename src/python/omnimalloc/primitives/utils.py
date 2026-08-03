@@ -3,9 +3,11 @@
 #
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TypeVar
 
 from .allocation import Allocation
+
+T = TypeVar("T")
 
 
 def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
@@ -22,13 +24,18 @@ def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
         seen[entity.id] = index
 
 
+def ensure_items(items: object, item_type: type[T], label: str) -> tuple[T, ...]:
+    """Coerce a raw sequence to a tuple, requiring every element be `item_type`."""
+    if isinstance(items, str | bytes) or not isinstance(items, Sequence):
+        raise TypeError(f"Unsupported {label} type: {type(items)!r}")
+    checked: list[T] = []
+    for item in items:
+        if not isinstance(item, item_type):
+            raise TypeError(f"Expected {item_type.__name__}, got {type(item)!r}")
+        checked.append(item)
+    return tuple(checked)
+
+
 def ensure_allocations(allocations: object) -> tuple[Allocation, ...]:
     """Coerce a raw sequence to a tuple, requiring every element be an Allocation."""
-    if isinstance(allocations, str | bytes) or not isinstance(allocations, Sequence):
-        raise TypeError(f"Unsupported entity type: {type(allocations)!r}")
-    checked: list[Allocation] = []
-    for alloc in allocations:
-        if not isinstance(alloc, Allocation):
-            raise TypeError(f"Expected Allocation, got {type(alloc)!r}")
-        checked.append(alloc)
-    return tuple(checked)
+    return ensure_items(allocations, Allocation, "entity")

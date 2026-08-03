@@ -10,6 +10,7 @@ from omnimalloc.allocators.supermalloc import (
     Heuristic,
     SortKey,
     SupermallocAllocator,
+    SupermallocResult,
 )
 from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation, Pool
@@ -178,6 +179,20 @@ def test_solve_reports_an_empty_problem_as_optimal() -> None:
     result = SupermallocAllocator().solve(())
     assert result.allocations == ()
     assert result.proved_optimal
+
+
+def test_solve_rejects_a_partial_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    allocations = tuple(Allocation(id=i, size=10, start=0, end=5) for i in range(3))
+    allocator = SupermallocAllocator()
+    partial = SupermallocResult(
+        allocations=(allocations[0].with_offset(0),),
+        peak=10,
+        lower_bound=10,
+        proved_optimal=True,
+    )
+    monkeypatch.setattr(allocator, "_solve", lambda _: partial)
+    with pytest.raises(ValueError, match="returned a different allocation set"):
+        allocator.solve(allocations)
 
 
 def test_solve_agrees_with_allocate() -> None:

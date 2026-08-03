@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <numeric>
 #include <stdexcept>
@@ -65,7 +64,7 @@ void sort_intervals_by_lo(std::vector<Interval>& intervals,
     shift += kDigitBits;
   }
   if (src != intervals.data()) {
-    std::memcpy(intervals.data(), src, m * sizeof(Interval));
+    std::copy_n(src, m, intervals.data());
   }
 }
 

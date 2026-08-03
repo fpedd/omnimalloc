@@ -91,9 +91,9 @@ def allocate_parallel(
     if not allocations:
         return allocations
 
-    workers = resolve_num_threads(num_threads)
-    if num_threads is None:
-        workers = min(workers, len(variants))
+    # There is nothing for a worker beyond the last variant to do, so cap on
+    # both paths: an explicit count is a ceiling, not a demand for processes
+    workers = min(resolve_num_threads(num_threads), len(variants))
 
     # One variant dying (raised, or its worker OOM-killed) must not discard
     # the placements the others already produced, on either path

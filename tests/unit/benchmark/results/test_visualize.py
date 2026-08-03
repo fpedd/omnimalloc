@@ -13,9 +13,28 @@ from omnimalloc.benchmark.results.visualize import (
     _canonicalize_artifact,
     _format_metadata,
     _get_allocator_color,
+    _get_sorted_reports,
     plot_benchmark,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
+
+
+def _result(size: int = 10) -> BenchmarkResult:
+    source = RandomSource(num_allocations=size, seed=42)
+    allocator = GreedyAllocator()
+    return BenchmarkResult(
+        id=0,
+        allocator=allocator,
+        source=source,
+        entity=allocate(source.get_pool(), allocator),
+        duration=0.5,
+    )
+
+
+def _report(report_id: str, variant_id: object, size: int = 10) -> BenchmarkReport:
+    return BenchmarkReport(
+        id=report_id, results=(_result(size),), variant_id=variant_id
+    )
 
 
 def test_get_allocator_color() -> None:
@@ -48,18 +67,7 @@ def test_format_metadata() -> None:
 
 def test_canonicalize_artifact() -> None:
     """Test artifact canonicalization to campaign."""
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = source.get_pool()
-    allocated_pool = allocate(pool, allocator)
-
-    result = BenchmarkResult(
-        id=0,
-        allocator=allocator,
-        source=source,
-        entity=allocated_pool,
-        duration=0.5,
-    )
+    result = _result()
 
     campaign_from_result = _canonicalize_artifact(result)
     assert isinstance(campaign_from_result, BenchmarkCampaign)
@@ -83,16 +91,28 @@ def test_plot_benchmark_without_path_shows_figure(
 ) -> None:
     import matplotlib.pyplot as plt
 
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    result = BenchmarkResult(
-        id=0,
-        allocator=allocator,
-        source=source,
-        entity=allocate(source.get_pool(), allocator),
-        duration=0.5,
-    )
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(True))
-    plot_benchmark(result)
+    plot_benchmark(_result())
     assert shown == [True]
+
+
+def test_sorted_reports_handles_mixed_variant_id_types() -> None:
+    mixed = {"a": (_report("r0", "small"), _report("r1", 100), _report("r2", None))}
+    assert len(_get_sorted_reports(mixed)) == 3
+
+
+def test_sorted_reports_orders_numeric_variants_by_size() -> None:
+    numeric = {
+        "a": (
+            _report("r0", 30, size=30),
+            _report("r1", 10, size=10),
+            _report("r2", 20, size=20),
+        )
+    }
+    assert [r.variant_id for r in _get_sorted_reports(numeric)] == [10, 20, 30]
+
+
+def test_sorted_reports_orders_categorical_variants_by_name() -> None:
+    categorical = {"a": (_report("r0", "c"), _report("r1", "a"), _report("r2", "b"))}
+    assert [r.variant_id for r in _get_sorted_reports(categorical)] == ["a", "b", "c"]
