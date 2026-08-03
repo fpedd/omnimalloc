@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import math
 from dataclasses import dataclass, field
-
-import numpy as np
+from typing import Final
 
 from omnimalloc.primitives import (
     Allocation,
@@ -15,17 +15,50 @@ from omnimalloc.primitives import (
     System,
 )
 
+# Bits, not bytes: the sub-byte types are packed several to a byte, which is
+# what the tensors actually occupy and what numpy's itemsize gets wrong.
+ITEMBITS: Final[dict[str, int]] = {
+    "int2": 2,
+    "uint2": 2,
+    "int4": 4,
+    "uint4": 4,
+    "float4_e2m1fn": 4,
+    "bool": 8,
+    "int8": 8,
+    "uint8": 8,
+    "float8_e4m3fn": 8,
+    "float8_e4m3fnuz": 8,
+    "float8_e5m2": 8,
+    "float8_e5m2fnuz": 8,
+    "float8_e8m0fnu": 8,
+    "int16": 16,
+    "uint16": 16,
+    "float16": 16,
+    "bfloat16": 16,
+    "int32": 32,
+    "uint32": 32,
+    "float32": 32,
+    "int64": 64,
+    "uint64": 64,
+    "float64": 64,
+    "complex64": 64,
+    "object": 64,
+    "complex128": 128,
+}
+
 
 @dataclass(frozen=True)
 class Buffer:
     id: IdType
     shape: tuple[int, ...]
-    dtype: np.dtype[np.generic]
+    dtype: str
     kind: AllocationKind
 
     def __post_init__(self) -> None:
         if not all(isinstance(dim, int) and dim > 0 for dim in self.shape):
             raise ValueError("shape dimensions must be positive integers")
+        if self.dtype not in ITEMBITS:
+            raise ValueError(f"unknown dtype {self.dtype!r}")
 
     @property
     def ndim(self) -> int:
@@ -33,7 +66,7 @@ class Buffer:
 
     @property
     def size(self) -> int:
-        return int(self.dtype.itemsize * np.prod(self.shape, dtype=int))
+        return math.ceil(ITEMBITS[self.dtype] * math.prod(self.shape) / 8)
 
 
 @dataclass(frozen=True)

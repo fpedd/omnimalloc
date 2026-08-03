@@ -53,9 +53,13 @@ htmlcov/
 *.gcov.json.gz
 **/artifacts/
 
-# Benchmark script outputs (scripts/*.py --out)
+# Benchmark script outputs (scripts/*.py --out, --dump)
 benchmark_results_*/
 stress_results_*/
+
+# Example script outputs (examples/*.py write relative to the CWD)
+*_example_output/
+allocation.pdf
 
 # OS
 .DS_Store
@@ -64,7 +68,5 @@ Thumbs.db
 # Misc
 *.log
 .env
-*.pdf
 CLAUDE.md
 .claude
-*.json

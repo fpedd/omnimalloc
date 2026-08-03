@@ -131,7 +131,6 @@ NB_MODULE(_cpp, m) {
   // Worker ceiling for every native kernel; 0 lifts it to the usable cores
   m.def("set_max_threads", &set_max_threads, "value"_a);
   m.def("max_threads", &max_threads);
-  m.def("usable_cores", &usable_cores);
 
   m.def("find_collision", &find_collision, "allocations"_a,
         nb::call_guard<nb::gil_scoped_release>());

@@ -1571,8 +1571,6 @@ wheels = [
 name = "omnimalloc"
 source = { editable = "." }
 dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "typing-extensions" },
 ]
 
@@ -1581,6 +1579,8 @@ all = [
     { name = "deap" },
     { name = "huggingface-hub" },
     { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "onnx" },
     { name = "tqdm" },
 ]
@@ -1604,7 +1604,7 @@ requires-dist = [
     { name = "deap", marker = "extra == 'all'", specifier = ">=1.4.0" },
     { name = "huggingface-hub", marker = "extra == 'all'", specifier = ">=0.35.0" },
     { name = "matplotlib", marker = "extra == 'all'", specifier = ">=3.10.0" },
-    { name = "numpy", specifier = ">=1.25.0" },
+    { name = "numpy", marker = "extra == 'all'", specifier = ">=1.25.0" },
     { name = "onnx", marker = "extra == 'all'", specifier = ">=1.19.0" },
     { name = "tqdm", marker = "extra == 'all'", specifier = ">=4.66.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },

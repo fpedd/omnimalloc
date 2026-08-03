@@ -28,7 +28,6 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "numpy>=1.25.0",            # This is the only real dependency of omnimalloc
   "typing-extensions>=4.0.0", # Only needed because we support Python < 3.11
 ]
 [project.urls]
@@ -42,6 +41,7 @@ all = [
   "deap>=1.4.0",
   "huggingface-hub>=0.35.0",
   "matplotlib>=3.10.0",
+  "numpy>=1.25.0",
   "onnx>=1.19.0",
   "tqdm>=4.66.0",
 ]
