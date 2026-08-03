@@ -13,6 +13,8 @@ from omnimalloc.visualize import (
     _conflict_pairs,
     _conflict_visibility,
     _format_bytes,
+    _get_y_limits,
+    _get_y_offsets,
     _lane_panels,
     _panel_extents,
     _projection_panels,
@@ -542,3 +544,33 @@ def test_panel_projection_never_shows_false_conflicts(artifacts_dir: Path) -> No
     output_path = artifacts_dir / "test_panel_soundness.pdf"
     plot_allocation(memory, output_path)
     assert output_path.exists()
+
+
+def test_y_limits_cover_a_pool_pinned_above_the_sum_of_pool_sizes() -> None:
+    high = Pool(
+        id="high",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=1000,
+    )
+    low = Pool(
+        id="low",
+        allocations=(Allocation(id=2, size=10, start=0, end=5, offset=0),),
+        offset=0,
+    )
+    memory = Memory(id="m", pools=(high, low))
+    system = System(id="s", memories=(memory,))
+    _, upper = _get_y_limits(system, _get_y_offsets(system))[memory]
+    assert upper >= 1010
+
+
+def test_y_limits_stack_unplaced_pools_from_zero() -> None:
+    first = Pool(
+        id="a", allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),)
+    )
+    second = Pool(
+        id="b", allocations=(Allocation(id=2, size=20, start=0, end=5, offset=0),)
+    )
+    memory = Memory(id="m", pools=(first, second))
+    system = System(id="s", memories=(memory,))
+    _, upper = _get_y_limits(system, _get_y_offsets(system))[memory]
+    assert upper >= 30

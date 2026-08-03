@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SkippedAllocator:
-    """An allocator left out of a campaign because a source outran it."""
+    """An allocator left out of a campaign, with the reason it was skipped."""
 
     source: str
     allocator: str
@@ -218,7 +218,21 @@ def run_benchmark(
             position=1,
             leave=False,
         ):
-            allocator_inst = BaseAllocator.resolve(allocator)
+            # An allocator wrapping an uninstalled library is a skip, not an
+            # abort: `available_allocators()` lists every registered name, so
+            # the default campaign would otherwise die on the first optional one
+            try:
+                allocator_inst = BaseAllocator.resolve(allocator)
+            except ImportError as error:
+                reason = str(error).splitlines()[0]
+                name = allocator if isinstance(allocator, str) else allocator.name()
+                logger.warning(f"Skipping {name} on {source_inst.label()}: {reason}")
+                skipped.append(
+                    SkippedAllocator(
+                        source=source_inst.label(), allocator=name, reason=reason
+                    )
+                )
+                continue
 
             for variant_id in tqdm(
                 variant_ids,

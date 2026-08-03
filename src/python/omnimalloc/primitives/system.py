@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from .allocation import IdType
 from .memory import Memory
-from .utils import ensure_unique_ids
+from .utils import ensure_items, ensure_unique_ids
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,9 @@ class System:
     memories: tuple[Memory, ...]
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "memories", ensure_items(self.memories, Memory, "memories")
+        )
         ensure_unique_ids(self.memories, "memory")
 
     @property

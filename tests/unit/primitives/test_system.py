@@ -206,3 +206,14 @@ def test_allocate_with_allocator() -> None:
     assert allocated_system.id == system.id
     assert len(allocated_system.memories) == 2
     assert system.is_allocated is False
+
+
+def test_system_coerces_a_list_of_memories_to_a_tuple() -> None:
+    system = System(id="s", memories=[Memory(id="m", pools=())])
+    assert isinstance(system.memories, tuple)
+    assert hash(system)
+
+
+def test_system_rejects_non_memory_members() -> None:
+    with pytest.raises(TypeError, match="Expected Memory"):
+        System(id="s", memories=[1])

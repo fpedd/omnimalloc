@@ -217,11 +217,25 @@ def _select_lanes(
     return sorted(ranked[:max_lanes])
 
 
-def _get_y_limits(system: System) -> dict[Memory, tuple[int, int]]:
+def _memory_top(memory: Memory, pool_offsets: dict[Pool, int]) -> int:
+    """Highest address the drawn layout reaches, pinned pools included.
+
+    `used_size` misses a pool pinned above the sum of pool sizes and `extent`
+    refuses unplaced pools, so read the top off the offsets actually drawn.
+    """
+    return max(
+        (pool_offsets[pool] + pool.size for pool in memory.pools),
+        default=0,
+    )
+
+
+def _get_y_limits(
+    system: System, offsets: dict[Memory, dict[Pool, int]]
+) -> dict[Memory, tuple[int, int]]:
     limits: dict[Memory, tuple[int, int]] = {}
     for memory in system.memories:
         size = memory.size
-        used = memory.used_size
+        used = _memory_top(memory, offsets[memory])
 
         if size is None or used > size:
             # No declared size (or usage exceeds it), scale to 1.2x used
@@ -484,7 +498,7 @@ def _draw_panel(
         _draw_pool_background(ax, y_offset, pool.size, colors)
 
     # Draw used-size, declared-size, and extra capacity lines
-    limits: dict[str, int] = {"used": memory.used_size}
+    limits: dict[str, int] = {"used": _memory_top(memory, y_offsets)}
     if memory.size is not None:
         limits["size"] = memory.size
     for label, per_memory_capacity in capacities.items():
@@ -517,8 +531,8 @@ def _visualize_system(
     )
     axs = [axs] if len(panels) == 1 else axs
 
-    y_limits = _get_y_limits(system)
     y_offsets = _get_y_offsets(system)
+    y_limits = _get_y_limits(system, y_offsets)
 
     for ax, panel in zip(axs, panels, strict=True):
         _draw_panel(

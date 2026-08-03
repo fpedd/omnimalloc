@@ -355,7 +355,7 @@ def test_validate_rejects_a_misaligned_offset() -> None:
 
 def test_validate_rejects_a_non_positive_alignment() -> None:
     allocations = (Allocation(id=1, size=10, start=0, end=5, offset=0),)
-    with pytest.raises(ValueError, match="alignment must be positive"):
+    with pytest.raises(ValueError, match="Alignment must be positive"):
         validate_allocation(allocations, alignment=0)
 
 
@@ -368,6 +368,34 @@ def test_validate_checks_alignment_inside_a_system() -> None:
     system = System(id="s", memories=(Memory(id="m", pools=(pool,)),))
     with pytest.raises(ValueError, match="not 16-byte aligned"):
         validate_allocation(system, alignment=16)
+
+
+def test_validate_alignment_counts_the_pool_base() -> None:
+    pool = Pool(
+        id="p",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=3,
+    )
+    with pytest.raises(ValueError, match="address 3 is not 8-byte aligned"):
+        validate_allocation(Memory(id="m", pools=(pool,)), alignment=8)
+
+
+def test_validate_alignment_accepts_an_aligned_pool_base() -> None:
+    pool = Pool(
+        id="p",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=8,
+    )
+    validate_allocation(Memory(id="m", pools=(pool,)), alignment=8)
+
+
+def test_validate_alignment_counts_the_base_of_a_standalone_pool() -> None:
+    pool = Pool(
+        id="p",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=4),),
+        offset=4,
+    )
+    validate_allocation(pool, alignment=8)
 
 
 def test_validate_accepts_a_memory_that_declares_no_size() -> None:

@@ -173,7 +173,9 @@ class SupermallocAllocator(BaseAllocator):
             return SupermallocResult(
                 allocations=(), peak=0, lower_bound=0, proved_optimal=True
             )
-        return self._solve(allocations)
+        result = self._solve(allocations)
+        self._ensure_same_set(allocations, result.allocations)
+        return result
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return self._solve(allocations).allocations

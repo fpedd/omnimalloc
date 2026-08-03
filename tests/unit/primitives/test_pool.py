@@ -387,3 +387,14 @@ def test_allocate_preserves_allocation_order() -> None:
     assert tuple(a.size for a in allocated.allocations) == tuple(
         a.size for a in allocations
     )
+
+
+def test_pool_coerces_a_list_of_allocations_to_a_tuple() -> None:
+    pool = Pool(id="p", allocations=[Allocation(id=1, size=10, start=0, end=5)])
+    assert isinstance(pool.allocations, tuple)
+    assert hash(pool)
+
+
+def test_pool_rejects_non_allocation_members() -> None:
+    with pytest.raises(TypeError, match="Expected Allocation"):
+        Pool(id="p", allocations=[1, 2])

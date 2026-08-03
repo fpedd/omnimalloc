@@ -62,14 +62,12 @@ def _get_sorted_reports(
     allocator_data: dict[str, tuple[BenchmarkReport, ...]],
 ) -> list[BenchmarkReport]:
     reports = [r for rs in allocator_data.values() for r in rs]
-    is_categorical = any(r.is_categorical for r in reports)
-    reports.sort(
-        key=lambda r: (
-            r.variant_id
-            if is_categorical and r.variant_id is not None
-            else r.num_allocations
-        )
-    )
+    # One key type for the whole group: mixing a categorical variant_id with a
+    # numeric fallback compares str against int and raises mid-sort
+    if any(r.is_categorical for r in reports):
+        reports.sort(key=lambda r: str(r.variant_id))
+    else:
+        reports.sort(key=lambda r: r.num_allocations)
     return reports
 
 

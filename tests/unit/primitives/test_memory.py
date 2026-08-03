@@ -284,3 +284,14 @@ def test_allocate_empty_pool_takes_a_base() -> None:
     memory = Memory(id="m", pools=(empty, used)).allocate(NaiveAllocator())
     assert [pool.offset for pool in memory.pools] == [0, 0]
     assert memory.extent == 10
+
+
+def test_memory_coerces_a_list_of_pools_to_a_tuple() -> None:
+    memory = Memory(id="m", pools=[Pool(id="p", allocations=())])
+    assert isinstance(memory.pools, tuple)
+    assert hash(memory)
+
+
+def test_memory_rejects_non_pool_members() -> None:
+    with pytest.raises(TypeError, match="Expected Pool"):
+        Memory(id="m", pools=[1])
