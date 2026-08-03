@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from omnimalloc.allocators import greedy
 from omnimalloc.allocators.base import BaseAllocator
@@ -54,15 +56,12 @@ def test_portfolio_never_spawns_more_workers_than_variants(
 ) -> None:
     seen = []
 
-    class Recorder:
+    class Recorder(ThreadPoolExecutor):
         def __init__(self, max_workers: int) -> None:
             seen.append(max_workers)
-            raise RuntimeError("Stop before spawning workers")
+            super().__init__(max_workers=max_workers)
 
-    # Pinned: the pool is skipped outright once any other thread is alive, and
-    # an earlier test leaving one would otherwise decide this one.
-    monkeypatch.setattr(greedy.threading, "active_count", lambda: 1)
-    monkeypatch.setattr(greedy, "ProcessPoolExecutor", Recorder)
+    monkeypatch.setattr(greedy, "ThreadPoolExecutor", Recorder)
     variants = (OmniAllocator(), OmniAllocator())
     placed = allocate_parallel(ALLOCATIONS, variants, num_threads=32)
     assert seen == [len(variants)]

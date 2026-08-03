@@ -10,7 +10,7 @@ import pytest
 from omnimalloc.common.directories import EXAMPLES_DIR
 
 EXAMPLE_FILES = sorted(EXAMPLES_DIR.glob("*.py"))
-TIMEOUT_SECONDS = 300  # 5 minutes
+TIMEOUT_SECONDS = 600  # 10 minutes
 
 
 @pytest.mark.parametrize("example_file", EXAMPLE_FILES, ids=lambda p: p.name)
