@@ -140,6 +140,7 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "-m", "not slow"]
+pythonpath = ["."] # importlib mode drops it; spawned workers import tests from it
 markers = ["slow: exhaustive stress grids (deselected by default)"]
 log_cli = true
 log_cli_level = "INFO"
