@@ -8,17 +8,7 @@ from omnimalloc._cpp import find_collision as _find_collision
 
 from .analysis.clock import uniform_dim
 from .primitives import Allocation, IdType, Memory, Pool, System
-from .primitives.utils import ensure_allocations
-
-
-def _check_unique_ids(entities: tuple[Memory | Pool | Allocation, ...]) -> None:
-    seen: dict[IdType, int] = {}
-    for idx, entity in enumerate(entities):
-        if entity.id in seen:
-            raise ValueError(
-                f"duplicate id {entity.id!r} at indices {seen[entity.id]} and {idx}"
-            )
-        seen[entity.id] = idx
+from .primitives.utils import ensure_allocations, ensure_unique_ids
 
 
 def _check_ids_across_pools(pools: tuple[Pool, ...]) -> None:
@@ -71,7 +61,7 @@ def _check_pool_overlaps(pools: tuple[Pool, ...]) -> None:
 def _validate_allocations(
     allocations: tuple[Allocation, ...], alignment: int | None = None
 ) -> None:
-    _check_unique_ids(allocations)
+    ensure_unique_ids(allocations, "allocation")
     uniform_dim(allocations)
     if alignment is not None:
         _check_alignment(allocations, alignment)
@@ -79,7 +69,7 @@ def _validate_allocations(
 
 
 def _validate_pools(pools: tuple[Pool, ...], alignment: int | None) -> None:
-    _check_unique_ids(pools)
+    ensure_unique_ids(pools, "pool")
     for pool in pools:
         try:
             _validate_allocations(pool.allocations, alignment)
@@ -101,7 +91,7 @@ def _check_size(memory: Memory, require_capacity: bool) -> None:
 def _validate_memories(
     memories: tuple[Memory, ...], require_capacity: bool, alignment: int | None
 ) -> None:
-    _check_unique_ids(memories)
+    ensure_unique_ids(memories, "memory")
     for memory in memories:
         try:
             _validate_pools(memory.pools, alignment)

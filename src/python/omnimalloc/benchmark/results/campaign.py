@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from omnimalloc.primitives import IdType
+from omnimalloc.primitives.utils import ensure_unique_ids
 
 from .report import BenchmarkReport
 from .utils import get_environment_metadata
@@ -23,8 +24,7 @@ class BenchmarkCampaign:
     def __post_init__(self) -> None:
         if not self.reports:
             raise ValueError("BenchmarkCampaign must contain at least one report")
-        if len({r.id for r in self.reports}) != len(self.reports):
-            raise ValueError("report ids must be unique")
+        ensure_unique_ids(self.reports, "report")
 
     @property
     def num_reports(self) -> int:

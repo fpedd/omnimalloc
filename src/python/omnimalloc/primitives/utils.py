@@ -3,14 +3,26 @@
 #
 
 from collections.abc import Sequence
+from typing import Protocol
 
-from .allocation import Allocation
+from .allocation import Allocation, IdType
 
 
-def ensure_unique_ids(allocations: Sequence[Allocation]) -> None:
-    """Raise if any allocation id repeats; id-keyed placement assumes uniqueness."""
-    if len({alloc.id for alloc in allocations}) != len(allocations):
-        raise ValueError("allocation ids must be unique")
+class HasId(Protocol):
+    @property
+    def id(self) -> IdType: ...
+
+
+def ensure_unique_ids(entities: Sequence[HasId], kind: str) -> None:
+    """Raise if any id repeats; id-keyed placement assumes uniqueness."""
+    seen: dict[IdType, int] = {}
+    for index, entity in enumerate(entities):
+        if entity.id in seen:
+            raise ValueError(
+                f"{kind} ids must be unique: duplicate id {entity.id!r} "
+                f"at indices {seen[entity.id]} and {index}"
+            )
+        seen[entity.id] = index
 
 
 def ensure_allocations(allocations: object) -> tuple[Allocation, ...]:

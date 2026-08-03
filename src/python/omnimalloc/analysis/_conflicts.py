@@ -26,7 +26,7 @@ def conflicts(
     past `work_budget`, whose tight default reflects the map, not the sweep.
     """
     ensure_valid_budget(work_budget)
-    ensure_unique_ids(allocations)
+    ensure_unique_ids(allocations, "allocation")
     return _conflicts(allocations, work_budget)
 
 

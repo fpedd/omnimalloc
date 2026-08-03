@@ -167,7 +167,7 @@ class SupermallocAllocator(BaseAllocator):
         `allocate` returns the placement alone, which cannot say whether the
         search proved optimality or merely ran out of budget.
         """
-        ensure_unique_ids(allocations)
+        ensure_unique_ids(allocations, "allocation")
         self.ensure_supported(allocations)
         if not allocations:
             return SupermallocResult(
