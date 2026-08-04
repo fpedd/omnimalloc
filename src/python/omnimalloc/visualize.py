@@ -33,17 +33,17 @@ except ImportError:
 
     HAS_MATPLOTLIB = False
 
-    plt = SimpleNamespace(  # type: ignore[assignment]
+    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
         subplots=None,
         show=None,
     )
-    Axes = None  # type: ignore[assignment,misc]
-    Figure = None  # type: ignore[assignment,misc]
-    Patch = None  # type: ignore[assignment,misc]
-    Rectangle = None  # type: ignore[assignment,misc]
-    FuncFormatter = None  # type: ignore[assignment,misc]
-    MaxNLocator = None  # type: ignore[assignment,misc]
-    MultipleLocator = None  # type: ignore[assignment,misc]
+    Axes = None  # ty: ignore[invalid-assignment]
+    Figure = None  # ty: ignore[invalid-assignment]
+    Patch = None  # ty: ignore[invalid-assignment]
+    Rectangle = None  # ty: ignore[invalid-assignment]
+    FuncFormatter = None  # ty: ignore[invalid-assignment]
+    MaxNLocator = None  # ty: ignore[invalid-assignment]
+    MultipleLocator = None  # ty: ignore[invalid-assignment]
 
 # Rendering guard: plot annotation gives up within tens of milliseconds
 # rather than stall on a second-scale conflict sweep.
@@ -143,7 +143,8 @@ def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
         except RuntimeError:
             linearized = None  # Over budget: fall back to the summed extents
         if linearized is not None:
-            return {
+            # Linearized bounds are scalar by construction; ty sees the vector union
+            return {  # ty: ignore[invalid-return-type]
                 id(alloc): (lin.start, lin.end)
                 for alloc, lin in zip(allocations, linearized, strict=True)
             }, True

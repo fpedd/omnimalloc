@@ -23,15 +23,15 @@ except ImportError:
     from types import SimpleNamespace
 
     HAS_MATPLOTLIB = False
-    plt = SimpleNamespace(  # type: ignore[assignment]
+    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
         subplots=None,
         savefig=None,
         show=None,
         close=None,
     )
-    Line2D = None  # type: ignore[assignment,misc]
-    Axes = None  # type: ignore[assignment,misc]
-    Figure = None  # type: ignore[assignment,misc]
+    Line2D = None  # ty: ignore[invalid-assignment]
+    Axes = None  # ty: ignore[invalid-assignment]
+    Figure = None  # ty: ignore[invalid-assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ def _add_footer(campaign: BenchmarkCampaign, fig: Figure) -> None:
         color="#555555",
         wrap=True,
     )
-    txt._get_wrap_line_width = lambda: fig.bbox.width * 0.90  # type: ignore[attr-defined]  # noqa: SLF001
+    txt._get_wrap_line_width = lambda: fig.bbox.width * 0.90  # ty: ignore[unresolved-attribute]  # noqa: SLF001
 
 
 def _add_legend(fig: Figure, allocator_names: tuple[str, ...]) -> None:

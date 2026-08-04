@@ -4,7 +4,7 @@
 
 
 from collections.abc import Sequence
-from typing import TypeAlias, TypeVar, cast, overload
+from typing import TypeAlias, TypeVar, overload
 
 from .allocators import DEFAULT_ALLOCATOR, BaseAllocator
 from .primitives import Allocation, Memory, Pool, System
@@ -45,7 +45,7 @@ def allocate(
     if allocator is None:
         allocator = DEFAULT_ALLOCATOR
 
-    resolved = cast("BaseAllocator", BaseAllocator.resolve(allocator))
+    resolved = BaseAllocator.resolve(allocator)
 
     if isinstance(entity, System | Memory | Pool):
         allocated = entity.allocate(resolved)

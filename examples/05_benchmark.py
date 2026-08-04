@@ -6,6 +6,7 @@ from pathlib import Path
 
 from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC
 from omnimalloc.benchmark import (
+    VariantSpec,
     plot_benchmark,
     run_benchmark,
     save_benchmark,
@@ -32,7 +33,7 @@ def main() -> None:
         "huggingface",
     )
     # Counts for the parameterizable source, "first 5" for the fixed ones
-    variants = {
+    variants: dict[str, VariantSpec] = {
         "random": (10, 50, 100, 250, 500),
         "minimalloc": 5,
         "huggingface": 5,

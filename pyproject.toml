@@ -56,8 +56,8 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=7.0.0",
   "pytest-xdist>=3.6.0",
-  "ruff>=0.14.0",
-  "ty>=0.0.1a26",
+  "ruff>=0.16.1",
+  "ty>=0.0.66",
 ]
 
 [tool.scikit-build]
@@ -97,6 +97,7 @@ ignore = [
   "B019",    # cache decorator
   "B027",    # non-abstract methods in abc
   "COM812",  # trailing comma (formatter)
+  "CPY001",  # copyright notice
   "D100",    # module docstring
   "D101",    # class docstring
   "D102",    # method docstring
@@ -123,9 +124,11 @@ ignore = [
   "PIE790",  # ellipsis in functions
   "PLC0415", # import outside top-level
   "PLR0913", # too many arguments
+  "PLR0917", # too many positional arguments
   "PLR2004", # magic value comparison
   "PLW2901", # reassign for loop vars
   "PYI019",  # custom TypeVar
+  "PYI034",  # return Self in dunders
   "RET504",  # unnecessary variable before return
   "S101",    # assert
   "S311",    # pseudo-random generators
@@ -153,4 +156,4 @@ log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 python-version = "3.10"
 
 [tool.ty.src]
-exclude = ["tests/", "*.pyi"]
+exclude = ["tests/", "**/*.pyi"]

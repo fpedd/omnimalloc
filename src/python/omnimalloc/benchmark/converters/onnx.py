@@ -18,7 +18,7 @@ except ImportError:
     from types import SimpleNamespace
 
     HAS_ONNX = False
-    onnx = SimpleNamespace(  # type: ignore[assignment]
+    onnx = SimpleNamespace(  # ty: ignore[invalid-assignment]
         checker=SimpleNamespace(check_model=None),
         shape_inference=SimpleNamespace(infer_shapes=None),
         load_model=None,

@@ -221,7 +221,7 @@ def _hard_suite() -> "dict[str, Pool]":
     """Real minimalloc benchmarks plus adversarial synthetic patterns."""
     suite: dict[str, Pool] = {}
     minimalloc = BaseSource.get("minimalloc")()
-    for variant in minimalloc.get_available_variants():
+    for variant in minimalloc.get_available_variants() or ():
         suite[f"mm-{variant.split('.')[0]}"] = minimalloc.get_variant(variant)
     suite["pinwheel"] = BaseSource.get("pinwheel")().get_variant(101)
     suite["tiling"] = BaseSource.get("tiling")().get_variant(100)
