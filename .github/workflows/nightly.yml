@@ -38,10 +38,11 @@ jobs:
       - run: uv run pytest -m slow -v
 
   # Doubles as a fuzz pass: every placement is validated, and concurrent
-  # callers are checked against the serial placement.
+  # callers are checked against the serial placement. The allocation
+  # benchmark alone takes around 105 minutes on a hosted runner.
   stress-scripts:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,10 +87,12 @@ jobs:
       - run: uv lock --upgrade
       - run: uv sync --extra all
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      # Tests first: runtime breakage matters more than lint rule churn
+      # and must not be masked by it.
+      - run: uv run pytest -v
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run ty check
-      - run: uv run pytest -v
 
   # The examples job in checks.yml stops at 04; notebooks run nowhere else.
   examples-notebooks:
