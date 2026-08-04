@@ -13,7 +13,7 @@ from omnimalloc.primitives import Allocation
 from .base import BaseAllocator
 
 try:
-    import minimalloc as mm  # type: ignore
+    import minimalloc as mm
 except ImportError:
     mm = cast("Any", None)
 
@@ -26,7 +26,7 @@ def _require_minimalloc() -> None:
     if mm is not None:
         return
     try:
-        import minimalloc  # type: ignore
+        import minimalloc
     except ImportError:
         # TODO(fpedd): Make minimalloc more easily installable via PyPI
         raise ImportError(
@@ -37,6 +37,9 @@ def _require_minimalloc() -> None:
 
 
 def _to_buffer(allocation: Allocation) -> "mm.Buffer":
+    # ensure_supported already rejected vector clocks; narrow the union for ty
+    assert isinstance(allocation.start, int)
+    assert isinstance(allocation.end, int)
     return mm.Buffer(
         id=str(allocation.id),
         size=allocation.size,

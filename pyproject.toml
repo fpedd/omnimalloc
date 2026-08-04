@@ -154,6 +154,7 @@ log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 [tool.ty.environment]
 python-version = "3.10"
+extra-paths = ["stubs"]
 
 [tool.ty.src]
 exclude = ["tests/", "**/*.pyi"]
