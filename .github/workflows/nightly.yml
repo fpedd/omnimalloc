@@ -56,7 +56,8 @@ jobs:
       - run: uv python install ${{ env.DEFAULT_PYTHON }}
       - run: uv sync --extra all
       - run: uv run python scripts/stress_omni.py
-      - run: uv run python scripts/benchmark_allocation.py
+      # Two workers keep greedy_by_all's per-process copies inside runner memory
+      - run: uv run python scripts/benchmark_allocation.py --max-threads 2
       - run: uv run python scripts/benchmark_pressure.py
       - uses: actions/upload-artifact@v4
         if: always()
