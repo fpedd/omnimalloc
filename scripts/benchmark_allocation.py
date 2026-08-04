@@ -18,6 +18,7 @@ from omnimalloc.allocators import BaseAllocator
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
+from omnimalloc.common.parallel import set_max_threads
 from omnimalloc.primitives import Pool
 from omnimalloc.validate import validate_allocation
 
@@ -313,10 +314,15 @@ def main() -> None:
         "--budget", type=float, default=10.0, help="per-run drop threshold [s]"
     )
     parser.add_argument(
+        "--max-threads", type=int, default=None, help="cap omnimalloc workers"
+    )
+    parser.add_argument(
         "--out", type=Path, default=Path("benchmark_results_allocation")
     )
     args = parser.parse_args()
 
+    if args.max_threads is not None:
+        set_max_threads(args.max_threads)
     samples = collect(args)
     _print_summary(samples, args)
 

@@ -1,0 +1,118 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  pull_request:
+    paths: [".github/workflows/nightly.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_PYTHON: "3.10"
+  # TODO(fpedd): Make minimalloc more easily installable via PyPI
+  MINIMALLOC_URL: "git+https://github.com/google/minimalloc.git"
+  MPLBACKEND: Agg
+
+jobs:
+  # The regular test job deselects these via -m "not slow" in addopts.
+  slow-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --extra all
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      - run: uv run pytest -m slow -v
+
+  # Doubles as a fuzz pass: every placement is validated, and concurrent
+  # callers are checked against the serial placement. The allocation
+  # benchmark alone takes around 105 minutes on a hosted runner.
+  stress-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --extra all
+      - run: uv run python scripts/stress_omni.py
+      # Two workers keep greedy_by_all's per-process copies inside runner memory
+      - run: uv run python scripts/benchmark_allocation.py --max-threads 2
+      - run: uv run python scripts/benchmark_pressure.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-figures
+          path: |
+            stress_results_omni/
+            benchmark_results_allocation/
+            benchmark_results_pressure/
+          if-no-files-found: ignore
+
+  # Catches breakage from new upstream releases that uv.lock hides on
+  # regular CI. Failures here point at dependencies, not the code.
+  fresh-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv lock --upgrade
+      - run: uv sync --extra all
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      # Tests first: runtime breakage matters more than lint rule churn
+      # and must not be masked by it.
+      - run: uv run pytest -v
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run ty check
+
+  # The examples job in checks.yml stops at 04; notebooks run nowhere else.
+  examples-notebooks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - run: uv python install ${{ env.DEFAULT_PYTHON }}
+      - run: uv sync --extra all
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      - run: uv run python examples/05_benchmark.py
+      - run: >
+          uv run jupyter nbconvert --execute --to notebook
+          --output-dir executed_notebooks notebooks/*.ipynb
