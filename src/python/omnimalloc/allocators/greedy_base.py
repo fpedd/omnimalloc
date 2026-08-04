@@ -102,7 +102,7 @@ def allocate_parallel(
         for variant in variants:
             try:
                 results.append(variant.allocate(allocations))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
     else:
         with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -110,7 +110,7 @@ def allocate_parallel(
             for variant, future in zip(variants, futures, strict=True):
                 try:
                     results.append(future.result())
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.warning(
                         "Variant %s failed; skipping it", variant, exc_info=True
                     )

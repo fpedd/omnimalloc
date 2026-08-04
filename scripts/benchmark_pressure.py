@@ -112,8 +112,8 @@ def _sample_runners(
         "closure_pressure_per_allocation": lambda: _capped(
             closure_pressure_per_allocation, allocations, args.closure_cap
         ),
-        "placement_pressure_per_allocation": lambda: (
-            placement_pressure_per_allocation(placed)
+        "placement_pressure_per_allocation": lambda: placement_pressure_per_allocation(
+            placed
         ),
     }
 

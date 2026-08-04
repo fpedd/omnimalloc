@@ -19,13 +19,13 @@ repos:
         args: [--pytest-test-first]
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v21.1.2
+    rev: v22.1.8
     hooks:
       - id: clang-format
         exclude: '\.(py|ipynb)$'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.0
+    rev: v0.16.1
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -42,7 +42,7 @@ repos:
         args: ["."]
 
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.24
+    rev: v0.25
     hooks:
       - id: validate-pyproject
 
@@ -57,6 +57,6 @@ repos:
       - id: shellcheck
 
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.8.1
+    rev: 0.9.1
     hooks:
       - id: nbstripout

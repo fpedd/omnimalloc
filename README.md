@@ -40,15 +40,18 @@ pip install git+https://github.com/fpedd/omnimalloc.git
 ```python
 import omnimalloc as om
 
-pool = om.Pool(id="pool", allocations=(
-    om.Allocation(id=0, size=64, start=0, end=10),
-    om.Allocation(id=1, size=64, start=12, end=20),
-    om.Allocation(id=2, size=32, start=5, end=15),
-))
+pool = om.Pool(
+    id="pool",
+    allocations=(
+        om.Allocation(id=0, size=64, start=0, end=10),
+        om.Allocation(id=1, size=64, start=12, end=20),
+        om.Allocation(id=2, size=32, start=5, end=15),
+    ),
+)
 
 pool = om.allocate(pool, allocator="supermalloc", validate=True)
 
-print(pool.size)                                     # 96
+print(pool.size)  # 96
 print([alloc.offset for alloc in pool.allocations])  # [0, 0, 64]
 ```
 

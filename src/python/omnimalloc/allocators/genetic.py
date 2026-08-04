@@ -83,7 +83,7 @@ class GeneticAllocator(GreedyAllocator):
             creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
         if not hasattr(creator, "Individual"):
             # FitnessMin is dynamically created by DEAP
-            creator.create("Individual", list, fitness=creator.FitnessMin)  # type: ignore[possibly-missing-attribute]
+            creator.create("Individual", list, fitness=creator.FitnessMin)  # ty: ignore[unresolved-attribute]
 
     def _evaluate_permutation(
         self, permutation: list[int], placer: FirstFitPlacer
@@ -137,8 +137,8 @@ class GeneticAllocator(GreedyAllocator):
         toolbox.register(
             "individual",
             tools.initIterate,
-            creator.Individual,  # type: ignore[possibly-missing-attribute]
-            toolbox.indices,  # type: ignore[possibly-missing-attribute]
+            creator.Individual,  # ty: ignore[unresolved-attribute]
+            toolbox.indices,  # ty: ignore[unresolved-attribute]
         )
         toolbox.register("evaluate", self._evaluate_permutation, placer=placer)
         toolbox.register("mate", tools.cxOrdered)
@@ -149,11 +149,11 @@ class GeneticAllocator(GreedyAllocator):
         # Seed the population with heuristic orders, fill up with random ones
         # Individual and individual() are dynamically created by DEAP
         population = [
-            creator.Individual(permutation)  # type: ignore[possibly-missing-attribute]
+            creator.Individual(permutation)  # ty: ignore[unresolved-attribute]
             for permutation in self._heuristic_permutations(allocations)
         ]
         population += [
-            toolbox.individual()  # type: ignore[possibly-missing-attribute]
+            toolbox.individual()  # ty: ignore[unresolved-attribute]
             for _ in range(self._population_size - len(population))
         ]
 
@@ -170,7 +170,7 @@ class GeneticAllocator(GreedyAllocator):
                 if not individual.fitness.valid:
                     if scored and deadline_expired(deadline):
                         break
-                    individual.fitness.values = toolbox.evaluate(individual)  # type: ignore[unresolved-attribute]
+                    individual.fitness.values = toolbox.evaluate(individual)  # ty: ignore[unresolved-attribute]
                 scored.append(individual)
             return scored
 
@@ -181,7 +181,7 @@ class GeneticAllocator(GreedyAllocator):
         for _ in range(self._max_generations):
             if deadline_expired(deadline):
                 break
-            offspring = toolbox.select(population, len(population))  # type: ignore[unresolved-attribute]
+            offspring = toolbox.select(population, len(population))  # ty: ignore[unresolved-attribute]
             offspring = algorithms.varAnd(
                 offspring, toolbox, self._crossover_prob, self._mutation_prob
             )

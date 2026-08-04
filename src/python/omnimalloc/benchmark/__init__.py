@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from .benchmark import VariantSpec as VariantSpec
 from .benchmark import run_benchmark as run_benchmark
 from .results import BenchmarkCampaign as BenchmarkCampaign
 from .results import BenchmarkReport as BenchmarkReport

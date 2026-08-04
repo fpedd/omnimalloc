@@ -21,7 +21,7 @@ except ImportError:
     from types import SimpleNamespace
 
     HAS_ONNX = False
-    onnx = SimpleNamespace(  # type: ignore[assignment]
+    onnx = SimpleNamespace(  # ty: ignore[invalid-assignment]
         load=None,
     )
 
@@ -31,8 +31,8 @@ try:
     HAS_HUGGINGFACE_HUB = True
 except ImportError:
     HAS_HUGGINGFACE_HUB = False
-    HfApi = None  # type: ignore[assignment,misc]
-    ModelInfo = None  # type: ignore[assignment,misc]
+    HfApi = None  # ty: ignore[invalid-assignment]
+    ModelInfo = None  # ty: ignore[invalid-assignment]
 
 from ..utils import tqdm  # noqa: TID252
 
@@ -95,7 +95,7 @@ def _gather_download_info(
             continue
 
         # ty does not narrow file_info.size from the None check above
-        size_mb = file_info.size / (1024 * 1024)  # type: ignore[unsupported-operator]
+        size_mb = file_info.size / (1024 * 1024)  # ty: ignore[unsupported-operator]
         if max_file_size_mb is not None and size_mb > max_file_size_mb:
             continue
 
