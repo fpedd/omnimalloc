@@ -59,6 +59,9 @@ def test_portfolio_never_spawns_more_workers_than_variants(
             seen.append(max_workers)
             raise RuntimeError("Stop before spawning workers")
 
+    # Pinned: the pool is skipped outright once any other thread is alive, and
+    # an earlier test leaving one would otherwise decide this one.
+    monkeypatch.setattr(greedy.threading, "active_count", lambda: 1)
     monkeypatch.setattr(greedy, "ProcessPoolExecutor", Recorder)
     variants = (OmniAllocator(), OmniAllocator())
     placed = allocate_parallel(ALLOCATIONS, variants, num_threads=32)

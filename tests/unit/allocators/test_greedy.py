@@ -538,6 +538,7 @@ def test_a_refused_fork_falls_back_to_the_serial_path(
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("os.fork is unsafe while filelock is changing ownership")
 
+    monkeypatch.setattr(greedy.threading, "active_count", lambda: 1)
     monkeypatch.setattr(greedy, "ProcessPoolExecutor", refuse)
     allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 3) for i in range(16))
     placed = GreedyByAllAllocator().allocate(allocations)

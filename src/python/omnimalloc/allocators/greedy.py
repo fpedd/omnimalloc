@@ -3,6 +3,7 @@
 #
 
 import logging
+import threading
 from concurrent.futures import ProcessPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
@@ -87,15 +88,24 @@ def _place_serially(
     return results
 
 
+def _pool_is_safe(workers: int) -> bool:
+    """Whether the pool is worth starting for this many workers.
+
+    It forks, and forking a process that has other threads running leaves the
+    child holding locks nobody will release: it may raise, or it may deadlock.
+    """
+    return workers > 1 and threading.active_count() == 1
+
+
 def _place_pooled(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
     workers: int,
 ) -> list[tuple[Allocation, ...]] | None:
-    """Results from the process pool, or None when the pool cannot be used.
+    """Results from the process pool, or None when the fork is refused.
 
-    The pool forks, which a process running other threads may refuse outright;
-    a placement is worth more than the parallelism, so the caller retries serially.
+    The backstop for a thread that starts between the check and the fork; a
+    placement is worth more than the parallelism, so the caller retries serially.
     """
     results = []
     try:
@@ -126,7 +136,11 @@ def allocate_parallel(
 
     workers = min(resolve_num_threads(num_threads), len(variants))
 
-    results = _place_pooled(allocations, variants, workers) if workers > 1 else None
+    results = (
+        _place_pooled(allocations, variants, workers)
+        if _pool_is_safe(workers)
+        else None
+    )
     if results is None:
         results = _place_serially(allocations, variants)
 
