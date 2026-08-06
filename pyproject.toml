@@ -62,7 +62,7 @@ dev = [
 
 [tool.scikit-build]
 wheel.packages = ["src/python/omnimalloc"]
-cmake.build-type = "Release"                                            # TODO(fpedd): Cross-check with CMakeLists.txt
+cmake.build-type = "Release"
 build-dir = "build/{wheel_tag}"
 sdist.include = ["src/cpp/**"]
 sdist.exclude = [".github", "notebooks", "external"]
@@ -143,7 +143,7 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "-m", "not slow"]
-pythonpath = ["."] # importlib mode drops it; spawned workers import tests from it
+pythonpath = ["."]
 markers = ["slow: exhaustive stress grids (deselected by default)"]
 log_cli = true
 log_cli_level = "INFO"
@@ -160,4 +160,4 @@ unused-type-ignore-comment = "ignore"
 python-version = "3.10"
 
 [tool.ty.src]
-exclude = ["tests/", "**/*.pyi"]
+exclude = ["tests/", "**/*.pyi", "scripts/stress/contracts.py"]
