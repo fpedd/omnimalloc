@@ -532,14 +532,16 @@ def test_greedy_by_all_from_a_threaded_caller_places_every_allocation() -> None:
         validate_allocation(placed)
 
 
-def test_multi_threaded_caller_takes_the_serial_path(
+def test_a_refused_fork_falls_back_to_the_serial_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(threading, "active_count", lambda: 4)
-
     def refuse(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("must not fork from a multi-threaded caller")
+        raise RuntimeError("os.fork is unsafe while filelock is changing ownership")
 
     monkeypatch.setattr(greedy, "ProcessPoolExecutor", refuse)
     allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 3) for i in range(16))
-    validate_allocation(GreedyByAllAllocator().allocate(allocations))
+    placed = GreedyByAllAllocator().allocate(allocations)
+    validate_allocation(placed)
+    assert placement_pressure(placed) == placement_pressure(
+        GreedyByAllAllocator(num_threads=1).allocate(allocations)
+    )

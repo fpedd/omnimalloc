@@ -3,7 +3,6 @@
 #
 
 import logging
-import threading
 from concurrent.futures import ProcessPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
@@ -76,6 +75,45 @@ def _run_variant(
     return allocator.allocate(allocations)
 
 
+def _place_serially(
+    allocations: tuple[Allocation, ...], variants: tuple[BaseAllocator, ...]
+) -> list[tuple[Allocation, ...]]:
+    results = []
+    for variant in variants:
+        try:
+            results.append(variant.allocate(allocations))
+        except Exception:
+            logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
+    return results
+
+
+def _place_pooled(
+    allocations: tuple[Allocation, ...],
+    variants: tuple[BaseAllocator, ...],
+    workers: int,
+) -> list[tuple[Allocation, ...]] | None:
+    """Results from the process pool, or None when the pool cannot be used.
+
+    The pool forks, which a process running other threads may refuse outright;
+    a placement is worth more than the parallelism, so the caller retries serially.
+    """
+    results = []
+    try:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_run_variant, v, allocations) for v in variants]
+            for variant, future in zip(variants, futures, strict=True):
+                try:
+                    results.append(future.result())
+                except Exception:
+                    logger.warning(
+                        "Variant %s failed; skipping it", variant, exc_info=True
+                    )
+    except (OSError, RuntimeError) as e:
+        logger.warning("Process pool unavailable (%s); placing serially", e)
+        return None
+    return results
+
+
 def allocate_parallel(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
@@ -88,27 +126,9 @@ def allocate_parallel(
 
     workers = min(resolve_num_threads(num_threads), len(variants))
 
-    if workers > 1 and threading.active_count() > 1:
-        logger.debug("Multi-threaded caller; running variants serially")
-        workers = 1
-
-    results = []
-    if workers <= 1:
-        for variant in variants:
-            try:
-                results.append(variant.allocate(allocations))
-            except Exception:
-                logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
-    else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_run_variant, v, allocations) for v in variants]
-            for variant, future in zip(variants, futures, strict=True):
-                try:
-                    results.append(future.result())
-                except Exception:
-                    logger.warning(
-                        "Variant %s failed; skipping it", variant, exc_info=True
-                    )
+    results = _place_pooled(allocations, variants, workers) if workers > 1 else None
+    if results is None:
+        results = _place_serially(allocations, variants)
 
     if not results:
         raise RuntimeError("Every allocator variant failed")
