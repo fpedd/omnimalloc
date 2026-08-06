@@ -11,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace omnimalloc {
@@ -165,7 +166,18 @@ Allocation Allocation::with_offset(std::optional<int64_t> new_offset) const {
 
 std::ostream& operator<<(std::ostream& os, const Allocation& a) {
   os << "Allocation(id=";
-  std::visit([&os](const auto& value) { os << value; }, a.id_);
+  // Quote textual ids: unquoted, id=1 and id="1" print alike though they are
+  // distinct allocations, and the repr stops round-tripping through eval.
+  std::visit(
+      [&os](const auto& value) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(value)>,
+                                     std::string>) {
+          os << '\'' << value << '\'';
+        } else {
+          os << value;
+        }
+      },
+      a.id_);
   os << ", size=" << a.size_ << ", start=" << to_string(a.start_)
      << ", end=" << to_string(a.end_);
   if (a.offset_.has_value()) {

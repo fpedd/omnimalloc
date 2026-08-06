@@ -3,6 +3,7 @@
 #
 
 import logging
+import threading
 from concurrent.futures import ProcessPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
@@ -80,21 +81,17 @@ def allocate_parallel(
     variants: tuple[BaseAllocator, ...],
     num_threads: int | None = None,
 ) -> tuple[Allocation, ...]:
-    """Run each variant and return the lowest peak memory results.
-
-    `num_threads=None` uses every worker the thread cap allows. A failing
-    variant is logged and dropped; only an all-failing set raises.
-    """
+    """Run each variant and return the lowest peak memory results."""
 
     if not allocations:
         return allocations
 
-    # There is nothing for a worker beyond the last variant to do, so cap on
-    # both paths: an explicit count is a ceiling, not a demand for processes
     workers = min(resolve_num_threads(num_threads), len(variants))
 
-    # One variant dying (raised, or its worker OOM-killed) must not discard
-    # the placements the others already produced, on either path
+    if workers > 1 and threading.active_count() > 1:
+        logger.debug("Multi-threaded caller; running variants serially")
+        workers = 1
+
     results = []
     if workers <= 1:
         for variant in variants:
@@ -125,8 +122,6 @@ class GreedyAllocator(BaseAllocator):
     supports_pinned = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        # The C++ kernel computes the conflict relation natively, unbudgeted:
-        # placement needs the true relation and never degrades.
         return tuple(first_fit_place(allocations))
 
 
@@ -173,10 +168,7 @@ class GreedyBySizeAllocator(GreedyAllocator):
 
 
 class GreedyByAllAllocator(GreedyAllocator):
-    """Greedy allocator that runs every variant and keeps the best result.
-
-    `num_threads=None` uses all cores.
-    """
+    """Greedy allocator that runs every variant and keeps the best result."""
 
     def __init__(self, num_threads: int | None = None) -> None:
         ensure_positive(num_threads, "num_threads", allow_none=True)
