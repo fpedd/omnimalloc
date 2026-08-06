@@ -28,46 +28,14 @@ class BaseSource(Registered):
         num_systems: int = 1,
     ) -> None:
         super().__init__()
+        ensure_positive(num_allocations, "num_allocations")
+        ensure_positive(num_pools, "num_pools")
+        ensure_positive(num_memories, "num_memories")
+        ensure_positive(num_systems, "num_systems")
         self.num_allocations = num_allocations
         self.num_pools = num_pools
         self.num_memories = num_memories
         self.num_systems = num_systems
-
-    @property
-    def num_allocations(self) -> int:
-        return self._num_allocations
-
-    @num_allocations.setter
-    def num_allocations(self, value: int) -> None:
-        ensure_positive(value, "num_allocations")
-        self._num_allocations = value
-
-    @property
-    def num_pools(self) -> int:
-        return self._num_pools
-
-    @num_pools.setter
-    def num_pools(self, value: int) -> None:
-        ensure_positive(value, "num_pools")
-        self._num_pools = value
-
-    @property
-    def num_memories(self) -> int:
-        return self._num_memories
-
-    @num_memories.setter
-    def num_memories(self, value: int) -> None:
-        ensure_positive(value, "num_memories")
-        self._num_memories = value
-
-    @property
-    def num_systems(self) -> int:
-        return self._num_systems
-
-    @num_systems.setter
-    def num_systems(self, value: int) -> None:
-        ensure_positive(value, "num_systems")
-        self._num_systems = value
 
     @property
     def memory_capacity(self) -> int | None:
@@ -110,13 +78,10 @@ class BaseSource(Registered):
         """Get a specific pool variant by ID."""
 
         if isinstance(variant_id, int):
-            original_num = self._num_allocations
-            self._num_allocations = variant_id
-            try:
-                pool = self.get_pool()
-            finally:
-                self._num_allocations = original_num
-            return pool
+            allocations = self.get_allocations(num_allocations=variant_id)
+            if not allocations:
+                raise ValueError(f"source {self.name()} returned no allocations")
+            return Pool(id=f"{self.name()}_pool_0", allocations=allocations)
 
         msg = f"Source {self.name()} does not support variant ID: {variant_id}"
         raise ValueError(msg)
@@ -129,12 +94,13 @@ class BaseSource(Registered):
     def get_pools(
         self, num_pools: int | None = None, skip: int = 0
     ) -> tuple[Pool, ...]:
-        num_pools = num_pools or self._num_pools
+        num_pools = num_pools or self.num_pools
+        ensure_positive(num_pools, "num_pools")
         pools = []
         for i in range(num_pools):
             allocations = self.get_allocations(
-                num_allocations=self._num_allocations,
-                skip=(skip + i) * self._num_allocations,
+                num_allocations=self.num_allocations,
+                skip=(skip + i) * self.num_allocations,
             )
             if not allocations:
                 raise ValueError(f"source {self.name()} returned no allocations")
@@ -144,12 +110,13 @@ class BaseSource(Registered):
     def get_memories(
         self, num_memories: int | None = None, skip: int = 0
     ) -> tuple[Memory, ...]:
-        num_memories = num_memories or self._num_memories
+        num_memories = num_memories or self.num_memories
+        ensure_positive(num_memories, "num_memories")
         memories = []
         for i in range(num_memories):
             pools = self.get_pools(
-                num_pools=self._num_pools,
-                skip=(skip + i) * self._num_pools,
+                num_pools=self.num_pools,
+                skip=(skip + i) * self.num_pools,
             )
             if not pools:
                 raise ValueError(f"source {self.name()} returned no pools")
@@ -165,12 +132,13 @@ class BaseSource(Registered):
     def get_systems(
         self, num_systems: int | None = None, skip: int = 0
     ) -> tuple[System, ...]:
-        num_systems = num_systems or self._num_systems
+        num_systems = num_systems or self.num_systems
+        ensure_positive(num_systems, "num_systems")
         systems = []
         for i in range(num_systems):
             memories = self.get_memories(
-                num_memories=self._num_memories,
-                skip=(skip + i) * self._num_memories,
+                num_memories=self.num_memories,
+                skip=(skip + i) * self.num_memories,
             )
             if not memories:
                 raise ValueError(f"source {self.name()} returned no memories")

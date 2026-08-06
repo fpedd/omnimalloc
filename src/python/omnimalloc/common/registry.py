@@ -35,22 +35,16 @@ class Registered(ABC):
             cls._name = _camel_to_snake(cls.__name__)
             return
 
-        # Child class: register in parent's registry
-        for base in reversed(cls.__mro__[1:]):
-            if Registered in base.__bases__ and issubclass(base, Registered):
-                suffix = base._strip_suffix  # noqa: SLF001
-                cls._name = _derive_name(cls.__name__, suffix)
-                registered = base._registry.get(cls._name)  # noqa: SLF001
-                if registered is not None and registered is not cls:
-                    raise RuntimeError(
-                        f"Registry name '{cls._name}' already taken by "
-                        f"{registered.__qualname__}; cannot register "
-                        f"{cls.__qualname__}"
-                    )
-                base._registry[cls._name] = cls  # noqa: SLF001
-                return
-
-        raise RuntimeError(f"Could not register class {cls.__name__}")
+        # Child class: register in the root's registry, which plain attribute
+        # inheritance already resolves
+        cls._name = _derive_name(cls.__name__, cls._strip_suffix)
+        registered = cls._registry.get(cls._name)
+        if registered is not None and registered is not cls:
+            raise RuntimeError(
+                f"Registry name '{cls._name}' already taken by "
+                f"{registered.__qualname__}; cannot register {cls.__qualname__}"
+            )
+        cls._registry[cls._name] = cls
 
     def __str__(self) -> str:
         return self._name

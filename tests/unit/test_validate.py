@@ -415,3 +415,70 @@ def test_validate_require_capacity_accepts_a_large_declared_size() -> None:
     )
     memory = Memory(id="m", pools=(pool,), size=1 << 50)
     validate_allocation(memory, require_capacity=True)
+
+
+def test_validate_partial_placement_passes_without_require_allocated() -> None:
+    placed = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    unplaced = Allocation(id=2, size=100, start=0, end=10)
+    validate_allocation((placed, unplaced), require_allocated=False)
+
+
+def test_validate_partial_placement_still_catches_pin_collisions() -> None:
+    first = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    second = Allocation(id=2, size=100, start=5, end=15, offset=50)
+    unplaced = Allocation(id=3, size=100, start=0, end=10)
+    with pytest.raises(ValueError, match="overlaps"):
+        validate_allocation((first, second, unplaced), require_allocated=False)
+
+
+def test_validate_unplaced_pool_base_passes_without_require_allocated() -> None:
+    placed = Pool(
+        id="p1",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=0,
+    )
+    unplaced = Pool(id="p2", allocations=(Allocation(id=2, size=10, start=0, end=5),))
+    validate_allocation(
+        Memory(id="m", pools=(placed, unplaced)), require_allocated=False
+    )
+
+
+def test_validate_pinned_pool_bases_collide_without_require_allocated() -> None:
+    pool1 = Pool(
+        id="p1",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=0,
+    )
+    pool2 = Pool(
+        id="p2",
+        allocations=(Allocation(id=2, size=10, start=0, end=5, offset=0),),
+        offset=5,
+    )
+    with pytest.raises(ValueError, match="overlaps with pool"):
+        validate_allocation(
+            Memory(id="m", pools=(pool1, pool2)), require_allocated=False
+        )
+
+
+def test_validate_default_still_requires_full_placement() -> None:
+    placed = Allocation(id=1, size=100, start=0, end=10, offset=0)
+    unplaced = Allocation(id=2, size=100, start=0, end=10)
+    with pytest.raises(ValueError, match="is not allocated"):
+        validate_allocation((placed, unplaced))
+
+
+def test_validate_loosened_skips_alignment_for_baseless_pools() -> None:
+    pool = Pool(
+        id="p", allocations=(Allocation(id=1, size=10, start=0, end=5, offset=3),)
+    )
+    validate_allocation(pool, require_allocated=False, alignment=8)
+
+
+def test_validate_loosened_checks_alignment_for_placed_pools() -> None:
+    pool = Pool(
+        id="p",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=3),),
+        offset=0,
+    )
+    with pytest.raises(ValueError, match="aligned"):
+        validate_allocation(pool, require_allocated=False, alignment=8)

@@ -171,7 +171,10 @@ def test_run_benchmark_records_skipped_allocators_in_metadata() -> None:
         {
             "source": source.label(),
             "allocator": "supermalloc",
-            "reason": "requires scalar (interval) lifetimes",
+            "reason": (
+                "supermalloc requires scalar (interval) lifetimes, "
+                "got 2-dim vector clocks"
+            ),
         }
     ]
 

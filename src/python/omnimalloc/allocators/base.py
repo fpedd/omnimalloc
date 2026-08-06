@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import inspect
 from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
@@ -32,8 +33,11 @@ class BaseAllocator(Registered):
     supports_pinned: ClassVar[bool] = False
 
     def __repr__(self) -> str:
+        params = inspect.signature(type(self).__init__).parameters
         kwargs = ", ".join(
-            f"{key.lstrip('_')}={value!r}" for key, value in vars(self).items()
+            f"{key.lstrip('_')}={value!r}"
+            for key, value in vars(self).items()
+            if key.lstrip("_") in params
         )
         return f"{type(self).__name__}({kwargs})"
 
@@ -41,18 +45,34 @@ class BaseAllocator(Registered):
         self, allocations: tuple["Allocation", ...]
     ) -> tuple["Allocation", ...]:
         """Validate shared preconditions, then run the allocator."""
+        pins = self._ensure_preconditions(allocations)
+        if not allocations:
+            return allocations
+        placed = self._allocate(allocations)
+        self._ensure_postconditions(allocations, placed, pins)
+        return placed
+
+    def _ensure_preconditions(
+        self, allocations: tuple["Allocation", ...]
+    ) -> dict["IdType", int | None]:
+        """Shared entry contract; returns the pinned offsets keyed by id."""
         ensure_unique_ids(allocations, "allocation")
         uniform_dim(allocations)
         self.ensure_supported(allocations)
-        if not allocations:
-            return allocations
         pins = {alloc.id: alloc.offset for alloc in allocations if alloc.is_allocated}
         if pins:
             self._ensure_pins_placeable(allocations)
-        placed = self._allocate(allocations)
+        return pins
+
+    def _ensure_postconditions(
+        self,
+        allocations: tuple["Allocation", ...],
+        placed: tuple["Allocation", ...],
+        pins: dict["IdType", int | None],
+    ) -> None:
+        """Shared exit contract: same set, fully placed, pins untouched."""
         self._ensure_same_set(allocations, placed)
         self._ensure_placed(placed, pins)
-        return placed
 
     @abstractmethod
     def _allocate(
@@ -62,12 +82,18 @@ class BaseAllocator(Registered):
         ...
 
     def supports(self, allocations: tuple["Allocation", ...]) -> bool:
-        """Whether this allocator accepts the allocations' clock dimensions."""
-        return self.supports_vector_time or all(alloc.dim == 1 for alloc in allocations)
+        """Whether `allocate` accepts these allocations' clock dims and pins."""
+        try:
+            self.ensure_supported(allocations)
+        except ValueError:
+            return False
+        return True
 
     def ensure_supported(self, allocations: tuple["Allocation", ...]) -> None:
         """Raise if these allocations' clock dimensions or pins aren't supported."""
-        if not self.supports(allocations):
+        if not self.supports_vector_time and any(
+            alloc.dim != 1 for alloc in allocations
+        ):
             max_dim = max(alloc.dim for alloc in allocations)
             raise ValueError(
                 f"{self.name()} requires scalar (interval) lifetimes, "

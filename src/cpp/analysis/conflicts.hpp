@@ -6,30 +6,15 @@
 
 #include <cstdint>
 #include <optional>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "clock.hpp"
 #include "primitives/allocation.hpp"
-#include "primitives/id_type.hpp"
 
 namespace omnimalloc {
 
-// Conflict adjacency: allocation id -> ids of conflicting allocations.
-// Total: every allocation is a key, conflict-free ones map to an empty set.
-using ConflictMap =
-    std::unordered_map<IdType, std::unordered_set<IdType, IdTypeHash>,
-                       IdTypeHash>;
-
 // Index-based conflict adjacency: position i -> positions conflicting with i
 using ConflictIndices = std::vector<std::vector<size_t>>;
-
-// Map each allocation id to the ids of conflicting allocations (the
-// happens-before conflict relation every placement packs against). A set
-// `work_budget` bounds the quadratic sweep, throwing rather than stalling.
-[[nodiscard]] ConflictMap conflicts(const std::vector<Allocation>& allocations,
-                                    std::optional<uint64_t> work_budget);
 
 // Map each allocation index to the indices of conflicting allocations
 [[nodiscard]] ConflictIndices compute_conflict_indices(

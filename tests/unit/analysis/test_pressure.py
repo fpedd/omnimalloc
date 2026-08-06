@@ -124,6 +124,14 @@ def test_pressure_total_size_overflow_raises() -> None:
         pressure(allocations)
 
 
+def test_closure_pressure_total_size_overflow_raises() -> None:
+    allocations = tuple(Allocation(id=i, size=2**62, start=0, end=1) for i in range(4))
+    with pytest.raises(ValueError, match="int64"):
+        closure_pressure(allocations)
+    with pytest.raises(ValueError, match="int64"):
+        closure_pressure_per_allocation(allocations)
+
+
 def test_pressure_unbudgeted_empty_is_zero() -> None:
     assert pressure((), work_budget=None) == 0
 

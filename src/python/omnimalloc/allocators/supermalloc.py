@@ -15,9 +15,9 @@ from omnimalloc.common.deadline import (
     ensure_valid_timeout,
     make_deadline,
 )
-from omnimalloc.common.parallel import ensure_valid_num_threads, resolve_num_threads
+from omnimalloc.common.parallel import resolve_num_threads
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives.allocation import Allocation
-from omnimalloc.primitives.utils import ensure_unique_ids
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ class SupermallocAllocator(BaseAllocator):
         num_threads: int | None = None,
     ) -> None:
         ensure_valid_timeout(timeout)
-        ensure_valid_num_threads(num_threads)
+        ensure_positive(num_threads, "num_threads", allow_none=True)
         if not heuristics:
             raise ValueError("SupermallocAllocator requires at least one heuristic")
         self._timeout = timeout
@@ -167,14 +167,13 @@ class SupermallocAllocator(BaseAllocator):
         `allocate` returns the placement alone, which cannot say whether the
         search proved optimality or merely ran out of budget.
         """
-        ensure_unique_ids(allocations, "allocation")
-        self.ensure_supported(allocations)
+        pins = self._ensure_preconditions(allocations)
         if not allocations:
             return SupermallocResult(
                 allocations=(), peak=0, lower_bound=0, proved_optimal=True
             )
         result = self._solve(allocations)
-        self._ensure_same_set(allocations, result.allocations)
+        self._ensure_postconditions(allocations, result.allocations, pins)
         return result
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:

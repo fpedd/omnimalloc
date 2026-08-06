@@ -33,11 +33,6 @@ def test_hillclimb_rejects_positive_iterations() -> None:
         HillClimbAllocator(max_iterations=0)
 
 
-def test_hillclimb_rejects_negative_temperature() -> None:
-    with pytest.raises(ValueError, match="acceptance_temperature must be non-negative"):
-        HillClimbAllocator(acceptance_temperature=-1.0)
-
-
 def test_hillclimb_rejects_negative_timeout() -> None:
     with pytest.raises(ValueError, match="timeout must be positive or None"):
         HillClimbAllocator(timeout=-1.0)
@@ -125,3 +120,9 @@ def test_hillclimb_not_worse_than_greedy_by_size() -> None:
     greedy = GreedyBySizeAllocator().allocate(allocs)
     _assert_valid(hillclimb)
     assert placement_pressure(hillclimb) <= placement_pressure(greedy)
+
+
+def test_hillclimb_repr_omits_the_pinned_kernel_knobs() -> None:
+    assert repr(HillClimbAllocator()) == (
+        "HillClimbAllocator(seed=42, max_iterations=3000, timeout=3.0)"
+    )

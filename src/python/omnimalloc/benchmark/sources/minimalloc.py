@@ -22,6 +22,23 @@ class MinimallocSubset(str, Enum):
     CHALLENGING = "challenging"
 
 
+def _prefix_ids(pool: Pool) -> Pool:
+    """CSV ids restart at 0 per file, so qualify them with the pool id."""
+    return pool.with_allocations(
+        tuple(
+            Allocation(
+                id=f"{pool.id}_{alloc.id}",
+                size=alloc.size,
+                start=alloc.start,
+                end=alloc.end,
+                offset=alloc.offset,
+                kind=alloc.kind,
+            )
+            for alloc in pool.allocations
+        )
+    )
+
+
 class MinimallocSource(BaseSource):
     """Fixed source loading pools from a bundled Minimalloc CSV ``subset``."""
 
@@ -52,14 +69,11 @@ class MinimallocSource(BaseSource):
                     "datasets are checked into the repository's external/ "
                     "directory and are absent from wheel installs."
                 )
-            self._cached_pools = [load_allocation(f) for f in files]
+            self._cached_pools = [_prefix_ids(load_allocation(f)) for f in files]
         return self._cached_pools
 
     def _all_allocations(self) -> tuple[Allocation, ...]:
-        all_allocations: list[Allocation] = []
-        for pool in self._pools:
-            all_allocations.extend(pool.allocations)
-        return tuple(all_allocations)
+        return tuple(alloc for pool in self._pools for alloc in pool.allocations)
 
     def is_parameterizable(self) -> bool:
         """Minimalloc has fixed pools, not parameterizable."""

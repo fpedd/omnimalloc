@@ -20,7 +20,7 @@ from omnimalloc.common.constants import (
     DEFAULT_MATERIALIZE_BUDGET,
     DEFAULT_WORK_BUDGET,
 )
-from omnimalloc.common.deadline import ensure_valid_budget
+from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives.allocation import Allocation, IdType
 from omnimalloc.primitives.utils import ensure_unique_ids
 
@@ -36,7 +36,7 @@ def antichain_pressure(
     The tightest order-derived lower bound on any placement's peak, to certify
     optimality rather than run hot. Raises `RuntimeError` past `work_budget`.
     """
-    ensure_valid_budget(work_budget)
+    ensure_non_negative(work_budget, "work_budget", allow_none=True)
     return _antichain_pressure(allocations, work_budget)
 
 
@@ -48,7 +48,7 @@ def closure_pressure(
     The looser bound: pairwise-concurrent allocations need not share a cut, so
     this can sit below `antichain_pressure`. Raises past `closure_cap`.
     """
-    ensure_valid_budget(closure_cap, name="closure_cap")
+    ensure_non_negative(closure_cap, "closure_cap", allow_none=True)
     return _closure_pressure(allocations, closure_cap)
 
 
@@ -77,7 +77,7 @@ def antichain_pressure_per_allocation(
     `antichain_pressure` restricted to cuts where each allocation is live; the
     max entry equals `antichain_pressure`. Raises past `work_budget`.
     """
-    ensure_valid_budget(work_budget)
+    ensure_non_negative(work_budget, "work_budget", allow_none=True)
     ensure_unique_ids(allocations, "allocation")
     peaks = _antichain_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
@@ -91,7 +91,7 @@ def closure_pressure_per_allocation(
     `closure_pressure` restricted to cuts where each allocation is live; the max
     entry equals `closure_pressure`. Raises past `closure_cap`.
     """
-    ensure_valid_budget(closure_cap, name="closure_cap")
+    ensure_non_negative(closure_cap, "closure_cap", allow_none=True)
     ensure_unique_ids(allocations, "allocation")
     peaks = _closure_pressure_per_allocation(allocations, closure_cap)
     return _keyed_by_id(allocations, peaks)
@@ -105,7 +105,7 @@ def placement_pressure_per_allocation(
     Read off assigned offsets: the highest occupied address among each allocation
     and its conflict neighbors, whose max entry equals `placement_pressure`.
     """
-    ensure_valid_budget(work_budget)
+    ensure_non_negative(work_budget, "work_budget", allow_none=True)
     ensure_unique_ids(allocations, "allocation")
     peaks = _placement_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)

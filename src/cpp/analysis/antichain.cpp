@@ -151,10 +151,12 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
   // The flow network's up-to-k*m arcs dwarf the comparisons counted here.
   // Callers price that into tighter default budgets, never into the value
   // passed, so this gate and the linearize prelude's agree.
-  if (work_budget && static_cast<uint64_t>(k) * m * d > *work_budget) {
+  const uint64_t needed = static_cast<uint64_t>(k) * m * d;
+  if (work_budget && needed > *work_budget) {
     throw std::runtime_error(
-        "Antichain flow work exceeds work_budget; pass None to always "
-        "compute the exact pressure");
+        "Antichain flow work exceeds work_budget; pass work_budget=" +
+        std::to_string(needed) +
+        " to admit this instance, or None for no bound");
   }
 
   // Dominance edges end row -> start row, pruned to the suffix with

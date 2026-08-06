@@ -6,6 +6,7 @@ from ._conflicts import ConflictGraph as ConflictGraph
 from ._conflicts import conflict_degrees as conflict_degrees
 from ._conflicts import conflict_graph as conflict_graph
 from ._conflicts import conflicts as conflicts
+from ._linearize import try_linearize as try_linearize
 from ._pressure import antichain_pressure as antichain_pressure
 from ._pressure import (
     antichain_pressure_per_allocation as antichain_pressure_per_allocation,
@@ -20,4 +21,3 @@ from ._pressure import (
 )
 from ._pressure import pressure as pressure
 from ._pressure import pressure_per_allocation as pressure_per_allocation
-from .linearize import try_linearize as try_linearize

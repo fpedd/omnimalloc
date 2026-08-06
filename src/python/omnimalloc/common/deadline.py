@@ -5,20 +5,14 @@
 import math
 import time
 
+from .validation import ensure_positive
+
 
 def ensure_valid_timeout(timeout: float | None) -> None:
-    """Raise ValueError if timeout is not positive or None (disabled)."""
-    if timeout is not None and not (math.isfinite(timeout) and timeout > 0):
-        raise ValueError(
-            f"timeout must be positive or None, got {timeout}; "
-            "use None to disable the deadline"
-        )
-
-
-def ensure_valid_budget(budget: int | None, name: str = "work_budget") -> None:
-    """Raise ValueError if budget is not non-negative or None (disabled)."""
-    if budget is not None and budget < 0:
-        raise ValueError(f"{name} must be non-negative, got {budget}")
+    """Raise ValueError if timeout is not positive and finite, or None (disabled)."""
+    if timeout is not None and not math.isfinite(timeout):
+        raise ValueError(f"timeout must be finite or None, got {timeout}")
+    ensure_positive(timeout, "timeout", allow_none=True)
 
 
 def make_deadline(timeout: float | None) -> float | None:

@@ -88,14 +88,16 @@ def _write_results_csv(base_dir: Path, campaign: BenchmarkCampaign) -> None:
         writer.writerows(_report_row(report) for report in campaign.reports)
 
 
-def _create_zip_archive(output_path: Path, base_dir: Path, final_path: Path) -> None:
+def _create_zip_archive(base_dir: Path, final_path: Path) -> Path:
     if final_path.exists():
         final_path.unlink()
-    shutil.make_archive(
-        str(output_path),
-        "zip",
-        root_dir=base_dir.parent,
-        base_dir=base_dir.name,
+    return Path(
+        shutil.make_archive(
+            str(final_path.with_suffix("")),
+            "zip",
+            root_dir=base_dir.parent,
+            base_dir=base_dir.name,
+        )
     )
 
 
@@ -236,7 +238,7 @@ def save_benchmark(
         _write_nested_reports(base_dir, campaign, visualize_iterations)
 
         if output_format == "zip":
-            _create_zip_archive(output_path, base_dir, final_path)
+            final_path = _create_zip_archive(base_dir, final_path)
             logger.info(f"Campaign dumped to zip: {final_path}")
         else:
             logger.info(f"Campaign dumped to directory: {final_path}")

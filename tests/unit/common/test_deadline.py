@@ -8,7 +8,6 @@ import pytest
 from omnimalloc.common.deadline import (
     deadline_expired,
     deadline_remaining,
-    ensure_valid_budget,
     ensure_valid_timeout,
     make_deadline,
 )
@@ -25,23 +24,8 @@ def test_ensure_valid_timeout_accepts_positive_and_none(timeout: float | None) -
 def test_ensure_valid_timeout_rejects_nonpositive_and_nonfinite(
     timeout: float,
 ) -> None:
-    with pytest.raises(ValueError, match="positive or None"):
+    with pytest.raises(ValueError, match=r"timeout must be \w+ or None"):
         ensure_valid_timeout(timeout)
-
-
-@pytest.mark.parametrize("budget", [0, 1, 100_000_000, None])
-def test_ensure_valid_budget_accepts_non_negative_and_none(budget: int | None) -> None:
-    ensure_valid_budget(budget)
-
-
-def test_ensure_valid_budget_rejects_negative() -> None:
-    with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        ensure_valid_budget(-1)
-
-
-def test_ensure_valid_budget_names_the_parameter() -> None:
-    with pytest.raises(ValueError, match="linearize_budget must be non-negative"):
-        ensure_valid_budget(-1, name="linearize_budget")
 
 
 def test_make_deadline_none_disables_budget() -> None:

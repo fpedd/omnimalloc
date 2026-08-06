@@ -31,60 +31,19 @@ def test_base_source_initialization_with_defaults() -> None:
     assert source.num_systems == 1
 
 
-def test_base_source_num_allocations_property_setter() -> None:
+def test_base_source_counts_are_plain_assignable_attributes() -> None:
     source = RandomSource()
     source.num_allocations = 7
-    assert source.num_allocations == 7
+    source.num_pools = 6
+    source.num_memories = 5
+    source.num_systems = 4
+    assert (source.num_allocations, source.num_pools) == (7, 6)
+    assert (source.num_memories, source.num_systems) == (5, 4)
 
 
-def test_base_source_num_pools_property_setter() -> None:
-    source = RandomSource()
-    source.num_pools = 7
-    assert source.num_pools == 7
-
-
-def test_base_source_num_memories_property_setter() -> None:
-    source = RandomSource()
-    source.num_memories = 7
-    assert source.num_memories == 7
-
-
-def test_base_source_num_systems_property_setter() -> None:
-    source = RandomSource()
-    source.num_systems = 7
-    assert source.num_systems == 7
-
-
-def test_base_source_num_allocations_setter_validates_positive() -> None:
-    source = RandomSource()
+def test_base_source_constructor_validates_num_allocations() -> None:
     with pytest.raises(ValueError, match="num_allocations must be positive"):
-        source.num_allocations = 0
-    with pytest.raises(ValueError, match="num_allocations must be positive"):
-        source.num_allocations = -5
-
-
-def test_base_source_num_pools_setter_validates_positive() -> None:
-    source = RandomSource()
-    with pytest.raises(ValueError, match="num_pools must be positive"):
-        source.num_pools = 0
-    with pytest.raises(ValueError, match="num_pools must be positive"):
-        source.num_pools = -5
-
-
-def test_base_source_num_memories_setter_validates_positive() -> None:
-    source = RandomSource()
-    with pytest.raises(ValueError, match="num_memories must be positive"):
-        source.num_memories = 0
-    with pytest.raises(ValueError, match="num_memories must be positive"):
-        source.num_memories = -5
-
-
-def test_base_source_num_systems_setter_validates_positive() -> None:
-    source = RandomSource()
-    with pytest.raises(ValueError, match="num_systems must be positive"):
-        source.num_systems = 0
-    with pytest.raises(ValueError, match="num_systems must be positive"):
-        source.num_systems = -5
+        ProbeSource(num_allocations=0)
 
 
 def test_base_source_constructor_validates_num_pools() -> None:
@@ -236,3 +195,10 @@ def test_get_systems_with_skip_returns_requested_count() -> None:
     source = RandomSource(num_allocations=5)
     systems = source.get_systems(num_systems=1, skip=1)
     assert len(systems) == 1
+
+
+def test_get_pools_rejects_a_mutated_non_positive_count() -> None:
+    source = RandomSource()
+    source.num_pools = 0
+    with pytest.raises(ValueError, match="num_pools must be positive"):
+        source.get_pools()

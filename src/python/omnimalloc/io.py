@@ -48,9 +48,12 @@ def _collect_pools(entity: Memory | System) -> dict[str, Pool]:
 
 
 def _parse_id(text: str) -> IdType:
-    # Integer ids are the common case (every shipped source uses them) and
-    # CSV cannot tell 1 from "1", so read digits back as the int they were.
-    return int(text) if _INTEGER.fullmatch(text) else text
+    # Integer ids are the common case (every shipped source uses them) and CSV
+    # cannot tell 1 from "1", so canonical digits read back as the int they
+    # were; non-canonical ones like "007" stay strings to keep their identity.
+    if _INTEGER.fullmatch(text) and str(int(text)) == text:
+        return int(text)
+    return text
 
 
 def _write_pool(pool: Pool, path: Path) -> Path:
@@ -65,6 +68,10 @@ def _write_pool(pool: Pool, path: Path) -> Path:
     if with_kinds:
         fields = (*fields, "kind")
     with path.open("w", newline="") as csvfile:
+        if pool.offset is not None:
+            # Deviates from plain minimalloc: only unpinned saves interoperate
+            # with foreign readers; our loader restores the base exactly
+            csvfile.write(f"# pool_offset={pool.offset}\r\n")
         writer = csv.writer(csvfile)
         writer.writerow(fields)
         for alloc in pool.allocations:
@@ -84,7 +91,8 @@ def save_allocation(
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
     A `Pool` writes exactly `path`; a `Memory` or `System` fans out per pool.
-    Placements round-trip through an `offset` column, clocks through ``:``.
+    Offsets, kinds, clocks, and a pinned pool base all round-trip. Unpinned
+    saves are pure minimalloc; the base's `# pool_offset` line deviates.
     """
     path_ = Path(path)
     path_.parent.mkdir(parents=True, exist_ok=True)
@@ -102,11 +110,18 @@ def load_allocation(path: str | Path) -> Pool:
     """Load a minimalloc-format CSV file into a Pool.
 
     Loading is pool-level: the pool takes the file stem as its id. `offset` and
-    `kind` columns restore a round-trip-equal result.
+    `kind` columns and the `# pool_offset` base line restore a round-trip-equal
+    result.
     """
     path_ = Path(path)
     allocations = []
+    pool_offset = None
     with path_.open(newline="") as csvfile:
+        first_line = csvfile.readline()
+        if first_line.startswith("# pool_offset="):
+            pool_offset = int(first_line.removeprefix("# pool_offset="))
+        else:
+            csvfile.seek(0)
         for row in csv.DictReader(csvfile):
             allocation = Allocation(
                 id=_parse_id(row["id"]),
@@ -117,4 +132,4 @@ def load_allocation(path: str | Path) -> Pool:
                 kind=AllocationKind[row["kind"]] if row.get("kind") else None,
             )
             allocations.append(allocation)
-    return Pool(id=path_.stem, allocations=tuple(allocations))
+    return Pool(id=path_.stem, allocations=tuple(allocations), offset=pool_offset)

@@ -218,3 +218,35 @@ def test_files_without_kinds_stay_minimalloc_shaped(tmp_path: Path) -> None:
     path = tmp_path / "pool.csv"
     save_allocation((Allocation(id=1, size=4, start=0, end=1),), path)
     assert path.read_text().splitlines()[0] == "id,lower,upper,size"
+
+
+def test_round_trip_keeps_noncanonical_digit_ids_as_strings(tmp_path: Path) -> None:
+    path = tmp_path / "pool.csv"
+    save_allocation(
+        (
+            Allocation(id="7", size=4, start=0, end=1),
+            Allocation(id="007", size=4, start=2, end=3),
+        ),
+        path,
+    )
+    assert [a.id for a in load_allocation(path).allocations] == [7, "007"]
+
+
+def test_round_trip_restores_pinned_pool_base(tmp_path: Path) -> None:
+    pool = Pool(
+        id="pool",
+        allocations=(Allocation(id="a", size=4, start=0, end=3, offset=0),),
+        offset=4096,
+    )
+    path = tmp_path / "pool.csv"
+    save_allocation(pool, path)
+    loaded = load_allocation(path)
+    assert loaded.offset == 4096
+    assert loaded.allocations == pool.allocations
+
+
+def test_unpinned_pool_writes_no_base_line(tmp_path: Path) -> None:
+    path = tmp_path / "pool.csv"
+    save_allocation(make_allocated_pool(), path)
+    assert path.read_text().splitlines()[0] == "id,lower,upper,size,offset"
+    assert load_allocation(path).offset is None

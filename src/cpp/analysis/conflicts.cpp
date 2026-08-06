@@ -47,25 +47,6 @@ ConflictIndices indices_from_adjacency(size_t n, const CsrAdjacency& adj) {
   return indices;
 }
 
-// Total id-keyed conflict map straight from CSR: the index adjacency in
-// between would cost a widening copy of every directed edge.
-ConflictMap conflict_map_from_adjacency(
-    const std::vector<Allocation>& allocations, const CsrAdjacency& adj) {
-  ConflictMap map;
-  map.reserve(allocations.size());
-  for (size_t i = 0; i < allocations.size(); ++i) {
-    auto& neighbors = map[allocations[i].id()];
-    neighbors.reserve(static_cast<size_t>(adj.offsets[i + 1] - adj.offsets[i]));
-    for (int64_t slot = adj.offsets[i]; slot < adj.offsets[i + 1]; ++slot) {
-      neighbors.insert(
-          allocations[static_cast<size_t>(
-                          adj.neighbors[static_cast<size_t>(slot)])]
-              .id());
-    }
-  }
-  return map;
-}
-
 }  // namespace
 
 CsrAdjacency build_conflict_adjacency(
@@ -78,17 +59,6 @@ ConflictIndices compute_conflict_indices(
     const std::vector<Allocation>& allocations) {
   return indices_from_adjacency(allocations.size(),
                                 build_conflict_adjacency(allocations));
-}
-
-ConflictMap conflicts(const std::vector<Allocation>& allocations,
-                      std::optional<uint64_t> work_budget) {
-  // The sweep work equals the conflict-pair count on scalar input, so one
-  // measure bounds both paths. Callers that materialize per swept pair, like
-  // this map, pass tighter budgets; the Python defaults own that policy.
-  const ConflictSweep sweep = build_conflict_sweep(allocations);
-  check_sweep_budget(sweep, work_budget, "compute the relation");
-  return conflict_map_from_adjacency(
-      allocations, sweep.adjacency(parallel_threads(sweep.count())));
 }
 
 ConflictGraph::ConflictGraph(const std::vector<Allocation>& allocations,

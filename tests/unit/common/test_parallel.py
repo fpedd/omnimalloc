@@ -10,7 +10,6 @@ from omnimalloc import Allocation, allocate
 from omnimalloc.analysis import placement_pressure
 from omnimalloc.common.parallel import (
     available_cores,
-    ensure_valid_num_threads,
     max_threads,
     resolve_num_threads,
     set_max_threads,
@@ -47,9 +46,9 @@ def test_none_resolves_to_the_ceiling() -> None:
 
 
 def test_non_positive_thread_count_rejected() -> None:
-    with pytest.raises(ValueError, match="num_threads must be positive"):
-        ensure_valid_num_threads(0)
-    with pytest.raises(ValueError, match="num_threads must be positive"):
+    with pytest.raises(ValueError, match="num_threads must be positive or None"):
+        resolve_num_threads(0)
+    with pytest.raises(ValueError, match="num_threads must be positive or None"):
         resolve_num_threads(-1)
 
 

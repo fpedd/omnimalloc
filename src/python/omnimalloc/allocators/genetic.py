@@ -17,8 +17,8 @@ from omnimalloc.common.optional import require_optional
 from omnimalloc.common.validation import ensure_non_negative, ensure_positive
 from omnimalloc.primitives import Allocation
 
-from .greedy import GreedyAllocator
-from .greedy_base import (
+from .greedy import (
+    GreedyAllocator,
     order_by_area,
     order_by_conflict,
     order_by_conflict_size,
@@ -78,12 +78,18 @@ class GeneticAllocator(GreedyAllocator):
         self._tournament_size = tournament_size
         self._timeout = timeout
 
-        # Setup DEAP creators (only once per process, they live in a global namespace)
-        if not hasattr(creator, "FitnessMin"):
-            creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-        if not hasattr(creator, "Individual"):
-            # FitnessMin is dynamically created by DEAP
-            creator.create("Individual", list, fitness=creator.FitnessMin)  # ty: ignore[unresolved-attribute]
+        # Setup DEAP creators (only once per process, they live in a global
+        # namespace); namespaced names so user-created DEAP classes with other
+        # objectives cannot be silently reused
+        if not hasattr(creator, "OmnimallocFitnessMin"):
+            creator.create("OmnimallocFitnessMin", base.Fitness, weights=(-1.0,))
+        if not hasattr(creator, "OmnimallocIndividual"):
+            # OmnimallocFitnessMin is dynamically created by DEAP
+            creator.create(
+                "OmnimallocIndividual",
+                list,
+                fitness=creator.OmnimallocFitnessMin,  # ty: ignore[unresolved-attribute]
+            )
 
     def _evaluate_permutation(
         self, permutation: list[int], placer: FirstFitPlacer
@@ -133,11 +139,11 @@ class GeneticAllocator(GreedyAllocator):
         toolbox = base.Toolbox()
         n = len(allocations)
         toolbox.register("indices", random.sample, range(n), n)
-        # Individual and indices are dynamically created by DEAP
+        # OmnimallocIndividual and indices are dynamically created by DEAP
         toolbox.register(
             "individual",
             tools.initIterate,
-            creator.Individual,  # ty: ignore[unresolved-attribute]
+            creator.OmnimallocIndividual,  # ty: ignore[unresolved-attribute]
             toolbox.indices,  # ty: ignore[unresolved-attribute]
         )
         toolbox.register("evaluate", self._evaluate_permutation, placer=placer)
@@ -147,9 +153,9 @@ class GeneticAllocator(GreedyAllocator):
         toolbox.register("select", tools.selTournament, tournsize=self._tournament_size)
 
         # Seed the population with heuristic orders, fill up with random ones
-        # Individual and individual() are dynamically created by DEAP
+        # OmnimallocIndividual and individual() are dynamically created by DEAP
         population = [
-            creator.Individual(permutation)  # ty: ignore[unresolved-attribute]
+            creator.OmnimallocIndividual(permutation)  # ty: ignore[unresolved-attribute]
             for permutation in self._heuristic_permutations(allocations)
         ]
         population += [

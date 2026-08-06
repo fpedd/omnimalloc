@@ -134,15 +134,16 @@ def _benchmark_report(
         return None
     if pool is None:
         raise ValueError(f"source {source.name()} returned no pool")
-    if not allocator.supports(pool.allocations):
-        reason = "requires scalar (interval) lifetimes"
+    try:
+        allocator.ensure_supported(pool.allocations)
+    except ValueError as error:
         logger.warning(
-            f"Skipping {allocator.name()} on {source.label()}[{variant_desc}]: {reason}"
+            f"Skipping {allocator.name()} on {source.label()}[{variant_desc}]: {error}"
         )
         return SkippedAllocator(
             source=source.label(),
             allocator=allocator.name(),
-            reason=reason,
+            reason=str(error),
         )
 
     results = []

@@ -6,8 +6,9 @@ import itertools
 import random
 
 import pytest
-from omnimalloc import _cpp, validate_allocation
+from omnimalloc import validate_allocation
 from omnimalloc.allocators import OmniAllocator
+from omnimalloc.analysis import conflicts
 from omnimalloc.benchmark.sources import SyncPatternSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS
 from omnimalloc.primitives import Allocation, Pool
@@ -126,7 +127,7 @@ def test_conflict_graph_matches_oracle(hi: int) -> None:
         allocations = [
             make_allocation(i, start, end) for i, (start, end) in enumerate(lifetimes)
         ]
-        graph = _cpp.conflicts(allocations, None)
+        graph = conflicts(allocations, None)
         for i, j in itertools.combinations(range(count), 2):
             expected = oracle_conflict(*lifetimes[i], *lifetimes[j])
             assert (j in graph.get(i, set())) == expected
@@ -154,7 +155,7 @@ def test_validator_catches_corrupted_placements(pattern: str) -> None:
     ).get_allocations()
     placed = list(OmniAllocator().allocate(allocations))
     validate_allocation(Pool(id=0, allocations=tuple(placed)))
-    conflict_map = _cpp.conflicts(placed, None)
+    conflict_map = conflicts(placed, None)
     index_by_id = {p.id: k for k, p in enumerate(placed)}
     conflicting = sorted(a for a, neighbors in conflict_map.items() if neighbors)
     for _ in range(5):
