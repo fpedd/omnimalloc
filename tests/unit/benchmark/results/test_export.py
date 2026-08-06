@@ -278,3 +278,18 @@ def test_results_csv_leaves_unmeasurable_efficiency_empty(artifacts_dir: Path) -
     assert float(rows[0]["mean_seconds"]) == 0.5
     assert int(rows[0]["mean_peak_size"]) > 0
     assert (output_path / "campaign_overview.pdf").exists()
+
+
+def test_save_benchmark_zip_path_lands_exactly_there(
+    simple_campaign: BenchmarkCampaign, artifacts_dir: Path
+) -> None:
+    output_path = artifacts_dir / "campaign_output.zip"
+    result_path = save_benchmark(
+        simple_campaign,
+        output_path=output_path,
+        output_format="zip",
+        visualize_iterations=False,
+    )
+    assert result_path == output_path
+    assert result_path.is_file()
+    assert not output_path.with_suffix(".zip.zip").exists()

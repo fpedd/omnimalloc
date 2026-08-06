@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass, replace
 from functools import cached_property
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from omnimalloc.common.intervals import stack_around_pins
@@ -67,6 +68,7 @@ class Memory:
 
 def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
     """Stack the pools that carry no offset around the ones that do."""
+    _ensure_pinned_bases_disjoint(pools)
     offsets = stack_around_pins(
         [pool.size for pool in pools], [pool.offset for pool in pools]
     )
@@ -74,3 +76,16 @@ def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
         pool if pool.offset is not None else replace(pool, offset=offset)
         for pool, offset in zip(pools, offsets, strict=True)
     )
+
+
+def _ensure_pinned_bases_disjoint(pools: tuple[Pool, ...]) -> None:
+    """Reject pinned bases that already overlap; no layout can satisfy them."""
+    pinned = sorted(
+        [(pool.offset, pool) for pool in pools if pool.offset is not None],
+        key=lambda item: item[0],
+    )
+    for (lower_base, lower), (upper_base, upper) in pairwise(pinned):
+        if upper_base < lower_base + lower.size:
+            raise ValueError(
+                f"pinned pools {lower.id!r} and {upper.id!r} already overlap"
+            )

@@ -7,7 +7,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from omnimalloc._cpp import FirstFitPlacer, conflicts
+from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.allocators import OmniAllocator
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
@@ -20,6 +20,7 @@ from omnimalloc.allocators.greedy import (
 )
 from omnimalloc.analysis import (
     closure_pressure,
+    conflicts,
     placement_pressure_per_allocation,
     pressure,
 )

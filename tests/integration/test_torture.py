@@ -40,7 +40,7 @@ from omnimalloc.allocators import (
     TabuSearchAllocator,
     TelamallocAllocator,
 )
-from omnimalloc.allocators.greedy_base import allocate_parallel
+from omnimalloc.allocators.greedy import allocate_parallel
 from omnimalloc.analysis import (
     antichain_pressure,
     conflict_graph,

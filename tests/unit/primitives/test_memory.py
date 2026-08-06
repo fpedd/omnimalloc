@@ -295,3 +295,25 @@ def test_memory_coerces_a_list_of_pools_to_a_tuple() -> None:
 def test_memory_rejects_non_pool_members() -> None:
     with pytest.raises(TypeError, match="Expected Pool"):
         Memory(id="m", pools=[1])
+
+
+def test_allocate_rejects_overlapping_pinned_pool_bases() -> None:
+    pool1 = Pool(
+        id="p1", allocations=(Allocation(id=1, size=100, start=0, end=5),), offset=0
+    )
+    pool2 = Pool(
+        id="p2", allocations=(Allocation(id=2, size=40, start=0, end=5),), offset=50
+    )
+    with pytest.raises(ValueError, match="pinned pools 'p1' and 'p2' already overlap"):
+        Memory(id="m", pools=(pool1, pool2)).allocate(NaiveAllocator())
+
+
+def test_allocate_accepts_touching_pinned_pool_bases() -> None:
+    pool1 = Pool(
+        id="p1", allocations=(Allocation(id=1, size=100, start=0, end=5),), offset=0
+    )
+    pool2 = Pool(
+        id="p2", allocations=(Allocation(id=2, size=40, start=0, end=5),), offset=100
+    )
+    memory = Memory(id="m", pools=(pool1, pool2)).allocate(NaiveAllocator())
+    assert [pool.offset for pool in memory.pools] == [0, 100]

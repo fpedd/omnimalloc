@@ -7,8 +7,6 @@
 #include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
-#include <nanobind/stl/unordered_map.h>
-#include <nanobind/stl/unordered_set.h>
 #include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
 
@@ -134,11 +132,9 @@ NB_MODULE(_cpp, m) {
 
   m.def("find_collision", &find_collision, "allocations"_a,
         nb::call_guard<nb::gil_scoped_release>());
-  m.def("conflicts", &conflicts, "allocations"_a, "work_budget"_a.none(),
-        nb::call_guard<nb::gil_scoped_release>(), nb::rv_policy::move);
 
-  // Streaming counterpart of `conflicts`: the relation stays in CSR form on
-  // the C++ side and rows cross the boundary one at a time
+  // The conflict relation stays in CSR form on the C++ side and rows cross
+  // the boundary one at a time; the Python `conflicts` map is built on this
   nb::class_<ConflictGraph>(m, "ConflictGraph")
       .def(nb::init<const std::vector<Allocation>&, std::optional<uint64_t>,
                     std::optional<uint64_t>>(),

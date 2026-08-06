@@ -6,12 +6,11 @@ from collections.abc import Sequence
 
 from omnimalloc._cpp import ConflictGraph
 from omnimalloc._cpp import conflict_degrees as _conflict_degrees
-from omnimalloc._cpp import conflicts as _conflicts
 from omnimalloc.common.constants import (
     DEFAULT_CONFLICT_MAP_BUDGET,
     DEFAULT_WORK_BUDGET,
 )
-from omnimalloc.common.deadline import ensure_valid_budget
+from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives.allocation import Allocation, IdType
 from omnimalloc.primitives.utils import ensure_unique_ids
 
@@ -25,9 +24,13 @@ def conflicts(
     The happens-before conflict relation every placement packs against. Raises
     past `work_budget`, whose tight default reflects the map, not the sweep.
     """
-    ensure_valid_budget(work_budget)
     ensure_unique_ids(allocations, "allocation")
-    return _conflicts(allocations, work_budget)
+    graph = conflict_graph(allocations, work_budget)
+    ids = [alloc.id for alloc in allocations]
+    return {
+        ids[row]: {ids[neighbor] for neighbor in graph.neighbors(row)}
+        for row in range(len(graph))
+    }
 
 
 def conflict_graph(
@@ -40,8 +43,8 @@ def conflict_graph(
     Keeps the adjacency in C++ CSR form and hands out one positional row at a
     time. `max_entries` caps the CSR, `work_budget` the sweep, neither the other.
     """
-    ensure_valid_budget(work_budget)
-    ensure_valid_budget(max_entries, name="max_entries")
+    ensure_non_negative(work_budget, "work_budget", allow_none=True)
+    ensure_non_negative(max_entries, "max_entries", allow_none=True)
     return ConflictGraph(allocations, work_budget, max_entries)
 
 
@@ -53,5 +56,5 @@ def conflict_degrees(
     The degree sequence behind `conflicts` without materializing it, positional,
     so duplicate ids count with multiplicity. Scalar lifetimes cost O(N log N).
     """
-    ensure_valid_budget(work_budget)
+    ensure_non_negative(work_budget, "work_budget", allow_none=True)
     return _conflict_degrees(allocations, work_budget)

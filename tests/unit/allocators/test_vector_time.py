@@ -3,12 +3,12 @@
 #
 
 import pytest
-from omnimalloc._cpp import FirstFitPlacer, Partition, conflicts
+from omnimalloc._cpp import FirstFitPlacer, Partition
 from omnimalloc.allocators.base import BaseAllocator
 from omnimalloc.allocators.best_fit import BestFitAllocator
 from omnimalloc.allocators.genetic import HAS_DEAP, GeneticAllocator
-from omnimalloc.allocators.greedy import GreedyAllocator
-from omnimalloc.allocators.greedy_base import (
+from omnimalloc.allocators.greedy import (
+    GreedyAllocator,
     order_by_area,
     order_by_conflict,
     order_by_conflict_size,
@@ -25,7 +25,7 @@ from omnimalloc.allocators.simulated_annealing import SimulatedAnnealingAllocato
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.allocators.tabu_search import TabuSearchAllocator
 from omnimalloc.allocators.telamalloc import TelamallocAllocator
-from omnimalloc.analysis import conflict_degrees, placement_pressure
+from omnimalloc.analysis import conflict_degrees, conflicts, placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation

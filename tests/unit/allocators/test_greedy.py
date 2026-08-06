@@ -4,7 +4,7 @@
 
 import pytest
 from omnimalloc._cpp import FirstFitPlacer, first_fit_place
-from omnimalloc.allocators import greedy_base
+from omnimalloc.allocators import greedy
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
     GreedyByAllAllocator,
@@ -14,8 +14,8 @@ from omnimalloc.allocators.greedy import (
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
+    allocate_parallel,
 )
-from omnimalloc.allocators.greedy_base import allocate_parallel
 from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.validate import validate_allocation
@@ -397,12 +397,12 @@ def test_allocate_parallel_accepts_configured_variant() -> None:
 
 def test_allocate_parallel_rejects_non_positive_num_threads() -> None:
     allocs = (Allocation(id="a", size=10, start=0, end=5),)
-    with pytest.raises(ValueError, match="num_threads must be positive"):
+    with pytest.raises(ValueError, match="num_threads must be positive or None"):
         allocate_parallel(allocs, (GreedyAllocator(),), num_threads=0)
 
 
 def test_greedy_by_all_rejects_non_positive_num_threads() -> None:
-    with pytest.raises(ValueError, match="num_threads must be positive"):
+    with pytest.raises(ValueError, match="num_threads must be positive or None"):
         GreedyByAllAllocator(num_threads=0)
 
 
@@ -479,7 +479,7 @@ def test_first_fit_place_matches_greedy_across_orders() -> None:
 def test_conflict_orders_refuse_a_vector_instance_over_the_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    monkeypatch.setattr(greedy, "DEFAULT_WORK_BUDGET", 0)
     allocations = tuple(
         Allocation(id=i, size=8, start=(i, 0), end=(i + 2, 1)) for i in range(20)
     )
@@ -492,7 +492,7 @@ def test_conflict_orders_refuse_a_vector_instance_over_the_budget(
 def test_greedy_by_all_still_places_when_the_conflict_orders_refuse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    monkeypatch.setattr(greedy, "DEFAULT_WORK_BUDGET", 0)
     allocations = tuple(
         Allocation(id=i, size=8, start=(i, 0), end=(i + 2, 1)) for i in range(20)
     )
@@ -504,6 +504,6 @@ def test_greedy_by_all_still_places_when_the_conflict_orders_refuse(
 def test_scalar_conflict_orders_ignore_the_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(greedy_base, "DEFAULT_WORK_BUDGET", 0)
+    monkeypatch.setattr(greedy, "DEFAULT_WORK_BUDGET", 0)
     allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(20))
     validate_allocation(GreedyByConflictAllocator().allocate(allocations))

@@ -117,3 +117,16 @@ def test_minimalloc_source_warns_when_dataset_directory_is_missing(
         variants = source.get_available_variants()
     assert variants == ()
     assert str(tmp_path / "minimalloc" / "small") in caplog.text
+
+
+def test_minimalloc_source_get_allocations_ids_are_unique() -> None:
+    allocations = MinimallocSource(subset="small").get_allocations()
+    ids = [alloc.id for alloc in allocations]
+    assert len(set(ids)) == len(ids)
+
+
+def test_minimalloc_source_ids_agree_across_accessors() -> None:
+    source = MinimallocSource(subset="small")
+    variant_ids = {alloc.id for alloc in source.get_variant(0).allocations}
+    all_ids = {alloc.id for alloc in source.get_allocations()}
+    assert variant_ids <= all_ids

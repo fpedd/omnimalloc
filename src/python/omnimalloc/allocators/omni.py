@@ -4,7 +4,7 @@
 
 from omnimalloc._cpp import omni_place
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
-from omnimalloc.common.deadline import ensure_valid_budget
+from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -21,7 +21,7 @@ class OmniAllocator(BaseAllocator):
     supports_pinned = True
 
     def __init__(self, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
-        ensure_valid_budget(linearize_budget, name="linearize_budget")
+        ensure_non_negative(linearize_budget, "linearize_budget", allow_none=True)
         self._linearize_budget = linearize_budget
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:

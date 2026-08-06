@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import pytest
 from omnimalloc.allocators.random import RandomAllocator
 from omnimalloc.analysis import placement_pressure, pressure
 from omnimalloc.primitives import Allocation
@@ -27,13 +28,9 @@ def test_random_single() -> None:
     assert result[0].offset == 0
 
 
-def test_random_zero_trials_falls_back_to_insertion_order_greedy() -> None:
-    allocs = (
-        Allocation(id=1, size=100, start=0, end=10),
-        Allocation(id=2, size=50, start=5, end=15),
-    )
-    result = RandomAllocator(num_trials=0).allocate(allocs)
-    assert [a.offset for a in result] == [0, 100]
+def test_random_rejects_zero_trials() -> None:
+    with pytest.raises(ValueError, match="num_trials must be positive"):
+        RandomAllocator(num_trials=0)
 
 
 def test_random_produces_valid_allocation() -> None:

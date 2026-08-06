@@ -5,9 +5,9 @@
 import random
 
 import pytest
-from omnimalloc._cpp import conflicts
+from omnimalloc import analysis
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
-from omnimalloc.analysis import try_linearize
+from omnimalloc.analysis import conflicts, try_linearize
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -280,3 +280,7 @@ def test_non_interval_order_returns_none_under_any_budget() -> None:
     )
     assert try_linearize(obstruction, work_budget=None) is None
     assert try_linearize(obstruction) is None
+
+
+def test_linearize_module_hidden_from_analysis_namespace() -> None:
+    assert not hasattr(analysis, "linearize")

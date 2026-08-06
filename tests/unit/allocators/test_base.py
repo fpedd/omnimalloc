@@ -3,9 +3,9 @@
 #
 
 import pytest
-from omnimalloc.allocators import greedy_base
+from omnimalloc.allocators import greedy
 from omnimalloc.allocators.base import BaseAllocator
-from omnimalloc.allocators.greedy_base import allocate_parallel
+from omnimalloc.allocators.greedy import allocate_parallel
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.primitives import Allocation
 
@@ -59,8 +59,16 @@ def test_portfolio_never_spawns_more_workers_than_variants(
             seen.append(max_workers)
             raise RuntimeError("Stop before spawning workers")
 
-    monkeypatch.setattr(greedy_base, "ProcessPoolExecutor", Recorder)
+    monkeypatch.setattr(greedy, "ProcessPoolExecutor", Recorder)
     variants = (OmniAllocator(), OmniAllocator())
     with pytest.raises(RuntimeError):
         allocate_parallel(ALLOCATIONS, variants, num_threads=32)
     assert seen == [len(variants)]
+
+
+def test_supports_counts_pins_like_ensure_supported() -> None:
+    pinned = (Allocation(id=1, size=4, start=0, end=2, offset=0),)
+    assert OmniAllocator().supports(pinned) is True
+    assert TruncatingAllocator().supports(pinned) is False
+    with pytest.raises(ValueError, match="cannot honor pinned offsets"):
+        TruncatingAllocator().allocate(pinned)
