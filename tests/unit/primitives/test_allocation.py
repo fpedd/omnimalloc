@@ -353,11 +353,17 @@ def test_equal_allocations_hash_equal() -> None:
     assert hash(first) == hash(second)
 
 
-def test_int_and_str_ids_with_same_repr_are_distinct() -> None:
+def test_int_and_str_ids_are_distinct_and_repr_apart() -> None:
     numeric = Allocation(id=1, size=100, start=0, end=10)
     textual = Allocation(id="1", size=100, start=0, end=10)
     assert numeric != textual
     assert len({numeric, textual}) == 2
+    assert repr(numeric) != repr(textual)
+
+
+def test_repr_quotes_string_ids_and_leaves_numeric_bare() -> None:
+    assert "id='buf 0'" in repr(Allocation(id="buf 0", size=1, start=0, end=1))
+    assert "id=7," in repr(Allocation(id=7, size=1, start=0, end=1))
 
 
 def test_allocation_eq_with_non_allocation_returns_false() -> None:

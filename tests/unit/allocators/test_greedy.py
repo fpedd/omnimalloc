@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import threading
+
 import pytest
 from omnimalloc._cpp import FirstFitPlacer, first_fit_place
 from omnimalloc.allocators import greedy
@@ -507,3 +509,40 @@ def test_scalar_conflict_orders_ignore_the_budget(
     monkeypatch.setattr(greedy, "DEFAULT_WORK_BUDGET", 0)
     allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(20))
     validate_allocation(GreedyByConflictAllocator().allocate(allocations))
+
+
+def test_greedy_by_all_from_a_threaded_caller_places_every_allocation() -> None:
+    allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 3) for i in range(64))
+    results: list[object] = []
+
+    def run() -> None:
+        try:
+            results.append(GreedyByAllAllocator().allocate(allocations))
+        except Exception as e:  # noqa: BLE001
+            results.append(e)
+
+    threads = [threading.Thread(target=run) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not [r for r in results if isinstance(r, Exception)]
+    for placed in results:
+        validate_allocation(placed)
+
+
+def test_a_refused_fork_falls_back_to_the_serial_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("os.fork is unsafe while filelock is changing ownership")
+
+    monkeypatch.setattr(greedy.threading, "active_count", lambda: 1)
+    monkeypatch.setattr(greedy, "ProcessPoolExecutor", refuse)
+    allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 3) for i in range(16))
+    placed = GreedyByAllAllocator().allocate(allocations)
+    validate_allocation(placed)
+    assert placement_pressure(placed) == placement_pressure(
+        GreedyByAllAllocator(num_threads=1).allocate(allocations)
+    )

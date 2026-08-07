@@ -3,6 +3,7 @@
 #
 
 import logging
+import threading
 from concurrent.futures import ProcessPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
@@ -75,34 +76,39 @@ def _run_variant(
     return allocator.allocate(allocations)
 
 
-def allocate_parallel(
+def _place_serially(
+    allocations: tuple[Allocation, ...], variants: tuple[BaseAllocator, ...]
+) -> list[tuple[Allocation, ...]]:
+    results = []
+    for variant in variants:
+        try:
+            results.append(variant.allocate(allocations))
+        except Exception:
+            logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
+    return results
+
+
+def _pool_is_safe(workers: int) -> bool:
+    """Whether the pool is worth starting for this many workers.
+
+    It forks, and forking a process that has other threads running leaves the
+    child holding locks nobody will release: it may raise, or it may deadlock.
+    """
+    return workers > 1 and threading.active_count() == 1
+
+
+def _place_pooled(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
-    num_threads: int | None = None,
-) -> tuple[Allocation, ...]:
-    """Run each variant and return the lowest peak memory results.
+    workers: int,
+) -> list[tuple[Allocation, ...]] | None:
+    """Results from the process pool, or None when the fork is refused.
 
-    `num_threads=None` uses every worker the thread cap allows. A failing
-    variant is logged and dropped; only an all-failing set raises.
+    The backstop for a thread that starts between the check and the fork; a
+    placement is worth more than the parallelism, so the caller retries serially.
     """
-
-    if not allocations:
-        return allocations
-
-    # There is nothing for a worker beyond the last variant to do, so cap on
-    # both paths: an explicit count is a ceiling, not a demand for processes
-    workers = min(resolve_num_threads(num_threads), len(variants))
-
-    # One variant dying (raised, or its worker OOM-killed) must not discard
-    # the placements the others already produced, on either path
     results = []
-    if workers <= 1:
-        for variant in variants:
-            try:
-                results.append(variant.allocate(allocations))
-            except Exception:
-                logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
-    else:
+    try:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_run_variant, v, allocations) for v in variants]
             for variant, future in zip(variants, futures, strict=True):
@@ -112,6 +118,31 @@ def allocate_parallel(
                     logger.warning(
                         "Variant %s failed; skipping it", variant, exc_info=True
                     )
+    except (OSError, RuntimeError) as e:
+        logger.warning("Process pool unavailable (%s); placing serially", e)
+        return None
+    return results
+
+
+def allocate_parallel(
+    allocations: tuple[Allocation, ...],
+    variants: tuple[BaseAllocator, ...],
+    num_threads: int | None = None,
+) -> tuple[Allocation, ...]:
+    """Run each variant and return the lowest peak memory results."""
+
+    if not allocations:
+        return allocations
+
+    workers = min(resolve_num_threads(num_threads), len(variants))
+
+    results = (
+        _place_pooled(allocations, variants, workers)
+        if _pool_is_safe(workers)
+        else None
+    )
+    if results is None:
+        results = _place_serially(allocations, variants)
 
     if not results:
         raise RuntimeError("Every allocator variant failed")
@@ -125,8 +156,6 @@ class GreedyAllocator(BaseAllocator):
     supports_pinned = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        # The C++ kernel computes the conflict relation natively, unbudgeted:
-        # placement needs the true relation and never degrades.
         return tuple(first_fit_place(allocations))
 
 
@@ -173,10 +202,7 @@ class GreedyBySizeAllocator(GreedyAllocator):
 
 
 class GreedyByAllAllocator(GreedyAllocator):
-    """Greedy allocator that runs every variant and keeps the best result.
-
-    `num_threads=None` uses all cores.
-    """
+    """Greedy allocator that runs every variant and keeps the best result."""
 
     def __init__(self, num_threads: int | None = None) -> None:
         ensure_positive(num_threads, "num_threads", allow_none=True)
