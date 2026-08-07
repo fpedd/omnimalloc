@@ -3,8 +3,7 @@
 #
 
 import logging
-import threading
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
 from omnimalloc.analysis import conflict_degrees, placement_pressure
@@ -69,61 +68,6 @@ def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...
     return tuple(sorted(allocations, key=lambda a: (a.start, -a.size)))
 
 
-def _run_variant(
-    allocator: BaseAllocator, allocations: tuple[Allocation, ...]
-) -> tuple[Allocation, ...]:
-    """Worker: flat plain-typed kwargs make every allocator picklable."""
-    return allocator.allocate(allocations)
-
-
-def _place_serially(
-    allocations: tuple[Allocation, ...], variants: tuple[BaseAllocator, ...]
-) -> list[tuple[Allocation, ...]]:
-    results = []
-    for variant in variants:
-        try:
-            results.append(variant.allocate(allocations))
-        except Exception:
-            logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
-    return results
-
-
-def _pool_is_safe(workers: int) -> bool:
-    """Whether the pool is worth starting for this many workers.
-
-    It forks, and forking a process that has other threads running leaves the
-    child holding locks nobody will release: it may raise, or it may deadlock.
-    """
-    return workers > 1 and threading.active_count() == 1
-
-
-def _place_pooled(
-    allocations: tuple[Allocation, ...],
-    variants: tuple[BaseAllocator, ...],
-    workers: int,
-) -> list[tuple[Allocation, ...]] | None:
-    """Results from the process pool, or None when the fork is refused.
-
-    The backstop for a thread that starts between the check and the fork; a
-    placement is worth more than the parallelism, so the caller retries serially.
-    """
-    results = []
-    try:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_run_variant, v, allocations) for v in variants]
-            for variant, future in zip(variants, futures, strict=True):
-                try:
-                    results.append(future.result())
-                except Exception:
-                    logger.warning(
-                        "Variant %s failed; skipping it", variant, exc_info=True
-                    )
-    except (OSError, RuntimeError) as e:
-        logger.warning("Process pool unavailable (%s); placing serially", e)
-        return None
-    return results
-
-
 def allocate_parallel(
     allocations: tuple[Allocation, ...],
     variants: tuple[BaseAllocator, ...],
@@ -136,13 +80,14 @@ def allocate_parallel(
 
     workers = min(resolve_num_threads(num_threads), len(variants))
 
-    results = (
-        _place_pooled(allocations, variants, workers)
-        if _pool_is_safe(workers)
-        else None
-    )
-    if results is None:
-        results = _place_serially(allocations, variants)
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(v.allocate, allocations) for v in variants]
+        for variant, future in zip(variants, futures, strict=True):
+            try:
+                results.append(future.result())
+            except Exception:
+                logger.warning("Variant %s failed; skipping it", variant, exc_info=True)
 
     if not results:
         raise RuntimeError("Every allocator variant failed")

@@ -13,7 +13,7 @@ from .validation import ensure_positive
 def set_max_threads(value: int | None) -> None:
     """Cap the workers this library will use, anywhere; None lifts the cap.
 
-    Covers the native kernels and the process pools alike. The kernels spawn per
+    Covers the native kernels and the worker pools alike. The kernels spawn per
     call, so without the default 8, N callers put N times the cores in flight.
     """
     if value is not None and value < 1:
@@ -41,7 +41,7 @@ def resolve_num_threads(num_threads: int | None) -> int:
     """Worker count for a parallel section; None resolves to the ceiling.
 
     An explicit count is taken as given; `None` defers to `max_threads`, so one
-    setting governs the process pools and the native kernels together.
+    setting governs the worker pools and the native kernels together.
     """
     ensure_positive(num_threads, "num_threads", allow_none=True)
     return num_threads if num_threads is not None else max_threads()
