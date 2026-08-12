@@ -40,6 +40,9 @@ nanobind_add_module(
   _cpp
   NB_STATIC
   NOMINSIZE
+  # Marks the nanobind and CPython headers as SYSTEM, so our warning flags below
+  # only judge our own sources.
+  NB_SUPPRESS_WARNINGS
   src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/first_fit.cpp
   src/cpp/allocators/local_search.cpp
@@ -59,6 +62,29 @@ nanobind_add_module(
 
 target_include_directories(_cpp PRIVATE src/cpp)
 target_link_libraries(_cpp PRIVATE Threads::Threads)
+
+# Off by default so a stray warning from a newer compiler never breaks an end
+# user's source build; CI turns it on.
+option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if(MSVC)
+  target_compile_options(_cpp PRIVATE /W4 $<$<BOOL:${WARNINGS_AS_ERRORS}>:/WX>)
+else()
+  # -Wsign-conversion is deliberately absent: the kernels index int64 vectors
+  # with the compact int32 indices they sort and cache, so it fires 175 times on
+  # provably non-negative subscripts. See issue #65.
+  target_compile_options(
+    _cpp
+    PRIVATE -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wshadow
+            -Wold-style-cast
+            -Wcast-qual
+            -Wcast-align
+            $<$<BOOL:${WARNINGS_AS_ERRORS}>:-Werror>)
+endif()
 
 if(ENABLE_CLANG_TIDY)
   set_target_properties(_cpp PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_PROGRAM}")

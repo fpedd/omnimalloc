@@ -96,8 +96,8 @@ jobs:
       - run: uv sync --all-extras
       - run: uv build
 
-  # TODO(fpedd): This job currently doesn't actually fail/error on quality issues.
-  # We should act on that. But for now, it's useful to have the reports in CI.
+  # TODO(fpedd): clang-tidy and iwyu findings still only get reported, not
+  # enforced; compiler warnings do fail the job via -Werror.
   cpp-quality:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -108,7 +108,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang-tidy iwyu
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-extras
-      - run: CMAKE_ARGS="-DENABLE_CLANG_TIDY=ON -DENABLE_IWYU=ON" uv build
+      - run: >
+          CMAKE_ARGS="-DENABLE_CLANG_TIDY=ON -DENABLE_IWYU=ON
+          -DWARNINGS_AS_ERRORS=ON" uv build
 
   checks-status:
     runs-on: ubuntu-latest
