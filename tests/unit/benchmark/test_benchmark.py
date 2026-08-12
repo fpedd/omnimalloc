@@ -11,6 +11,7 @@ from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.benchmark.benchmark import run_benchmark
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.generator import RandomSource
+from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 
@@ -188,6 +189,38 @@ def test_run_benchmark_metadata_lists_no_skips_when_all_supported() -> None:
     )
 
     assert campaign.metadata["skipped_allocators"] == []
+    assert campaign.metadata["skipped_variants"] == []
+
+
+def test_run_benchmark_records_unreachable_variants_in_metadata() -> None:
+    source = PinwheelSource(num_allocations=65)
+
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),),
+        sources=(source,),
+        iterations=1,
+        variants=(64, 65),
+    )
+
+    assert campaign.num_reports == 1
+    assert campaign.metadata["skipped_variants"] == [
+        {
+            "source": source.label(),
+            "variant": "64",
+            "reason": "cannot reach exactly 64 allocations, nearest is 65",
+        }
+    ]
+
+
+def test_run_benchmark_reports_an_unreachable_variant_once_per_source() -> None:
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(), NaiveAllocator()),
+        sources=(PinwheelSource(num_allocations=65),),
+        iterations=1,
+        variants=(64, 65),
+    )
+
+    assert len(campaign.metadata["skipped_variants"]) == 1
 
 
 def test_run_benchmark_records_known_optimum_when_available() -> None:

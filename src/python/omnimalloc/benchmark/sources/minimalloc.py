@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import ClassVar
 
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.io import load_allocation
 from omnimalloc.primitives import Allocation, IdType, Pool
 
@@ -145,6 +146,7 @@ class MinimallocSource(BaseSource):
     def get_pools(
         self, num_pools: int | None = None, skip: int = 0
     ) -> tuple[Pool, ...]:
+        ensure_positive(num_pools, "num_pools", allow_none=True)
         if skip >= len(self._pools):
             return ()
         if num_pools is None:

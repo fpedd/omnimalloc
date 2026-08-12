@@ -110,10 +110,10 @@ def test_minimalloc_source_get_pools_with_skip_past_end() -> None:
     assert len(pools) == 0
 
 
-def test_minimalloc_source_get_pools_count_zero() -> None:
+def test_minimalloc_source_get_pools_rejects_an_explicit_zero_count() -> None:
     source = _source("examples")
-    pools = source.get_pools(num_pools=0)
-    assert len(pools) == 0
+    with pytest.raises(ValueError, match="num_pools must be positive"):
+        source.get_pools(num_pools=0)
 
 
 def test_minimalloc_source_get_allocation_keeps_kind_none() -> None:

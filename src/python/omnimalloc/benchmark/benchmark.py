@@ -28,6 +28,15 @@ class SkippedAllocator:
     reason: str
 
 
+@dataclass(frozen=True)
+class SkippedVariant:
+    """A workload a source could not express, with the reason it was skipped."""
+
+    source: str
+    variant: str
+    reason: str
+
+
 def _resolve_parameterizable_variants(
     source: BaseSource, variants: int | tuple[IdType, ...] | None
 ) -> tuple[int, ...]:
@@ -132,7 +141,7 @@ def _benchmark_report(
     result_id: int,
     validate: bool,
     known_optima: dict[IdType, int | None],
-) -> BenchmarkReport | SkippedAllocator | None:
+) -> BenchmarkReport | SkippedAllocator | SkippedVariant:
     """Time one allocator/source/variant, or report why it was skipped."""
     variant_desc = variant_id if isinstance(variant_id, str) else f"{variant_id} allocs"
 
@@ -143,7 +152,9 @@ def _benchmark_report(
         pool = source.get_variant(variant_id)
     except ValueError as error:
         logger.warning(f"Skipping {source.label()}[{variant_desc}]: {error}")
-        return None
+        return SkippedVariant(
+            source=source.label(), variant=str(variant_id), reason=str(error)
+        )
     if pool is None:
         raise ValueError(f"source {source.name()} returned no pool")
     try:
@@ -207,6 +218,7 @@ def run_benchmark(
 
     reports = []
     skipped: list[SkippedAllocator] = []
+    skipped_variants: list[SkippedVariant] = []
     report_id = 0
     result_id = 0
 
@@ -269,7 +281,8 @@ def run_benchmark(
                 if isinstance(report, SkippedAllocator):
                     skipped.append(report)
                     continue
-                if report is None:
+                if isinstance(report, SkippedVariant):
+                    skipped_variants.append(report)
                     continue
                 reports.append(report)
                 report_id += 1
@@ -288,9 +301,11 @@ def run_benchmark(
         reports=tuple(reports),
         metadata={
             "total_duration": timer.elapsed,
-            # Same allocator and source repeat once per variant; report the
-            # distinct omissions so a shrunken comparison is visible
+            # Same allocator and source repeat once per variant, and a dropped
+            # variant repeats once per allocator; report the distinct omissions
+            # so a shrunken comparison is visible
             "skipped_allocators": [asdict(s) for s in dict.fromkeys(skipped)],
+            "skipped_variants": [asdict(s) for s in dict.fromkeys(skipped_variants)],
         },
     )
     campaign = campaign.finalize_metadata()

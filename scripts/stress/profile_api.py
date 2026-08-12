@@ -399,8 +399,10 @@ def main() -> None:
         nargs="+",
         default=["analysis", "allocators", "quality", "concurrency", "memory"],
     )
-    parser.add_argument("--out", type=Path, default=Path("profile_results.json"))
+    parser.add_argument("--out", type=Path, default=Path("profile_results_api"))
     args = parser.parse_args()
+    args.out.mkdir(parents=True, exist_ok=True)
+    results_path = args.out / "results.json"
 
     runners: dict[str, Callable[[argparse.Namespace], list[dict]]] = {
         "analysis": bench_analysis,
@@ -415,10 +417,10 @@ def main() -> None:
         started = time.perf_counter()
         rows += runners[bench](args)
         # Written per bench so a later crash never discards earlier measurements
-        args.out.write_text(json.dumps(rows, indent=1, default=str))
+        results_path.write_text(json.dumps(rows, indent=1, default=str))
         print(f"== {bench} took {time.perf_counter() - started:.0f}s", flush=True)
 
-    print(f"{len(rows)} rows, wrote {args.out}")
+    print(f"{len(rows)} rows, wrote {results_path}")
 
 
 if __name__ == "__main__":

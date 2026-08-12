@@ -183,12 +183,16 @@ def test_base_source_label_appends_declared_fields() -> None:
     assert source.label() == f"{LabelledProbeSource.name()}[num_pools=2,num_memories=3]"
 
 
-def test_base_source_label_omits_none_fields() -> None:
+def test_base_source_label_omits_default_none_fields() -> None:
     assert OptionalLabelProbeSource().label() == OptionalLabelProbeSource.name()
     assert (
         OptionalLabelProbeSource(tag="x").label()
         == f"{OptionalLabelProbeSource.name()}[tag=x]"
     )
+
+
+def test_base_source_label_keeps_none_departing_from_default() -> None:
+    assert RandomSource(seed=None).label() == "random[seed=None]"
 
 
 def test_base_source_label_separates_instances() -> None:

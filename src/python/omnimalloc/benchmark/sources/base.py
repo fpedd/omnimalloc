@@ -51,8 +51,8 @@ class BaseSource(Registered):
         """Registry name, plus the `_label_fields` that make this instance distinct.
 
         Two instances configured differently must not collapse into one series,
-        so the label carries every field departing from its constructor default:
-        `sync_pattern[num_threads=16]`. None-valued fields are unset and stay out.
+        so the label carries every field departing from its constructor default,
+        even an explicit None: `sync_pattern[num_threads=16]`, `random[seed=None]`.
         """
         parameters = inspect.signature(type(self).__init__).parameters
         no_default = object()
@@ -60,8 +60,7 @@ class BaseSource(Registered):
         fields = ",".join(
             f"{f}={getattr(self, f)}"
             for f in self._label_fields
-            if getattr(self, f) is not None
-            and getattr(self, f) != defaults.get(f, no_default)
+            if getattr(self, f) != defaults.get(f, no_default)
         )
         return f"{self.name()}[{fields}]" if fields else self.name()
 

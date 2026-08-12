@@ -243,7 +243,7 @@ def _non_interval() -> list[Workload]:
             "adversarial",
             2,
             lambda n, s, x=noise: TwoPlusTwoSource(
-                num_allocations=n, noise=x, seed=s
+                num_allocations=max(n, 4), noise=x, seed=s
             ).get_allocations(),
             tags=frozenset({"vector", "adversarial", "non_interval"}),
         )

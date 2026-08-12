@@ -232,7 +232,7 @@ def main() -> None:
     parser.add_argument(
         "--deep", action="store_true", help="also check pins and the hierarchy paths"
     )
-    parser.add_argument("--out", type=Path, default=Path("fuzz_results.json"))
+    parser.add_argument("--out", type=Path, default=Path("fuzz_results_stress"))
     args = parser.parse_args()
 
     allocators = args.allocators or sorted(BaseAllocator.registry())
@@ -276,11 +276,13 @@ def main() -> None:
                     flush=True,
                 )
 
-    args.out.write_text(json.dumps(results, indent=1, default=str))
+    args.out.mkdir(parents=True, exist_ok=True)
+    results_path = args.out / "results.json"
+    results_path.write_text(json.dumps(results, indent=1, default=str))
     placements = sum(len(cell.get("peaks", {})) for cell in results)
     print(
         f"\n{len(cells)} cells, {placements} placements, {failures} failures, "
-        f"{time.perf_counter() - started:.0f}s, wrote {args.out}"
+        f"{time.perf_counter() - started:.0f}s, wrote {results_path}"
     )
     sys.exit(1 if failures else 0)
 

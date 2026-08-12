@@ -57,6 +57,8 @@ htmlcov/
 # Benchmark script outputs (scripts/*.py --out, --dump)
 benchmark_results_*/
 stress_results_*/
+fuzz_results_*/
+profile_results_*/
 
 # Example script outputs (examples/*.py write relative to the CWD)
 *_example_output/
