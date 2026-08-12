@@ -19,11 +19,11 @@ from omnimalloc import allocate
 from omnimalloc.allocators import BaseAllocator
 from omnimalloc.analysis import (
     antichain_pressure,
+    antichain_pressure_per_allocation,
     closure_pressure,
     conflict_degrees,
     conflict_graph,
     conflicts,
-    pressure_per_allocation,
     try_linearize,
 )
 from workloads import by_name, catalog
@@ -82,7 +82,9 @@ ANALYSIS_CALLS: dict[str, Callable] = {
     "conflict_graph": lambda a: conflict_graph(a).pair_count,
     "conflicts": lambda a: len(conflicts(a)),
     "try_linearize": lambda a: try_linearize(a) is not None,
-    "pressure_per_allocation": lambda a: len(pressure_per_allocation(a)),
+    "antichain_pressure_per_allocation": lambda a: len(
+        antichain_pressure_per_allocation(a)
+    ),
 }
 
 
@@ -397,8 +399,10 @@ def main() -> None:
         nargs="+",
         default=["analysis", "allocators", "quality", "concurrency", "memory"],
     )
-    parser.add_argument("--out", type=Path, default=Path("profile_results.json"))
+    parser.add_argument("--out", type=Path, default=Path("profile_results_api"))
     args = parser.parse_args()
+    args.out.mkdir(parents=True, exist_ok=True)
+    results_path = args.out / "results.json"
 
     runners: dict[str, Callable[[argparse.Namespace], list[dict]]] = {
         "analysis": bench_analysis,
@@ -413,10 +417,10 @@ def main() -> None:
         started = time.perf_counter()
         rows += runners[bench](args)
         # Written per bench so a later crash never discards earlier measurements
-        args.out.write_text(json.dumps(rows, indent=1, default=str))
+        results_path.write_text(json.dumps(rows, indent=1, default=str))
         print(f"== {bench} took {time.perf_counter() - started:.0f}s", flush=True)
 
-    print(f"{len(rows)} rows, wrote {args.out}")
+    print(f"{len(rows)} rows, wrote {results_path}")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 
 import pytest
 from omnimalloc.allocators.random import RandomAllocator
-from omnimalloc.analysis import placement_pressure, pressure
+from omnimalloc.analysis import antichain_pressure, placement_pressure
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -66,4 +66,8 @@ def test_random_peak_within_problem_bounds() -> None:
     allocs = _allocs(30)
     result = RandomAllocator(num_trials=30, seed=1).allocate(allocs)
     validate_allocation(Pool(id="test_pool", allocations=result))
-    assert pressure(allocs) <= placement_pressure(result) <= sum(a.size for a in allocs)
+    assert (
+        antichain_pressure(allocs)
+        <= placement_pressure(result)
+        <= sum(a.size for a in allocs)
+    )

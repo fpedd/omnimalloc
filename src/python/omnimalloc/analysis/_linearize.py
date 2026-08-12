@@ -9,7 +9,7 @@ from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
 from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives.allocation import Allocation
 
-from .clock import uniform_dim
+from ._clock import uniform_dim
 
 
 def try_linearize(

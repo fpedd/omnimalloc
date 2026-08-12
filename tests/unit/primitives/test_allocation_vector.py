@@ -5,7 +5,7 @@
 import pickle
 
 import pytest
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import antichain_pressure
 from omnimalloc.primitives import Allocation
 
 
@@ -117,7 +117,7 @@ def test_pickle_roundtrip_vector() -> None:
 
 def test_pressure_supports_vector_time() -> None:
     allocs = (Allocation(id=1, size=1, start=(0, 0), end=(1, 1)),)
-    assert pressure(allocs) == 1
+    assert antichain_pressure(allocs) == 1
 
 
 def test_conflict_without_per_thread_overlap() -> None:

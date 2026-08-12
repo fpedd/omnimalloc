@@ -14,5 +14,5 @@ Checks: >
   -modernize-use-trailing-return-type,
 
 WarningsAsErrors: ""
-HeaderFilterRegex: ""
+HeaderFilterRegex: "src/cpp/.*"
 FormatStyle: none

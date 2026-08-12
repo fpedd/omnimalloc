@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import inspect
 from abc import abstractmethod
 from typing import ClassVar
 
@@ -50,12 +51,18 @@ class BaseSource(Registered):
         """Registry name, plus the `_label_fields` that make this instance distinct.
 
         Two instances configured differently must not collapse into one series,
-        so the label carries their parameters: `sync_pattern[num_threads=16]`.
+        so the label carries every field departing from its constructor default,
+        even an explicit None: `sync_pattern[num_threads=16]`, `random[seed=None]`.
         """
-        if not self._label_fields:
-            return self.name()
-        fields = ",".join(f"{f}={getattr(self, f)}" for f in self._label_fields)
-        return f"{self.name()}[{fields}]"
+        parameters = inspect.signature(type(self).__init__).parameters
+        no_default = object()
+        defaults = {n: p.default for n, p in parameters.items()}
+        fields = ",".join(
+            f"{f}={getattr(self, f)}"
+            for f in self._label_fields
+            if getattr(self, f) != defaults.get(f, no_default)
+        )
+        return f"{self.name()}[{fields}]" if fields else self.name()
 
     def is_parameterizable(self) -> bool:
         """Whether this source can generate arbitrary allocation counts."""
@@ -69,10 +76,15 @@ class BaseSource(Registered):
         """
 
     def get_available_variants(
-        self, variants: int | None = None
+        self,
+        count: int | None = None,  # noqa: ARG002
     ) -> tuple[str, ...] | None:
-        """Return available variant identifiers for fixed sources."""
-        ...
+        """Variant names offered by a fixed source; None from parameterizable ones.
+
+        `count` is how many the caller needs; a source materializing variants
+        lazily may provision at least that many.
+        """
+        return None
 
     def get_variant(self, variant_id: IdType) -> Pool:
         """Get a specific pool variant by ID."""
@@ -89,12 +101,17 @@ class BaseSource(Registered):
     @abstractmethod
     def get_allocations(
         self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]: ...
+    ) -> tuple[Allocation, ...]:
+        """Generate the workload.
+
+        `skip` selects a deterministic alternate stream; whether it continues
+        the unskipped stream is source-specific.
+        """
 
     def get_pools(
         self, num_pools: int | None = None, skip: int = 0
     ) -> tuple[Pool, ...]:
-        num_pools = num_pools or self.num_pools
+        num_pools = self.num_pools if num_pools is None else num_pools
         ensure_positive(num_pools, "num_pools")
         pools = []
         for i in range(num_pools):
@@ -110,7 +127,7 @@ class BaseSource(Registered):
     def get_memories(
         self, num_memories: int | None = None, skip: int = 0
     ) -> tuple[Memory, ...]:
-        num_memories = num_memories or self.num_memories
+        num_memories = self.num_memories if num_memories is None else num_memories
         ensure_positive(num_memories, "num_memories")
         memories = []
         for i in range(num_memories):
@@ -132,7 +149,7 @@ class BaseSource(Registered):
     def get_systems(
         self, num_systems: int | None = None, skip: int = 0
     ) -> tuple[System, ...]:
-        num_systems = num_systems or self.num_systems
+        num_systems = self.num_systems if num_systems is None else num_systems
         ensure_positive(num_systems, "num_systems")
         systems = []
         for i in range(num_systems):
@@ -147,10 +164,14 @@ class BaseSource(Registered):
 
     def get_allocation(self) -> Allocation:
         allocations = self.get_allocations(num_allocations=1)
+        if not allocations:
+            raise ValueError(f"source {self.name()} returned no allocations")
         return allocations[0]
 
     def get_pool(self) -> Pool:
         pools = self.get_pools(num_pools=1)
+        if not pools:
+            raise ValueError(f"source {self.name()} returned no pools")
         return pools[0]
 
     def get_memory(self) -> Memory:

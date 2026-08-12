@@ -10,12 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 
-from omnimalloc.common.directories import PROJECT_DIR
-
 from ..utils import tqdm  # noqa: TID252
 from .campaign import BenchmarkCampaign
 from .report import BenchmarkReport
-from .result import BenchmarkResult
 from .visualize import plot_benchmark
 
 logger = logging.getLogger(__name__)
@@ -50,8 +47,9 @@ def _prepare_base_dir(output_path: Path, output_format: str, overwrite: bool) ->
     if output_format == "dir":
         output_path.mkdir(parents=True, exist_ok=overwrite)
         return output_path
-    temp_dir = tempfile.mkdtemp(prefix="omnimalloc_dump_")
-    return Path(temp_dir)
+    base_dir = Path(tempfile.mkdtemp(prefix="omnimalloc_dump_")) / output_path.stem
+    base_dir.mkdir()
+    return base_dir
 
 
 def _write_metadata(base_dir: Path, campaign: BenchmarkCampaign) -> None:
@@ -193,24 +191,23 @@ def _write_nested_reports(
             )
 
 
-# TODO(fpedd): Add time stamp to campaign name optionally, to avoid overwriting
-# existing campaigns.
+# TODO(fpedd): Optionally timestamp the campaign name so saves cannot collide
 
 
 def save_benchmark(
-    campaign: BenchmarkCampaign | BenchmarkReport | BenchmarkResult,
+    campaign: BenchmarkCampaign,
     output_path: Path | str | None = None,
     output_format: Literal["dir", "zip"] = "dir",
     visualize_iterations: bool = True,
     overwrite: bool = True,
 ) -> Path:
-    """Save benchmark campaign with optional visualization."""
+    """Save a campaign, defaulting to `artifacts/campaign_<id>` under the cwd."""
 
     if not isinstance(campaign, BenchmarkCampaign):
-        raise TypeError("save_benchmark only supports BenchmarkCampaign currently.")
+        raise TypeError(f"Expected a BenchmarkCampaign, got {type(campaign)!r}")
 
     if output_path is None:
-        output_path = PROJECT_DIR / "artifacts" / f"campaign_{campaign.id}"
+        output_path = Path.cwd() / "artifacts" / f"campaign_{campaign.id}"
 
     output_path = Path(output_path)
 
@@ -247,4 +244,4 @@ def save_benchmark(
 
     finally:
         if output_format == "zip":
-            shutil.rmtree(base_dir, ignore_errors=True)
+            shutil.rmtree(base_dir.parent, ignore_errors=True)

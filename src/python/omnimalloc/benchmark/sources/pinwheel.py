@@ -21,22 +21,22 @@ class PinwheelSource(TilingBase):
         num_allocations: int = 129,
         capacity: int = MB,
         makespan: int = 1024 * 1024,
-        min_size: int = KB,
-        min_duration: int = 1,
+        size_min: int = KB,
+        duration_min: int = 1,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if capacity < 3 * min_size:
-            raise ValueError("capacity must be >= 3 * min_size to seat a pinwheel")
-        if makespan < 3 * min_duration:
-            raise ValueError("makespan must be >= 3 * min_duration to seat a pinwheel")
+        if capacity < 3 * size_min:
+            raise ValueError("capacity must be >= 3 * size_min to seat a pinwheel")
+        if makespan < 3 * duration_min:
+            raise ValueError("makespan must be >= 3 * duration_min to seat a pinwheel")
         super().__init__(
-            num_allocations, capacity, makespan, min_size, min_duration, seed
+            num_allocations, capacity, makespan, size_min, duration_min, seed
         )
 
     def _can_split(self, tile: _Tile[int]) -> bool:
         return (
-            tile.end - tile.start >= 3 * self.min_duration
-            and tile.size >= 3 * self.min_size
+            tile.end - tile.start >= 3 * self.duration_min
+            and tile.size >= 3 * self.size_min
         )
 
     def _split(self, tile: _Tile[int], rng: random.Random) -> list[_Tile[int]]:
@@ -45,8 +45,8 @@ class PinwheelSource(TilingBase):
         width, height = t1 - t0, tile.size
         m1 = m0 + height
         # Blade thicknesses; bounds keep all five children >= the minima.
-        p = rng.randint(self.min_duration, (width - self.min_duration) // 2)
-        q = rng.randint(self.min_size, (height - self.min_size) // 2)
+        p = rng.randint(self.duration_min, (width - self.duration_min) // 2)
+        q = rng.randint(self.size_min, (height - self.size_min) // 2)
         return [
             _Tile(t0, t1 - p, m0, q),  # bottom
             _Tile(t1 - p, t1, m0, height - q),  # right

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 
 from omnimalloc import allocate, validate_allocation
 from omnimalloc.allocators import BaseAllocator, available_allocators
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import IdType, Pool
 
 from .results import BenchmarkCampaign, BenchmarkReport, BenchmarkResult
@@ -27,21 +28,29 @@ class SkippedAllocator:
     reason: str
 
 
+@dataclass(frozen=True)
+class SkippedVariant:
+    """A workload a source could not express, with the reason it was skipped."""
+
+    source: str
+    variant: str
+    reason: str
+
+
 def _resolve_parameterizable_variants(
-    variants: int | tuple[IdType, ...] | None,
+    source: BaseSource, variants: int | tuple[IdType, ...] | None
 ) -> tuple[int, ...]:
     if variants is None:
-        return (100,)
+        return (source.num_allocations,)
     if isinstance(variants, int):
         return (variants,)
     resolved_variants = []
     for v in variants:
-        if isinstance(v, int):
-            resolved_variants.append(v)
-        else:
-            logger.warning(
-                f"Skipping non-integer variant {v!r} for parameterizable source"
+        if not isinstance(v, int):
+            raise TypeError(
+                f"Non-integer variant {v!r} for parameterizable source {source.name()}"
             )
+        resolved_variants.append(v)
     return tuple(resolved_variants)
 
 
@@ -66,11 +75,23 @@ def _resolve_fixed_variants(
         elif isinstance(v, int) and 0 <= v < len(available):
             resolved_variants.append(available[v])
         else:
-            logger.warning(f"Skipping unknown variant {v!r} for source {source.name()}")
+            raise ValueError(f"Unknown variant {v!r} for source {source.name()}")
     return tuple(resolved_variants)
 
 
 VariantSpec = int | tuple[IdType, ...] | None
+
+
+def _ensure_known_variant_keys(
+    sources: tuple[BaseSource, ...],
+    variants: VariantSpec | dict[str, VariantSpec],
+) -> None:
+    if not isinstance(variants, dict):
+        return
+    known = {s.label() for s in sources} | {s.name() for s in sources}
+    unknown = sorted(set(variants) - known)
+    if unknown:
+        raise ValueError(f"Variants keys {unknown} match no source in this campaign")
 
 
 def _get_variant_ids(
@@ -85,7 +106,7 @@ def _get_variant_ids(
             variants[label] if label in variants else variants.get(source_inst.name())
         )
     if source_inst.is_parameterizable():
-        return _resolve_parameterizable_variants(variants)
+        return _resolve_parameterizable_variants(source_inst, variants)
     return _resolve_fixed_variants(source_inst, variants)
 
 
@@ -120,7 +141,7 @@ def _benchmark_report(
     result_id: int,
     validate: bool,
     known_optima: dict[IdType, int | None],
-) -> BenchmarkReport | SkippedAllocator | None:
+) -> BenchmarkReport | SkippedAllocator | SkippedVariant:
     """Time one allocator/source/variant, or report why it was skipped."""
     variant_desc = variant_id if isinstance(variant_id, str) else f"{variant_id} allocs"
 
@@ -131,7 +152,9 @@ def _benchmark_report(
         pool = source.get_variant(variant_id)
     except ValueError as error:
         logger.warning(f"Skipping {source.label()}[{variant_desc}]: {error}")
-        return None
+        return SkippedVariant(
+            source=source.label(), variant=str(variant_id), reason=str(error)
+        )
     if pool is None:
         raise ValueError(f"source {source.name()} returned no pool")
     try:
@@ -184,26 +207,30 @@ def run_benchmark(
 
     `variants` selects workloads per source: counts, names, indices, or a dict
     keyed by source. `iterations` re-runs one instance, measuring jitter.
+    Unlike `allocate`, `validate` defaults to True here.
     """
+    ensure_positive(iterations, "iterations")
     allocators = allocators or available_allocators()
     sources = sources or (DEFAULT_SOURCE,)
+    source_insts = tuple(BaseSource.resolve(source) for source in sources)
+    _ensure_known_variant_keys(source_insts, variants)
     campaign_id = campaign_id or "campaign_" + get_date_time_snake_case()
 
     reports = []
     skipped: list[SkippedAllocator] = []
+    skipped_variants: list[SkippedVariant] = []
     report_id = 0
     result_id = 0
 
     timer = Timer()
     timer.start()
 
-    for source in tqdm(
-        sources,
+    for source_inst in tqdm(
+        source_insts,
         desc="Sources",
         position=0,
         leave=False,
     ):
-        source_inst = BaseSource.resolve(source)
         if getattr(source_inst, "seed", 0) is None:
             logger.warning(
                 f"Source {source_inst.name()} has seed=None; each allocator "
@@ -215,7 +242,7 @@ def run_benchmark(
 
         for allocator in tqdm(
             allocators,
-            desc=f"Allocators [{source}]",
+            desc=f"Allocators [{source_inst.label()}]",
             position=1,
             leave=False,
         ):
@@ -254,7 +281,8 @@ def run_benchmark(
                 if isinstance(report, SkippedAllocator):
                     skipped.append(report)
                     continue
-                if report is None:
+                if isinstance(report, SkippedVariant):
+                    skipped_variants.append(report)
                     continue
                 reports.append(report)
                 report_id += 1
@@ -273,9 +301,11 @@ def run_benchmark(
         reports=tuple(reports),
         metadata={
             "total_duration": timer.elapsed,
-            # Same allocator and source repeat once per variant; report the
-            # distinct omissions so a shrunken comparison is visible
+            # Same allocator and source repeat once per variant, and a dropped
+            # variant repeats once per allocator; report the distinct omissions
+            # so a shrunken comparison is visible
             "skipped_allocators": [asdict(s) for s in dict.fromkeys(skipped)],
+            "skipped_variants": [asdict(s) for s in dict.fromkeys(skipped_variants)],
         },
     )
     campaign = campaign.finalize_metadata()

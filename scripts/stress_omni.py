@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 from omnimalloc.allocators import OmniAllocator
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import antichain_pressure
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
 
@@ -64,7 +64,7 @@ def _bounded_ratio(
 ) -> float:
     """Peak over the budgeted exact bound; NaN when the budget is exceeded."""
     try:
-        return peak / pressure(allocations, work_budget=work_budget)
+        return peak / antichain_pressure(allocations, work_budget=work_budget)
     except RuntimeError:
         return nan
 

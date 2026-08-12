@@ -7,7 +7,7 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 from omnimalloc._cpp import find_collision
-from omnimalloc.analysis.clock import uniform_dim
+from omnimalloc.analysis._clock import uniform_dim
 from omnimalloc.common.registry import Registered
 from omnimalloc.primitives.utils import ensure_unique_ids
 

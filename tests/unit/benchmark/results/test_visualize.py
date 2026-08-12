@@ -9,7 +9,6 @@ from omnimalloc.benchmark.results.campaign import BenchmarkCampaign
 from omnimalloc.benchmark.results.report import BenchmarkReport
 from omnimalloc.benchmark.results.result import BenchmarkResult
 from omnimalloc.benchmark.results.visualize import (
-    HAS_MATPLOTLIB,
     _canonicalize_artifact,
     _format_metadata,
     _get_allocator_color,
@@ -17,6 +16,8 @@ from omnimalloc.benchmark.results.visualize import (
     plot_benchmark,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
+
+from tests.markers import needs_matplotlib
 
 
 def _result(size: int = 10) -> BenchmarkResult:
@@ -85,7 +86,7 @@ def test_canonicalize_artifact() -> None:
     assert campaign_from_campaign is campaign
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+@needs_matplotlib
 def test_plot_benchmark_without_path_shows_figure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

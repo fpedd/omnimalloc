@@ -5,11 +5,11 @@
 import math
 from pathlib import Path
 
-import numpy as np
 import pytest
 from omnimalloc.benchmark.converters.onnx import HAS_ONNX
 
 if HAS_ONNX:
+    import numpy as np
     import onnx
     from omnimalloc.benchmark.converters.model import ITEMBITS
     from omnimalloc.benchmark.converters.onnx import (

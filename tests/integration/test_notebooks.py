@@ -7,7 +7,11 @@ import sys
 from pathlib import Path
 
 import pytest
-from omnimalloc.common.directories import NOTEBOOKS_DIR
+
+from tests.markers import needs_notebooks
+from tests.paths import NOTEBOOKS_DIR
+
+pytestmark = needs_notebooks
 
 NOTEBOOK_FILES = sorted(NOTEBOOKS_DIR.glob("*.ipynb"))
 TIMEOUT_SECONDS = 300  # 5 minutes

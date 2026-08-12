@@ -25,6 +25,8 @@ from omnimalloc.benchmark.results.export import (
 from omnimalloc.benchmark.sources.generator import RandomSource
 from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 
+from tests.markers import needs_matplotlib
+
 
 @pytest.fixture
 def simple_campaign() -> BenchmarkCampaign:
@@ -41,6 +43,7 @@ def simple_campaign() -> BenchmarkCampaign:
     )
 
 
+@needs_matplotlib
 def test_save_benchmark_creates_directory(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -59,6 +62,7 @@ def test_save_benchmark_creates_directory(
     assert (result_path / "campaign_overview.pdf").exists()
 
 
+@needs_matplotlib
 def test_save_benchmark_creates_zip(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -81,7 +85,14 @@ def test_save_benchmark_creates_zip(
         assert any("campaign_overview.pdf" in name for name in names)
 
 
-def test_save_benchmark_with_none_path(simple_campaign: BenchmarkCampaign) -> None:
+@needs_matplotlib
+def test_save_benchmark_with_none_path(
+    simple_campaign: BenchmarkCampaign,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
     result_path = save_benchmark(
         simple_campaign,
         output_path=None,
@@ -90,6 +101,7 @@ def test_save_benchmark_with_none_path(simple_campaign: BenchmarkCampaign) -> No
     )
 
     assert result_path.exists()
+    assert result_path.is_relative_to(tmp_path)
     assert "campaign_test_campaign" in str(result_path)
 
 
@@ -101,8 +113,8 @@ def test_save_benchmark_raises_typeerror_for_non_campaign(artifacts_dir: Path) -
         id=0, allocator=allocator, source=source, entity=pool, duration=0.5
     )
 
-    with pytest.raises(TypeError, match="only supports BenchmarkCampaign"):
-        save_benchmark(result, output_path=artifacts_dir / "output")
+    with pytest.raises(TypeError, match="Expected a BenchmarkCampaign"):
+        save_benchmark(result, output_path=artifacts_dir / "output")  # type: ignore[arg-type]
 
 
 def test_save_benchmark_raises_valueerror_for_invalid_format(
@@ -116,6 +128,7 @@ def test_save_benchmark_raises_valueerror_for_invalid_format(
         )
 
 
+@needs_matplotlib
 def test_save_benchmark_raises_fileexistserror_when_not_overwriting(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -134,6 +147,7 @@ def test_save_benchmark_raises_fileexistserror_when_not_overwriting(
         )
 
 
+@needs_matplotlib
 def test_save_benchmark_overwrites_existing_directory(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -184,6 +198,7 @@ def test_prepare_base_dir_creates_temp_for_zip(artifacts_dir: Path) -> None:
     assert "omnimalloc_dump_" in str(base_dir)
 
 
+@needs_matplotlib
 def test_save_benchmark_writes_results_csv(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -209,6 +224,7 @@ def test_save_benchmark_writes_results_csv(
     assert rows[0]["optimum_ratio"] == ""
 
 
+@needs_matplotlib
 def test_results_csv_has_one_row_per_report(artifacts_dir: Path) -> None:
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
@@ -249,6 +265,7 @@ def test_results_csv_has_one_row_per_report(artifacts_dir: Path) -> None:
     assert all(int(row["lower_bound"]) == pool.pressure for row in rows)
 
 
+@needs_matplotlib
 def test_results_csv_leaves_unmeasurable_efficiency_empty(artifacts_dir: Path) -> None:
     source = SyncPatternSource(
         num_allocations=2000, num_threads=64, pattern="independent"
@@ -280,6 +297,7 @@ def test_results_csv_leaves_unmeasurable_efficiency_empty(artifacts_dir: Path) -
     assert (output_path / "campaign_overview.pdf").exists()
 
 
+@needs_matplotlib
 def test_save_benchmark_zip_path_lands_exactly_there(
     simple_campaign: BenchmarkCampaign, artifacts_dir: Path
 ) -> None:
@@ -293,3 +311,17 @@ def test_save_benchmark_zip_path_lands_exactly_there(
     assert result_path == output_path
     assert result_path.is_file()
     assert not output_path.with_suffix(".zip.zip").exists()
+
+
+def test_zip_internal_folder_uses_campaign_name(
+    simple_campaign: BenchmarkCampaign, artifacts_dir: Path
+) -> None:
+    output_path = artifacts_dir / "named_campaign"
+    result_path = save_benchmark(
+        simple_campaign,
+        output_path=output_path,
+        output_format="zip",
+        visualize_iterations=False,
+    )
+    with ZipFile(result_path, "r") as zip_file:
+        assert all(name.startswith("named_campaign/") for name in zip_file.namelist())

@@ -23,6 +23,14 @@ class LabelledProbeSource(ProbeSource):
     _label_fields = ("num_pools", "num_memories")
 
 
+class OptionalLabelProbeSource(ProbeSource):
+    _label_fields = ("tag",)
+
+    def __init__(self, tag: str | None = None) -> None:
+        super().__init__()
+        self.tag = tag
+
+
 def test_base_source_initialization_with_defaults() -> None:
     source = RandomSource()
     assert source.num_allocations == 100
@@ -175,6 +183,18 @@ def test_base_source_label_appends_declared_fields() -> None:
     assert source.label() == f"{LabelledProbeSource.name()}[num_pools=2,num_memories=3]"
 
 
+def test_base_source_label_omits_default_none_fields() -> None:
+    assert OptionalLabelProbeSource().label() == OptionalLabelProbeSource.name()
+    assert (
+        OptionalLabelProbeSource(tag="x").label()
+        == f"{OptionalLabelProbeSource.name()}[tag=x]"
+    )
+
+
+def test_base_source_label_keeps_none_departing_from_default() -> None:
+    assert RandomSource(seed=None).label() == "random[seed=None]"
+
+
 def test_base_source_label_separates_instances() -> None:
     assert LabelledProbeSource(num_pools=2).label() != (
         LabelledProbeSource(num_pools=4).label()
@@ -202,3 +222,8 @@ def test_get_pools_rejects_a_mutated_non_positive_count() -> None:
     source.num_pools = 0
     with pytest.raises(ValueError, match="num_pools must be positive"):
         source.get_pools()
+
+
+def test_get_pools_rejects_an_explicit_zero_count() -> None:
+    with pytest.raises(ValueError, match="num_pools must be positive"):
+        RandomSource().get_pools(num_pools=0)

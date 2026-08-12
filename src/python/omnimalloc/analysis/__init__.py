@@ -19,5 +19,3 @@ from ._pressure import placement_pressure as placement_pressure
 from ._pressure import (
     placement_pressure_per_allocation as placement_pressure_per_allocation,
 )
-from ._pressure import pressure as pressure
-from ._pressure import pressure_per_allocation as pressure_per_allocation

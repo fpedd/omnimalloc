@@ -70,6 +70,11 @@ def test_get_error_shows_available() -> None:
         ExampleBase.get("nonexistent")
 
 
+def test_resolve_invalid_name_raises_value_error() -> None:
+    with pytest.raises(ValueError, match=r"'invalid' not in.*Available:.*foo_bar"):
+        ExampleBase.resolve("invalid")
+
+
 def test_class_name_property() -> None:
     assert FooBar.name() == "foo_bar"
     assert BazQux.name() == "baz_qux"

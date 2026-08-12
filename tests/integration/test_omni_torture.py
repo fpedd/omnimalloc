@@ -19,10 +19,10 @@ from omnimalloc.allocators.greedy import (
     GreedyByStartAllocator,
 )
 from omnimalloc.analysis import (
+    antichain_pressure,
     closure_pressure,
     conflicts,
     placement_pressure_per_allocation,
-    pressure,
 )
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.generator import HighContentionSource, RandomSource
@@ -60,7 +60,7 @@ def _certify(
     allocations: tuple[Allocation, ...], placed: tuple[Allocation, ...]
 ) -> int:
     peak = _peak(placed)
-    assert pressure(allocations, work_budget=None) <= peak
+    assert antichain_pressure(allocations, work_budget=None) <= peak
     assert peak <= sum(a.size for a in allocations)
     per_allocation = placement_pressure_per_allocation(placed)
     assert per_allocation == placement_pressure_per_allocation(placed, None)
@@ -133,9 +133,9 @@ def test_closure_antichain_peak_chain_on_sync_patterns(pattern: str) -> None:
     allocations = source.get_allocations()
     peak = _peak(OmniAllocator().allocate(allocations))
     closure = closure_pressure(allocations, closure_cap=1 << 18)
-    antichain = pressure(allocations, work_budget=None)
+    antichain = antichain_pressure(allocations, work_budget=None)
     assert closure <= antichain <= peak
-    assert pressure(allocations) == antichain
+    assert antichain_pressure(allocations) == antichain
 
 
 @pytest.mark.parametrize("num_threads", [2, 4])
@@ -153,12 +153,12 @@ def test_concurrent_tiling_is_certified_near_optimum(
     allocations = source.get_allocations()
     placed = OmniAllocator().allocate(allocations)
     peak = _certify(allocations, placed)
-    assert pressure(allocations, work_budget=None) <= capacity
+    assert antichain_pressure(allocations, work_budget=None) <= capacity
     assert capacity <= peak <= 2 * capacity
 
 
 @pytest.mark.parametrize("source_cls", [TilingSource, PinwheelSource])
-@pytest.mark.parametrize("num_allocations", [128, 512])
+@pytest.mark.parametrize("num_allocations", [129, 513])
 def test_scalar_tiling_peak_stays_near_known_optimum(
     source_cls: type[TilingSource] | type[PinwheelSource], num_allocations: int
 ) -> None:
@@ -233,7 +233,7 @@ def test_lane_permutation_preserves_exact_pressures() -> None:
         )
         for a in allocations
     )
-    assert pressure(permuted, work_budget=None) == pressure(
+    assert antichain_pressure(permuted, work_budget=None) == antichain_pressure(
         allocations, work_budget=None
     )
     assert closure_pressure(permuted, closure_cap=1 << 18) == closure_pressure(
@@ -282,7 +282,7 @@ def test_one_hot_lanes_reach_the_exact_optimum(dim: int) -> None:
     placed = OmniAllocator().allocate(allocations)
     peak = _certify(allocations, placed)
     assert peak == dim * size
-    assert pressure(allocations, work_budget=None) == dim * size
+    assert antichain_pressure(allocations, work_budget=None) == dim * size
 
 
 def test_total_order_chain_peak_is_max_size() -> None:
@@ -338,8 +338,8 @@ def test_extreme_clock_values_and_sizes_place_validly() -> None:
 
 def test_tiled_crowns_are_certified_and_exact() -> None:
     allocations = _tiled_crowns(50)
-    assert pressure(allocations, work_budget=None) == 80
-    assert pressure(allocations) == 80
+    assert antichain_pressure(allocations, work_budget=None) == 80
+    assert antichain_pressure(allocations) == 80
     placed = OmniAllocator().allocate(allocations)
     assert _certify(allocations, placed) >= 80
 
@@ -347,8 +347,10 @@ def test_tiled_crowns_are_certified_and_exact() -> None:
 def test_pressure_budget_raises_but_default_succeeds_on_crowns() -> None:
     allocations = _tiled_crowns(50)
     with pytest.raises(RuntimeError, match="work_budget"):
-        pressure(allocations, work_budget=1)
-    assert pressure(allocations) == pressure(allocations, work_budget=None)
+        antichain_pressure(allocations, work_budget=1)
+    assert antichain_pressure(allocations) == antichain_pressure(
+        allocations, work_budget=None
+    )
 
 
 def test_exhaustive_first_fit_orders_bracket_omni_peak() -> None:
@@ -362,7 +364,7 @@ def test_exhaustive_first_fit_orders_bracket_omni_peak() -> None:
         )
         omni_peak = _peak(OmniAllocator().allocate(allocations))
         closure = closure_pressure(allocations)
-        antichain = pressure(allocations, work_budget=None)
+        antichain = antichain_pressure(allocations, work_budget=None)
         assert closure <= antichain <= best <= omni_peak
 
 
@@ -393,7 +395,7 @@ def test_torture_concurrent_tiling_scale(num_threads: int, num_syncs: int) -> No
     allocations = source.get_allocations()
     placed = OmniAllocator().allocate(allocations)
     peak = _certify(allocations, placed)
-    assert pressure(allocations, work_budget=None) <= capacity
+    assert antichain_pressure(allocations, work_budget=None) <= capacity
     assert capacity <= peak <= 2 * capacity
 
 
@@ -449,13 +451,13 @@ def test_torture_concurrent_mixed_instances_stay_isolated() -> None:
         for seed in range(16)
     )
     serial_peaks = [_peak(OmniAllocator().allocate(a)) for a in instances]
-    serial_pressures = [pressure(a, work_budget=None) for a in instances]
+    serial_pressures = [antichain_pressure(a, work_budget=None) for a in instances]
     with ThreadPoolExecutor(max_workers=32) as executor:
         parallel_placed = list(
             executor.map(lambda a: OmniAllocator().allocate(a), instances)
         )
         parallel_pressures = list(
-            executor.map(lambda a: pressure(a, work_budget=None), instances)
+            executor.map(lambda a: antichain_pressure(a, work_budget=None), instances)
         )
     assert [_peak(p) for p in parallel_placed] == serial_peaks
     assert parallel_pressures == serial_pressures

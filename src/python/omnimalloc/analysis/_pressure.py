@@ -24,7 +24,7 @@ from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives.allocation import Allocation, IdType
 from omnimalloc.primitives.utils import ensure_unique_ids
 
-from .clock import uniform_dim
+from ._clock import uniform_dim
 
 
 def antichain_pressure(
@@ -109,11 +109,6 @@ def placement_pressure_per_allocation(
     ensure_unique_ids(allocations, "allocation")
     peaks = _placement_pressure_per_allocation(allocations, work_budget)
     return _keyed_by_id(allocations, peaks)
-
-
-# The antichain bound is the canonical/default pressure metric
-pressure = antichain_pressure
-pressure_per_allocation = antichain_pressure_per_allocation
 
 
 def _keyed_by_id(

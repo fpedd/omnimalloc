@@ -4,18 +4,27 @@
 
 import math
 import random
+from enum import Enum
 from typing import Final
 
-# Ordered from flattest to most skewed. Real workloads sit at the skewed end:
-# a compiler's memory scope is typically one dominant buffer plus hundreds of
-# small ones, which is exactly the shape that breaks greedy-by-size.
-SIZE_DISTRIBUTIONS: Final[tuple[str, ...]] = (
-    "uniform",
-    "log_uniform",
-    "zipf",
-    "bimodal",
-    "dominant",
-)
+
+class SizeDistribution(str, Enum):
+    """Size distribution families, ordered from flattest to most skewed.
+
+    Real workloads sit at the skewed end: a compiler's scope is one dominant
+    buffer plus hundreds of small ones, the shape that breaks greedy-by-size.
+    """
+
+    UNIFORM = "uniform"
+    LOG_UNIFORM = "log_uniform"
+    ZIPF = "zipf"
+    BIMODAL = "bimodal"
+    DOMINANT = "dominant"
+
+    __str__ = str.__str__
+
+
+SIZE_DISTRIBUTIONS: Final[tuple[SizeDistribution, ...]] = tuple(SizeDistribution)
 
 # `bimodal` splits this fraction of the allocations into the small mode
 _SMALL_FRACTION: Final[float] = 0.9
@@ -24,17 +33,10 @@ _SMALL_FRACTION: Final[float] = 0.9
 _DOMINANT_FRACTION: Final[float] = 0.9
 
 
-def ensure_valid_distribution(distribution: str) -> None:
-    if distribution not in SIZE_DISTRIBUTIONS:
-        raise ValueError(
-            f"distribution must be one of {SIZE_DISTRIBUTIONS}, got {distribution!r}"
-        )
-
-
 def sample_sizes(
     rng: random.Random,
     count: int,
-    distribution: str,
+    distribution: SizeDistribution | str,
     size_min: int,
     size_max: int,
 ) -> list[int]:
@@ -43,7 +45,7 @@ def sample_sizes(
     `uniform` is flat, `log_uniform` flat in the exponent, `zipf` heavy-tailed,
     `bimodal` the 90/10 accelerator mix, `dominant` one buffer at 90%.
     """
-    ensure_valid_distribution(distribution)
+    distribution = SizeDistribution(distribution)
     if size_min <= 0:
         raise ValueError("size_min must be positive")
     if size_max < size_min:
@@ -51,13 +53,13 @@ def sample_sizes(
     if count <= 0:
         return []
 
-    if distribution == "uniform":
+    if distribution == SizeDistribution.UNIFORM:
         return [rng.randint(size_min, size_max) for _ in range(count)]
-    if distribution == "log_uniform":
+    if distribution == SizeDistribution.LOG_UNIFORM:
         return [_log_uniform(rng, size_min, size_max) for _ in range(count)]
-    if distribution == "zipf":
+    if distribution == SizeDistribution.ZIPF:
         return [_zipf(rng, size_min, size_max) for _ in range(count)]
-    if distribution == "bimodal":
+    if distribution == SizeDistribution.BIMODAL:
         return _bimodal(rng, count, size_min, size_max)
     return _dominant(rng, count, size_min, size_max)
 

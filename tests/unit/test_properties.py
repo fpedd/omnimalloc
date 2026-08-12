@@ -109,7 +109,7 @@ def _source_instances(seed: int) -> dict[str, tuple[Allocation, ...]]:
             num_allocations=60, time_window=10, seed=seed
         ).get_allocations(),
         "tiling": TilingSource(num_allocations=64, seed=seed).get_allocations(),
-        "pinwheel": PinwheelSource(num_allocations=64, seed=seed).get_allocations(),
+        "pinwheel": PinwheelSource(num_allocations=65, seed=seed).get_allocations(),
         "sync": SyncPatternSource(
             num_allocations=48, num_threads=3, pattern="sparse", seed=seed
         ).get_allocations(),
@@ -522,7 +522,7 @@ def test_every_allocator_stays_between_the_bound_and_the_total_size() -> None:
     for seed in SEEDS[:2]:
         for allocations in (
             TilingSource(num_allocations=64, seed=seed).get_allocations(),
-            PinwheelSource(num_allocations=64, seed=seed).get_allocations(),
+            PinwheelSource(num_allocations=65, seed=seed).get_allocations(),
             SyncPatternSource(
                 num_allocations=40, num_threads=3, pattern="barrier", seed=seed
             ).get_allocations(),

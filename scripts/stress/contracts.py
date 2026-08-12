@@ -125,7 +125,7 @@ def analysis_probes() -> list[Probe]:
         ("conflicts(duplicate ids)", lambda: conflicts(DUPLICATE)),
         ("conflict_degrees(duplicate ids)", lambda: conflict_degrees(DUPLICATE)),
         (
-            "pressure_per_allocation(duplicate ids)",
+            "antichain_pressure_per_allocation(duplicate ids)",
             lambda: antichain_pressure_per_allocation(DUPLICATE),
         ),
         ("placement_pressure(unplaced)", lambda: placement_pressure(SCALAR)),
@@ -313,7 +313,10 @@ def hierarchy_probes() -> list[Probe]:
         ("Pool.size when empty", lambda: Pool(id="p", allocations=()).size),
         ("Pool.efficiency when empty", lambda: Pool(id="p", allocations=()).efficiency),
         ("Pool.pressure", lambda: Pool(id="p", allocations=SCALAR).pressure),
-        ("Pool.pressure(mixed dims)", lambda: Pool(id="p", allocations=MIXED).pressure),
+        (
+            "Pool.antichain_pressure(mixed dims)",
+            lambda: Pool(id="p", allocations=MIXED).pressure,
+        ),
         ("Memory(size=-1)", lambda: Memory(id="m", size=-1, pools=())),
         (
             "Memory(duplicate pool ids)",

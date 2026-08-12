@@ -64,16 +64,15 @@ class Registered(ABC):
         """Get a registered class by name."""
         if name in cls._registry:
             return cls._registry[name]
-        available = ", ".join(f"'{n}'" for n in sorted(cls._registry.keys()))
-        raise KeyError(
-            f"'{name}' not in {cls.__name__} registry. Available: {available}"
-        )
+        raise KeyError(cls._unknown_name_message(name))
 
     @classmethod
     def resolve(cls, value: "Self | type[Self] | str") -> Self:
         """Normalize a registry name, class, or instance into an instance."""
         if isinstance(value, str):
-            value = cls.get(value)
+            if value not in cls._registry:
+                raise ValueError(cls._unknown_name_message(value))
+            value = cls._registry[value]
         if isinstance(value, type):
             if not issubclass(value, cls):
                 raise TypeError(f"{value.__qualname__} is not a {cls.__name__}")
@@ -81,6 +80,11 @@ class Registered(ABC):
         if not isinstance(value, cls):
             raise TypeError(f"{type(value).__qualname__} is not a {cls.__name__}")
         return cast("Self", value)
+
+    @classmethod
+    def _unknown_name_message(cls, name: str) -> str:
+        available = ", ".join(f"'{n}'" for n in sorted(cls._registry.keys()))
+        return f"'{name}' not in {cls.__name__} registry. Available: {available}"
 
 
 def _derive_name(class_name: str, role_token: str) -> str:

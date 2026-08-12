@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import itertools
+
 import pytest
 from omnimalloc._cpp import FirstFitPlacer, Partition
 from omnimalloc.allocators.base import BaseAllocator
@@ -9,6 +11,8 @@ from omnimalloc.allocators.best_fit import BestFitAllocator
 from omnimalloc.allocators.genetic import HAS_DEAP, GeneticAllocator
 from omnimalloc.allocators.greedy import (
     GreedyAllocator,
+    GreedyByAllAllocator,
+    GreedyByStartAllocator,
     order_by_area,
     order_by_conflict,
     order_by_conflict_size,
@@ -84,13 +88,73 @@ def test_orderings_permute_vector_problems() -> None:
         assert sorted(a.id for a in order(allocs)) == sorted(a.id for a in allocs)
 
 
-def test_order_by_start_is_lexicographic() -> None:
+def test_order_by_start_is_lexicographic_on_scalar_time() -> None:
+    allocs = (
+        Allocation(id=1, size=1, start=5, end=6),
+        Allocation(id=2, size=1, start=0, end=1),
+        Allocation(id=3, size=1, start=2, end=3),
+    )
+    assert [a.id for a in order_by_start(allocs)] == [2, 3, 1]
+
+
+def test_order_by_start_is_invariant_under_lane_permutation() -> None:
+    allocs = (
+        Allocation(id=1, size=1, start=(4, 0), end=(6, 1)),
+        Allocation(id=2, size=1, start=(0, 5), end=(1, 7)),
+        Allocation(id=3, size=1, start=(1, 1), end=(2, 3)),
+    )
+    swapped = tuple(
+        Allocation(id=a.id, size=a.size, start=a.start[::-1], end=a.end[::-1])
+        for a in allocs
+    )
+    assert [a.id for a in order_by_start(allocs)] == [
+        a.id for a in order_by_start(swapped)
+    ]
+
+
+def test_order_by_start_never_inverts_happens_before() -> None:
+    earlier = Allocation(id=1, size=1, start=(0, 0), end=(1, 1))
+    later = Allocation(id=2, size=1, start=(1, 1), end=(2, 2))
+    assert [a.id for a in order_by_start((later, earlier))] == [1, 2]
+
+
+def test_order_by_start_is_invariant_under_input_permutation() -> None:
+    allocs = (
+        Allocation(id=1, size=4, start=(0, 5), end=(1, 6)),
+        Allocation(id=2, size=4, start=(5, 0), end=(6, 1)),
+        Allocation(id=3, size=4, start=(2, 3), end=(3, 4)),
+    )
+    expected = [a.id for a in order_by_start(allocs)]
+    for perm in itertools.permutations(allocs):
+        assert [a.id for a in order_by_start(perm)] == expected
+
+
+def test_order_by_start_breaks_full_ties_by_id() -> None:
+    allocs = (
+        Allocation(id="b", size=4, start=(0, 0), end=(1, 1)),
+        Allocation(id="a", size=4, start=(0, 0), end=(2, 2)),
+    )
+    assert [a.id for a in order_by_start(allocs)] == ["a", "b"]
+
+
+def test_greedy_by_start_places_vector_time() -> None:
     allocs = (
         Allocation(id=1, size=1, start=(1, 0), end=(2, 1)),
         Allocation(id=2, size=1, start=(0, 5), end=(1, 6)),
-        Allocation(id=3, size=1, start=(0, 2), end=(1, 3)),
     )
-    assert [a.id for a in order_by_start(allocs)] == [3, 2, 1]
+    placed = GreedyByStartAllocator().allocate(allocs)
+    assert all(a.offset is not None for a in placed)
+
+
+def test_greedy_by_all_places_every_allocation_on_vector_time() -> None:
+    allocs = (
+        Allocation(id=1, size=8, start=(1, 0), end=(2, 1)),
+        Allocation(id=2, size=8, start=(0, 5), end=(1, 6)),
+        Allocation(id=3, size=4, start=(0, 0), end=(3, 3)),
+    )
+    placed = GreedyByAllAllocator().allocate(allocs)
+    assert {a.id for a in placed} == {1, 2, 3}
+    assert all(a.offset is not None for a in placed)
 
 
 def test_order_by_start_mixed_dimensions_rejected() -> None:

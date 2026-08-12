@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
 from omnimalloc.analysis import conflict_degrees, placement_pressure
-from omnimalloc.analysis.clock import uniform_dim
+from omnimalloc.analysis._clock import time_components, uniform_dim
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
 from omnimalloc.common.parallel import resolve_num_threads
 from omnimalloc.common.validation import ensure_positive
@@ -64,8 +64,27 @@ def order_by_conflict_size(
 
 def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
     """Order by start time (earliest first, largest ties first)."""
-    uniform_dim(allocations)  # mixed scalar/tuple starts do not compare
-    return tuple(sorted(allocations, key=lambda a: (a.start, -a.size)))
+    dim = uniform_dim(allocations)  # mixed scalar/tuple starts do not compare
+    starts = [time_components(a.start) for a in allocations]
+    ends = [time_components(a.end) for a in allocations]
+
+    # Ordering lanes by their own contents stops lane labelling from deciding
+    # the packing; mirrors canonical_starts in first_fit.cpp
+    lanes = sorted(
+        range(dim),
+        key=lambda lane: sorted(
+            (s[lane], e[lane]) for s, e in zip(starts, ends, strict=True)
+        ),
+    )
+    order = sorted(
+        range(len(allocations)),
+        key=lambda i: (
+            tuple(starts[i][lane] for lane in lanes),
+            -allocations[i].size,
+            str(allocations[i].id),
+        ),
+    )
+    return tuple(allocations[i] for i in order)
 
 
 def allocate_parallel(
@@ -77,6 +96,9 @@ def allocate_parallel(
 
     if not allocations:
         return allocations
+
+    if not variants:
+        raise ValueError("No allocator variants to run")
 
     workers = min(resolve_num_threads(num_threads), len(variants))
 

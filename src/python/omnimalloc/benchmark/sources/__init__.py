@@ -16,8 +16,10 @@ from .minimalloc import MinimallocSource as MinimallocSource
 from .minimalloc import MinimallocSubset as MinimallocSubset
 from .pinwheel import PinwheelSource as PinwheelSource
 from .sizes import SIZE_DISTRIBUTIONS as SIZE_DISTRIBUTIONS
+from .sizes import SizeDistribution as SizeDistribution
 from .sizes import sample_sizes as sample_sizes
 from .sync_patterns import SYNC_PATTERNS as SYNC_PATTERNS
+from .sync_patterns import SyncPattern as SyncPattern
 from .sync_patterns import SyncPatternSource as SyncPatternSource
 from .tiling import TilingSource as TilingSource
 from .utils import DEFAULT_SOURCE as DEFAULT_SOURCE

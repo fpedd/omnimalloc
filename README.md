@@ -55,6 +55,9 @@ print(pool.size)  # 96
 print([alloc.offset for alloc in pool.allocations])  # [0, 0, 64]
 ```
 
+Lifetimes are half-open, `[start, end)`: an allocation ending at `t` and one
+starting at `t` never conflict, so they may share the same addresses.
+
 On a real problem, the result looks like this: 308 buffers of an ML workload
 packed with no wasted memory.
 

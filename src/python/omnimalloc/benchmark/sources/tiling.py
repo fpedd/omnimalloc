@@ -3,6 +3,7 @@
 #
 
 import random
+from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 
@@ -16,32 +17,41 @@ class TilingSource(TilingBase):
     optimum. ``mem_cut_prob`` biases cuts toward the memory axis.
     """
 
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "capacity",
+        "makespan",
+        "size_min",
+        "duration_min",
+        "seed",
+        "mem_cut_prob",
+    )
+
     def __init__(
         self,
         num_allocations: int = 128,
         capacity: int = MB,
         makespan: int = 1024 * 1024,
-        min_size: int = KB,
-        min_duration: int = 1,
+        size_min: int = KB,
+        duration_min: int = 1,
         mem_cut_prob: float = 0.5,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if capacity < min_size:
-            raise ValueError("capacity must be >= min_size")
-        if makespan < min_duration:
-            raise ValueError("makespan must be >= min_duration")
+        if capacity < size_min:
+            raise ValueError("capacity must be >= size_min")
+        if makespan < duration_min:
+            raise ValueError("makespan must be >= duration_min")
         if not 0.0 <= mem_cut_prob <= 1.0:
             raise ValueError("mem_cut_prob must be in [0, 1]")
         super().__init__(
-            num_allocations, capacity, makespan, min_size, min_duration, seed
+            num_allocations, capacity, makespan, size_min, duration_min, seed
         )
         self.mem_cut_prob = mem_cut_prob
 
     def _can_split_time(self, tile: _Tile[int]) -> bool:
-        return tile.end - tile.start >= 2 * self.min_duration
+        return tile.end - tile.start >= 2 * self.duration_min
 
     def _can_split_mem(self, tile: _Tile[int]) -> bool:
-        return tile.size >= 2 * self.min_size
+        return tile.size >= 2 * self.size_min
 
     def _can_split(self, tile: _Tile[int]) -> bool:
         return self._can_split_time(tile) or self._can_split_mem(tile)
@@ -54,15 +64,15 @@ class TilingSource(TilingBase):
 
         if cut_mem:
             cut = rng.randint(
-                tile.offset + self.min_size,
-                tile.offset + tile.size - self.min_size,
+                tile.offset + self.size_min,
+                tile.offset + tile.size - self.size_min,
             )
             left = _Tile(tile.start, tile.end, tile.offset, cut - tile.offset)
             right = _Tile(tile.start, tile.end, cut, tile.offset + tile.size - cut)
         else:
             cut = rng.randint(
-                tile.start + self.min_duration,
-                tile.end - self.min_duration,
+                tile.start + self.duration_min,
+                tile.end - self.duration_min,
             )
             left = _Tile(tile.start, cut, tile.offset, tile.size)
             right = _Tile(cut, tile.end, tile.offset, tile.size)

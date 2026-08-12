@@ -4,26 +4,17 @@
 
 import re
 from collections import defaultdict
+from importlib.util import find_spec
 from pathlib import Path
+from typing import ClassVar
 
 from omnimalloc.benchmark.converters.model import model_to_allocations
 from omnimalloc.benchmark.converters.onnx import from_onnx
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import Allocation, IdType, Pool
 
+from ..utils import tqdm  # noqa: TID252
 from .base import BaseSource
-
-try:
-    import onnx
-
-    HAS_ONNX = True
-except ImportError:
-    from types import SimpleNamespace
-
-    HAS_ONNX = False
-    onnx = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        load=None,
-    )
 
 try:
     from huggingface_hub import HfApi, ModelInfo
@@ -34,7 +25,7 @@ except ImportError:
     HfApi = None  # ty: ignore[invalid-assignment]
     ModelInfo = None  # ty: ignore[invalid-assignment]
 
-from ..utils import tqdm  # noqa: TID252
+HAS_ONNX = find_spec("onnx") is not None
 
 
 def _get_hf_api() -> HfApi:
@@ -45,10 +36,10 @@ def _get_hf_api() -> HfApi:
 
 
 def _list_onnx_models(limit: int = 10) -> list[ModelInfo]:
-    """Return ONNX models from Hugging Face Hub, excluding the first result."""
+    """Return ONNX models from Hugging Face Hub, excluding the legacy repository."""
     hf_api = _get_hf_api()
     models = hf_api.list_models(author="onnxmodelzoo", limit=limit + 1)
-    return list(models)[1:]  # Exclude first, which is a legacy model repository
+    return [m for m in models if m.id != "onnxmodelzoo/legacy_models"][:limit]
 
 
 def _filter_onnx_opsets(
@@ -125,24 +116,6 @@ def _download_files(
     return local_paths
 
 
-# TODO(fpedd): This is really slow, don't do this on the files,
-# but on the onnx models directly
-def _validate_onnx_files(file_paths: list[Path]) -> None:
-    """Validate and canonicalize ONNX files in place."""
-    desc = f"Validating and canonicalizing {len(file_paths)} ONNX models"
-    for file_path in tqdm(file_paths, desc=desc, leave=False):
-        onnx_model = onnx.load_model(file_path)
-        onnx.checker.check_model(onnx_model, full_check=True)
-        onnx_model = onnx.shape_inference.infer_shapes(
-            onnx_model,
-            check_type=True,
-            strict_mode=True,
-            data_prop=True,
-        )
-        onnx_model.doc_string = str(file_path.stem)
-        onnx.save_model(onnx_model, file_path)
-
-
 def _download_onnx_models(
     num_models: int = 10, output_dir: str | Path | None = None
 ) -> list[Path]:
@@ -151,13 +124,13 @@ def _download_onnx_models(
     filtered = _filter_onnx_opsets(models)
     id_file_map = _gather_download_info(filtered, ".onnx", max_file_size_mb=200)
     id_file_map_limited = dict(list(id_file_map.items())[:num_models])
-    paths = _download_files(id_file_map_limited, output_dir, ".onnx")
-    _validate_onnx_files(paths)
-    return paths
+    return _download_files(id_file_map_limited, output_dir, ".onnx")
 
 
 class HuggingfaceSource(BaseSource):
     """Fixed source of Huggingface ONNX model allocations, one variant per model."""
+
+    _label_fields: ClassVar[tuple[str, ...]] = ("num_models", "output_dir")
 
     def __init__(
         self,
@@ -199,9 +172,9 @@ class HuggingfaceSource(BaseSource):
     def is_parameterizable(self) -> bool:
         return False
 
-    def get_available_variants(self, variants: int | None = None) -> tuple[str, ...]:
-        if variants is not None:
-            self.num_models = max(self.num_models, variants)
+    def get_available_variants(self, count: int | None = None) -> tuple[str, ...]:
+        if count is not None:
+            self.num_models = max(self.num_models, count)
         self._ensure_downloaded()
         assert self._model_pools is not None
         return tuple(self._model_pools.keys())

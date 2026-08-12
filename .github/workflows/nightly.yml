@@ -12,7 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEFAULT_PYTHON: "3.10"
   # TODO(fpedd): Make minimalloc more easily installable via PyPI
   MINIMALLOC_URL: "git+https://github.com/google/minimalloc.git"
   MPLBACKEND: Agg
@@ -23,17 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
-      - run: uv sync --extra all
+      - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
       - run: uv run pytest -m slow -v
 
@@ -44,17 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
-      - run: uv sync --extra all
+      - run: uv sync --all-extras
       - run: uv run python scripts/stress_omni.py
       # Two workers keep greedy_by_all's per-process copies inside runner memory
       - run: uv run python scripts/benchmark_allocation.py --max-threads 2
@@ -69,24 +56,50 @@ jobs:
             benchmark_results_pressure/
           if-no-files-found: ignore
 
+  # The native kernels manage their own memory, and nothing else in CI would
+  # notice an out-of-bounds read or an overflow.
+  sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      # ENABLE_STUB=OFF: the stub step imports the built module in a plain
+      # interpreter, which a sanitized build cannot survive
+      - name: Rebuild the extension with ASan and UBSan
+        env:
+          CXXFLAGS: >-
+            -fsanitize=address,undefined -fno-sanitize-recover=all
+            -fno-omit-frame-pointer -g
+          LDFLAGS: "-fsanitize=address,undefined"
+          SKBUILD_CMAKE_BUILD_TYPE: RelWithDebInfo
+          SKBUILD_CMAKE_DEFINE: "ENABLE_STUB=OFF"
+        run: uv pip install --force-reinstall -e .
+      # The interpreter is unsanitized, so ASan is preloaded, and libstdc++
+      # with it, or its __cxa_throw interceptor aborts on the first C++ throw
+      - name: Run the unit suite under the sanitizers
+        run: |
+          ASAN=$(gcc -print-file-name=libasan.so)
+          STDCXX=$(gcc -print-file-name=libstdc++.so)
+          LD_PRELOAD="$ASAN:$STDCXX" ASAN_OPTIONS=detect_leaks=0 \
+            UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            uv run --no-sync pytest tests/unit -x -q --no-header
+
   # Catches breakage from new upstream releases that uv.lock hides on
   # regular CI. Failures here point at dependencies, not the code.
   fresh-deps:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
       - run: uv lock --upgrade
-      - run: uv sync --extra all
+      - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
       # Tests first: runtime breakage matters more than lint rule churn
       # and must not be masked by it.
@@ -100,17 +113,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
-      - run: uv sync --extra all
+      - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
       - run: uv run python examples/05_benchmark.py
       - run: >

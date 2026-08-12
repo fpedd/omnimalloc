@@ -7,7 +7,11 @@ import sys
 from pathlib import Path
 
 import pytest
-from omnimalloc.common.directories import EXAMPLES_DIR
+
+from tests.markers import needs_examples
+from tests.paths import EXAMPLES_DIR
+
+pytestmark = needs_examples
 
 EXAMPLE_FILES = sorted(EXAMPLES_DIR.glob("*.py"))
 TIMEOUT_SECONDS = 600  # 10 minutes

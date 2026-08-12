@@ -68,15 +68,18 @@ if(ENABLE_IWYU)
                                         "${IWYU_PROGRAM}")
 endif()
 
-nanobind_add_stub(
-  _cpp_stub
-  MODULE
-  _cpp
-  OUTPUT
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/python/omnimalloc/_cpp.pyi
-  PYTHON_PATH
-  $<TARGET_FILE_DIR:_cpp>
-  DEPENDS
-  _cpp)
+option(ENABLE_STUB "Regenerate _cpp.pyi from the built module" ON)
+if(ENABLE_STUB)
+  nanobind_add_stub(
+    _cpp_stub
+    MODULE
+    _cpp
+    OUTPUT
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/python/omnimalloc/_cpp.pyi
+    PYTHON_PATH
+    $<TARGET_FILE_DIR:_cpp>
+    DEPENDS
+    _cpp)
+endif()
 
 install(TARGETS _cpp LIBRARY DESTINATION omnimalloc)

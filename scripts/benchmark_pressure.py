@@ -3,8 +3,9 @@
 #
 """Benchmark exact pressure lower bounds on vector-clock workloads.
 
-Compares the shipping ``pressure`` against the exact C++ methods and their
-per-allocation counterparts, cross-checking the bound order on every sample.
+Compares the default-budget ``antichain_pressure`` against the exact C++
+methods and their per-allocation counterparts, cross-checking the bound order
+on every sample.
 """
 
 import argparse
@@ -16,12 +17,12 @@ from typing import TYPE_CHECKING, Any
 import matplotlib.pyplot as plt
 from omnimalloc.allocators import OmniAllocator
 from omnimalloc.analysis import (
+    antichain_pressure,
+    antichain_pressure_per_allocation,
     closure_pressure,
     closure_pressure_per_allocation,
     placement_pressure,
     placement_pressure_per_allocation,
-    pressure,
-    pressure_per_allocation,
 )
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
@@ -39,8 +40,8 @@ if TYPE_CHECKING:
 
 SIZES = (100, 300, 1_000, 3_000, 10_000)
 NUM_SYNCS = (0, 64, 1_024)
-REFERENCE = "pressure(work_budget=None)"
-PER_ALLOCATION_REFERENCE = "pressure_per_allocation"
+REFERENCE = "antichain_pressure(work_budget=None)"
+PER_ALLOCATION_REFERENCE = "antichain_pressure_per_allocation"
 METHODS = (
     "pressure",
     REFERENCE,
@@ -63,13 +64,13 @@ COLORS = {
     REFERENCE: "#1baf7a",
     "closure_pressure": "#eda100",
     "omni": "#4a3aa7",
-    "pressure_per_allocation": "#1baf7a",
+    "antichain_pressure_per_allocation": "#1baf7a",
     "closure_pressure_per_allocation": "#eda100",
     "placement_pressure_per_allocation": "#4a3aa7",
 }
 # Per-allocation variants share their global counterpart's color, dashed
 LINESTYLES = {
-    "pressure_per_allocation": "--",
+    "antichain_pressure_per_allocation": "--",
     "closure_pressure_per_allocation": "--",
     "placement_pressure_per_allocation": "--",
 }
@@ -90,7 +91,7 @@ def _capped(
 def _budgeted(allocations: "tuple[Allocation, ...]") -> "Value":
     """None instead of raising when pressure exceeds its work budget."""
     try:
-        return pressure(allocations)
+        return antichain_pressure(allocations)
     except RuntimeError:
         return None
 
@@ -103,12 +104,14 @@ def _sample_runners(
 ) -> "dict[str, Runner]":
     return {
         "pressure": lambda: _budgeted(allocations),
-        REFERENCE: lambda: pressure(allocations, work_budget=None),
+        REFERENCE: lambda: antichain_pressure(allocations, work_budget=None),
         "closure_pressure": lambda: _capped(
             closure_pressure, allocations, args.closure_cap
         ),
         "omni": lambda: placement_pressure(allocator.allocate(allocations)),
-        PER_ALLOCATION_REFERENCE: lambda: pressure_per_allocation(allocations),
+        PER_ALLOCATION_REFERENCE: lambda: antichain_pressure_per_allocation(
+            allocations
+        ),
         "closure_pressure_per_allocation": lambda: _capped(
             closure_pressure_per_allocation, allocations, args.closure_cap
         ),
