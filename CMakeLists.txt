@@ -70,15 +70,17 @@ option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 if(MSVC)
   target_compile_options(_cpp PRIVATE /W4 $<$<BOOL:${WARNINGS_AS_ERRORS}>:/WX>)
 else()
-  # -Wsign-conversion is deliberately absent: the kernels index int64 vectors
-  # with the compact int32 indices they sort and cache, so it fires 175 times on
-  # provably non-negative subscripts. See issue #65.
+  # Sign conversions are off: the kernels index int64 vectors with the compact
+  # int32 indices they sort and cache, so they fire 175 times on provably
+  # non-negative subscripts. Spelled out because clang, unlike GCC, folds them
+  # into -Wconversion. See issue #65.
   target_compile_options(
     _cpp
     PRIVATE -Wall
             -Wextra
             -Wpedantic
             -Wconversion
+            -Wno-sign-conversion
             -Wshadow
             -Wold-style-cast
             -Wcast-qual
