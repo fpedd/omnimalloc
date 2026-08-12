@@ -11,7 +11,7 @@ from omnimalloc.allocators import (
     NaiveAllocator,
     OmniAllocator,
 )
-from omnimalloc.analysis import placement_pressure, pressure
+from omnimalloc.analysis import antichain_pressure, placement_pressure
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation, Pool
@@ -89,7 +89,7 @@ def test_omni_scalar_placement_is_valid_and_bounded() -> None:
     allocations = _random_scalar(200, seed=1)
     placed = OmniAllocator().allocate(allocations)
     validate_allocation(Pool(id="p", allocations=placed))
-    assert pressure(allocations) <= placement_pressure(placed)
+    assert antichain_pressure(allocations) <= placement_pressure(placed)
     assert placement_pressure(placed) <= sum(a.size for a in allocations)
 
 

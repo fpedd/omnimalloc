@@ -75,6 +75,22 @@ def test_benchmark_campaign_properties() -> None:
     assert campaign.num_sources == 1
 
 
+def test_benchmark_campaign_metadata_deep_copies_nested_values() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    allocator = GreedyAllocator()
+    pool = allocate(source.get_pool(), allocator)
+    result = BenchmarkResult(
+        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
+    )
+    report = BenchmarkReport(id=0, results=(result,))
+    metadata = {"tags": ["a"]}
+    campaign = BenchmarkCampaign(id="campaign_0", reports=(report,), metadata=metadata)
+
+    metadata["tags"].append("b")
+
+    assert campaign.metadata == {"tags": ["a"]}
+
+
 def test_benchmark_campaign_finalize_metadata() -> None:
     source = RandomSource(num_allocations=10, seed=42)
     allocator = GreedyAllocator()
@@ -143,3 +159,17 @@ def test_benchmark_campaign_groups_unlabelled_sources_together() -> None:
     campaign = BenchmarkCampaign(id="campaign_0", reports=reports)
 
     assert campaign.source_names == ("random",)
+
+
+def test_benchmark_campaign_rejects_non_copyable_metadata_with_clear_error() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    allocator = GreedyAllocator()
+    pool = allocate(source.get_pool(), allocator)
+    result = BenchmarkResult(
+        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
+    )
+    report = BenchmarkReport(id=0, results=(result,))
+    with pytest.raises(TypeError, match="deep-copyable"):
+        BenchmarkCampaign(
+            id="c", reports=(report,), metadata={"gen": (i for i in range(1))}
+        )

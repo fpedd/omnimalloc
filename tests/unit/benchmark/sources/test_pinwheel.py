@@ -4,7 +4,7 @@
 
 import pytest
 from omnimalloc import allocate, validate_allocation
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import antichain_pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.primitives import Allocation, Pool
@@ -36,10 +36,14 @@ def test_pinwheel_source_is_registered() -> None:
     assert BaseSource.get("pinwheel") is PinwheelSource
 
 
-def test_pinwheel_count_rounds_up_to_pinwheel_size() -> None:
-    allocations = PinwheelSource(num_allocations=64).get_allocations()
+def test_pinwheel_returns_exactly_the_requested_count() -> None:
+    allocations = PinwheelSource(num_allocations=65).get_allocations()
     assert len(allocations) == 65
-    assert (len(allocations) - 1) % 4 == 0
+
+
+def test_pinwheel_rejects_unreachable_count() -> None:
+    with pytest.raises(ValueError, match="cannot reach exactly 64"):
+        PinwheelSource(num_allocations=64).get_allocations()
 
 
 @pytest.mark.parametrize("num", [5, 17, 65, 257, 513])
@@ -47,18 +51,18 @@ def test_pinwheel_optimum_is_tight(num: int) -> None:
     capacity = 1024 * 1024
     source = PinwheelSource(num_allocations=num, capacity=capacity)
     allocations = source.get_allocations()
-    assert pressure(allocations) == capacity
+    assert antichain_pressure(allocations) == capacity
 
 
 def test_pinwheel_allocations_fit_within_makespan() -> None:
     makespan = 4096
-    source = PinwheelSource(num_allocations=64, makespan=makespan, min_size=1)
+    source = PinwheelSource(num_allocations=65, makespan=makespan, size_min=1)
     for alloc in source.get_allocations():
         assert 0 <= alloc.start < alloc.end <= makespan
 
 
 def test_pinwheel_respects_min_size() -> None:
-    source = PinwheelSource(num_allocations=256, min_size=2048)
+    source = PinwheelSource(num_allocations=257, size_min=2048)
     assert all(a.size >= 2048 for a in source.get_allocations())
 
 
@@ -79,22 +83,22 @@ def test_pinwheel_distinct_pools_differ() -> None:
 
 def test_pinwheel_rejects_capacity_too_small() -> None:
     with pytest.raises(ValueError, match="capacity"):
-        PinwheelSource(capacity=2048, min_size=1024)
+        PinwheelSource(capacity=2048, size_min=1024)
 
 
 def test_pinwheel_rejects_makespan_too_small() -> None:
     with pytest.raises(ValueError, match="makespan"):
-        PinwheelSource(makespan=2, min_duration=1)
+        PinwheelSource(makespan=2, duration_min=1)
 
 
 def test_pinwheel_rejects_nonpositive_min_size() -> None:
-    with pytest.raises(ValueError, match="min_size"):
-        PinwheelSource(min_size=0)
+    with pytest.raises(ValueError, match="size_min"):
+        PinwheelSource(size_min=0)
 
 
 def test_pinwheel_ground_truth_is_valid_and_optimal() -> None:
     capacity = 1024 * 1024
-    source = PinwheelSource(num_allocations=200, capacity=capacity)
+    source = PinwheelSource(num_allocations=201, capacity=capacity)
     pool = source.get_ground_truth_pool()
 
     validate_allocation(pool)
@@ -104,20 +108,20 @@ def test_pinwheel_ground_truth_is_valid_and_optimal() -> None:
 
 
 def test_pinwheel_ground_truth_matches_get_allocations() -> None:
-    source = PinwheelSource(num_allocations=64)
+    source = PinwheelSource(num_allocations=65)
     truth = source.get_ground_truth_pool()
     allocs = source.get_allocations()
     assert _signatures(truth.allocations) == _signatures(allocs)
 
 
 def test_pinwheel_packing_is_non_guillotine() -> None:
-    pool = PinwheelSource(num_allocations=64).get_ground_truth_pool()
+    pool = PinwheelSource(num_allocations=65).get_ground_truth_pool()
     assert not _has_guillotine_cut(pool)
 
 
 def test_pinwheel_no_allocator_beats_the_optimum() -> None:
     capacity = 1024 * 1024
-    source = PinwheelSource(num_allocations=150, capacity=capacity)
+    source = PinwheelSource(num_allocations=149, capacity=capacity)
     pool = source.get_pool()
     allocated = allocate(pool, "greedy_by_size", validate=True)
     assert allocated.size >= capacity

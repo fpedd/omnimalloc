@@ -8,7 +8,6 @@ import pytest
 from omnimalloc import visualize
 from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, System
 from omnimalloc.visualize import (
-    HAS_MATPLOTLIB,
     _byte_unit,
     _conflict_pairs,
     _conflict_visibility,
@@ -22,7 +21,9 @@ from omnimalloc.visualize import (
     plot_allocation,
 )
 
-pytestmark = pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+from tests.markers import needs_matplotlib
+
+pytestmark = needs_matplotlib
 
 
 def test_visualize_single_allocation(artifacts_dir: Path) -> None:
@@ -187,8 +188,8 @@ def test_visualize_with_capacities(artifacts_dir: Path) -> None:
     system = System(id="test_sys", memories=(memory,))
 
     custom_limits = {
-        "budget": {"ddr_mem": 200},
-        "threshold": {"ddr_mem": 220},
+        "ddr_mem": {"budget": 200, "threshold": 220},
+        "other_mem": {"ignored": 999},
     }
 
     output_path = artifacts_dir / "test_memory_limits.pdf"
@@ -574,3 +575,37 @@ def test_y_limits_stack_unplaced_pools_from_zero() -> None:
     system = System(id="s", memories=(memory,))
     _, upper = _get_y_limits(system, _get_y_offsets(system))[memory]
     assert upper >= 30
+
+
+def test_y_offsets_stack_unpinned_pools_around_pinned() -> None:
+    pinned = Pool(
+        id="pinned",
+        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
+        offset=0,
+    )
+    free = Pool(
+        id="free", allocations=(Allocation(id=2, size=10, start=0, end=5, offset=0),)
+    )
+    memory = Memory(id="m", pools=(pinned, free))
+    system = System(id="s", memories=(memory,))
+    offsets = _get_y_offsets(system)[memory]
+    assert offsets[pinned] == 0
+    assert offsets[free] == 10
+
+
+def test_plot_rejects_unallocated_entity() -> None:
+    pool = Pool(id="p", allocations=(Allocation(id=1, size=10, start=0, end=5),))
+    with pytest.raises(ValueError, match="offsets"):
+        plot_allocation(pool)
+
+
+def test_pool_capacities_key_by_pool_id(artifacts_dir: Path) -> None:
+    pool = Pool(
+        id="scratch",
+        allocations=(Allocation(id=1, size=100, start=0, end=5, offset=0),),
+        offset=0,
+    )
+    output_path = artifacts_dir / "test_pool_capacities.pdf"
+    plot_allocation(pool, output_path, capacities={"scratch": {"budget": 200}})
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0

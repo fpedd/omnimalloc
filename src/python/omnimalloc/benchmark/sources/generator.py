@@ -4,6 +4,7 @@
 
 import random
 from abc import abstractmethod
+from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation, AllocationKind
@@ -33,6 +34,18 @@ class _GeneratorSource(BaseSource):
 
 class RandomSource(_GeneratorSource):
     """Generate random allocations with random sizes, starts, and durations."""
+
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "size_min",
+        "size_max",
+        "time_min",
+        "time_max",
+        "duration_min",
+        "duration_max",
+        "kinds",
+        "kind_weights",
+        "seed",
+    )
 
     def __init__(
         self,
@@ -97,6 +110,13 @@ class RandomSource(_GeneratorSource):
 class UniformSource(_GeneratorSource):
     """Generate uniform-sized allocations with random start times."""
 
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "size",
+        "duration",
+        "time_max",
+        "seed",
+    )
+
     def __init__(
         self,
         num_allocations: int = 100,
@@ -134,6 +154,15 @@ class UniformSource(_GeneratorSource):
 
 class PowerOf2Source(_GeneratorSource):
     """Generate allocations with power-of-2 sizes."""
+
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "size_exponent_min",
+        "size_exponent_max",
+        "time_max",
+        "duration_min",
+        "duration_max",
+        "seed",
+    )
 
     def __init__(
         self,
@@ -180,6 +209,13 @@ class PowerOf2Source(_GeneratorSource):
 class HighContentionSource(_GeneratorSource):
     """Generate allocations with high temporal contention in a small time window."""
 
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "size_min",
+        "size_max",
+        "time_window",
+        "seed",
+    )
+
     def __init__(
         self,
         num_allocations: int = 100,
@@ -216,6 +252,14 @@ class HighContentionSource(_GeneratorSource):
 
 class SequentialSource(BaseSource):
     """Generate allocations with minimal temporal overlap."""
+
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "size_min",
+        "size_max",
+        "duration_min",
+        "duration_max",
+        "seed",
+    )
 
     def __init__(
         self,

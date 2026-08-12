@@ -22,8 +22,8 @@ class BenchmarkResult:
     """A single benchmark execution result."""
 
     id: IdType
-    allocator: BaseAllocator | type[BaseAllocator] | str
-    source: BaseSource | type[BaseSource] | str
+    allocator: BaseAllocator | str
+    source: BaseSource | str
     entity: Pool  # TODO(fpedd): Add support for Memory and System
     duration: float
 

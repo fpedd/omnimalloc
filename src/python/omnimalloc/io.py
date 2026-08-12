@@ -7,7 +7,7 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from .analysis.clock import time_components
+from .analysis._clock import time_components
 from .primitives import (
     Allocation,
     AllocationKind,

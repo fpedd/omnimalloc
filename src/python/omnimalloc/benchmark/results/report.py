@@ -24,8 +24,8 @@ class BenchmarkReport:
 
     id: IdType
     results: tuple[BenchmarkResult, ...]
-    allocator: BaseAllocator | type[BaseAllocator] | str | None = None
-    source: BaseSource | type[BaseSource] | str | None = None
+    allocator: BaseAllocator | str | None = None
+    source: BaseSource | str | None = None
     variant_id: IdType | None = None
     known_optimum: int | None = None
 

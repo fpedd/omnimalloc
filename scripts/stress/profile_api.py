@@ -19,11 +19,11 @@ from omnimalloc import allocate
 from omnimalloc.allocators import BaseAllocator
 from omnimalloc.analysis import (
     antichain_pressure,
+    antichain_pressure_per_allocation,
     closure_pressure,
     conflict_degrees,
     conflict_graph,
     conflicts,
-    pressure_per_allocation,
     try_linearize,
 )
 from workloads import by_name, catalog
@@ -82,7 +82,9 @@ ANALYSIS_CALLS: dict[str, Callable] = {
     "conflict_graph": lambda a: conflict_graph(a).pair_count,
     "conflicts": lambda a: len(conflicts(a)),
     "try_linearize": lambda a: try_linearize(a) is not None,
-    "pressure_per_allocation": lambda a: len(pressure_per_allocation(a)),
+    "antichain_pressure_per_allocation": lambda a: len(
+        antichain_pressure_per_allocation(a)
+    ),
 }
 
 

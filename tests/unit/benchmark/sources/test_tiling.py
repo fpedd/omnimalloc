@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 from omnimalloc import allocate, validate_allocation
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import antichain_pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 from omnimalloc.primitives import Allocation
@@ -32,18 +32,18 @@ def test_tiling_optimum_is_tight(num: int) -> None:
     capacity = 1024 * 1024
     source = TilingSource(num_allocations=num, capacity=capacity)
     allocations = source.get_allocations()
-    assert pressure(allocations) == capacity
+    assert antichain_pressure(allocations) == capacity
 
 
 def test_tiling_allocations_fit_within_makespan() -> None:
     makespan = 4096
-    source = TilingSource(num_allocations=64, makespan=makespan, min_size=1)
+    source = TilingSource(num_allocations=64, makespan=makespan, size_min=1)
     for alloc in source.get_allocations():
         assert 0 <= alloc.start < alloc.end <= makespan
 
 
 def test_tiling_respects_min_size() -> None:
-    source = TilingSource(num_allocations=256, min_size=2048)
+    source = TilingSource(num_allocations=256, size_min=2048)
     assert all(a.size >= 2048 for a in source.get_allocations())
 
 
@@ -73,17 +73,17 @@ def test_tiling_rejects_invalid_mem_cut_prob() -> None:
 
 def test_tiling_rejects_capacity_below_min_size() -> None:
     with pytest.raises(ValueError, match="capacity"):
-        TilingSource(capacity=10, min_size=1024)
+        TilingSource(capacity=10, size_min=1024)
 
 
 def test_tiling_rejects_nonpositive_min_size() -> None:
-    with pytest.raises(ValueError, match="min_size"):
-        TilingSource(min_size=0)
+    with pytest.raises(ValueError, match="size_min"):
+        TilingSource(size_min=0)
 
 
 def test_tiling_raises_when_count_unreachable() -> None:
     source = TilingSource(
-        num_allocations=100, capacity=1024, min_size=1024, makespan=10, min_duration=5
+        num_allocations=100, capacity=1024, size_min=1024, makespan=10, duration_min=5
     )
     with pytest.raises(ValueError, match="cannot reach"):
         source.get_allocations()

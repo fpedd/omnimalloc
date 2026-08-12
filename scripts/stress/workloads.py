@@ -159,7 +159,10 @@ def _tilings() -> list[Workload]:
             "pinwheel",
             "tiling",
             1,
-            lambda n, s: PinwheelSource(num_allocations=n, seed=s).get_allocations(),
+            # Pinwheel splits five-way, so only counts of 1 mod 4 are reachable.
+            lambda n, s: PinwheelSource(
+                num_allocations=n + (1 - n) % 4, seed=s
+            ).get_allocations(),
             known_optimum=TILING_CAPACITY,
             tags=frozenset({"known_optimum", "adversarial"}),
         ),

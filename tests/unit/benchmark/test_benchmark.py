@@ -265,3 +265,36 @@ def test_run_benchmark_tolerates_unmeasurable_pressure() -> None:
     assert report.mean_seconds > 0
     assert report.mean_allocation_efficiency is None
     assert report.lower_bound is None
+
+
+def test_run_benchmark_defaults_to_source_configured_size() -> None:
+    source = RandomSource(num_allocations=12, seed=42)
+    campaign = run_benchmark(
+        allocators=(GreedyAllocator(),), sources=(source,), iterations=1
+    )
+    assert campaign.reports[0].num_allocations == 12
+
+
+def test_run_benchmark_rejects_unknown_variants_key() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    with pytest.raises(ValueError, match="match no source"):
+        run_benchmark(
+            allocators=(GreedyAllocator(),), sources=(source,), variants={"randm": 10}
+        )
+
+
+def test_run_benchmark_rejects_non_integer_variant_for_parameterizable_source() -> None:
+    source = RandomSource(num_allocations=10, seed=42)
+    with pytest.raises(TypeError, match="Non-integer variant"):
+        run_benchmark(
+            allocators=(GreedyAllocator(),), sources=(source,), variants=("small",)
+        )
+
+
+def test_run_benchmark_rejects_non_positive_iterations() -> None:
+    with pytest.raises(ValueError, match="iterations must be positive"):
+        run_benchmark(
+            allocators=(GreedyAllocator(),),
+            sources=(RandomSource(num_allocations=10, seed=42),),
+            iterations=0,
+        )

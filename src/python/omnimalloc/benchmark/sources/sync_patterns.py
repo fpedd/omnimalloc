@@ -4,6 +4,7 @@
 
 import random
 from collections.abc import Callable, Sequence
+from enum import Enum
 from math import isqrt
 from typing import ClassVar, Final
 
@@ -11,22 +12,28 @@ from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation, VectorClock
 
 from .base import BaseSource
-from .sizes import ensure_valid_distribution, sample_sizes
+from .sizes import SizeDistribution, sample_sizes
 
-# Ordered from loosest to tightest thread coupling
-SYNC_PATTERNS: Final[tuple[str, ...]] = (
-    "independent",
-    "pairs",
-    "subset",
-    "sparse",
-    "irregular",
-    "ring",
-    "tree",
-    "groups",
-    "barrier",
-    "fork_join",
-    "dense",
-)
+
+class SyncPattern(str, Enum):
+    """Ordered from loosest to tightest thread coupling."""
+
+    INDEPENDENT = "independent"
+    PAIRS = "pairs"
+    SUBSET = "subset"
+    SPARSE = "sparse"
+    IRREGULAR = "irregular"
+    RING = "ring"
+    TREE = "tree"
+    GROUPS = "groups"
+    BARRIER = "barrier"
+    FORK_JOIN = "fork_join"
+    DENSE = "dense"
+
+    __str__ = str.__str__
+
+
+SYNC_PATTERNS: Final[tuple[SyncPattern, ...]] = tuple(SyncPattern)
 
 
 class SyncPatternSource(BaseSource):
@@ -39,30 +46,34 @@ class SyncPatternSource(BaseSource):
     _label_fields: ClassVar[tuple[str, ...]] = (
         "num_threads",
         "pattern",
-        "speed_skew",
+        "steps",
+        "sync_period",
+        "group_size",
+        "size_min",
+        "size_max",
         "size_distribution",
+        "speed_skew",
+        "max_lifetime",
+        "seed",
     )
 
     def __init__(
         self,
         num_allocations: int = 128,
         num_threads: int = 4,
-        pattern: str = "dense",
+        pattern: SyncPattern | str = SyncPattern.DENSE,
         steps: int | None = None,
         sync_period: int = 8,
         group_size: int | None = None,
         size_min: int = KB,
         size_max: int = MB,
-        size_distribution: str = "uniform",
+        size_distribution: SizeDistribution | str = SizeDistribution.UNIFORM,
         speed_skew: int = 1,
         max_lifetime: int | None = None,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
         if num_threads <= 0:
             raise ValueError("num_threads must be positive")
-        if pattern not in SYNC_PATTERNS:
-            raise ValueError(f"pattern must be one of {SYNC_PATTERNS}, got {pattern!r}")
-        ensure_valid_distribution(size_distribution)
         if speed_skew <= 0:
             raise ValueError("speed_skew must be positive")
         if steps is not None and steps < 2:
@@ -79,13 +90,13 @@ class SyncPatternSource(BaseSource):
             raise ValueError("max_lifetime must be positive")
         super().__init__(num_allocations=num_allocations)
         self.num_threads = num_threads
-        self.pattern = pattern
+        self.pattern = SyncPattern(pattern)
         self.steps = steps
         self.sync_period = sync_period
-        self.group_size = group_size or max(2, isqrt(num_threads))
+        self.group_size = group_size
         self.size_min = size_min
         self.size_max = size_max
-        self.size_distribution = size_distribution
+        self.size_distribution = SizeDistribution(size_distribution)
         self.speed_skew = speed_skew
         self.max_lifetime = max_lifetime
         self.seed = seed
@@ -166,7 +177,7 @@ class SyncPatternSource(BaseSource):
         self,
     ) -> Callable[[list[list[int]], int, random.Random], None] | None:
         """The pattern's step handler, resolved once per simulation."""
-        if self.num_threads < 2 or self.pattern == "independent":
+        if self.num_threads < 2 or self.pattern == SyncPattern.INDEPENDENT:
             return None
         return getattr(self, f"_sync_{self.pattern}")
 
@@ -236,8 +247,9 @@ class SyncPatternSource(BaseSource):
         if step % (4 * self.sync_period) == 0:
             _merge(clocks, range(self.num_threads))
         elif step % self.sync_period == 0:
-            for lo in range(0, self.num_threads, self.group_size):
-                hi = min(lo + self.group_size, self.num_threads)
+            group_size = self.group_size or max(2, isqrt(self.num_threads))
+            for lo in range(0, self.num_threads, group_size):
+                hi = min(lo + group_size, self.num_threads)
                 _merge(clocks, range(lo, hi))
 
     def _sync_fork_join(

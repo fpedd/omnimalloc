@@ -3,12 +3,13 @@
 #
 
 import random
+from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
 from omnimalloc.primitives import Allocation
 
 from .base import BaseSource
-from .sizes import ensure_valid_distribution, sample_sizes
+from .sizes import SizeDistribution, sample_sizes
 
 
 class SkewedSource(BaseSource):
@@ -18,10 +19,20 @@ class SkewedSource(BaseSource):
     is uninformative, while real scopes are skewed. `dominant` is the extreme.
     """
 
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "distribution",
+        "size_min",
+        "size_max",
+        "time_max",
+        "duration_min",
+        "duration_max",
+        "seed",
+    )
+
     def __init__(
         self,
         num_allocations: int = 128,
-        distribution: str = "dominant",
+        distribution: SizeDistribution | str = SizeDistribution.DOMINANT,
         size_min: int = KB,
         size_max: int = MB,
         time_max: int = 1024,
@@ -29,7 +40,6 @@ class SkewedSource(BaseSource):
         duration_max: int = 64,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        ensure_valid_distribution(distribution)
         if size_min <= 0:
             raise ValueError("size_min must be positive")
         if size_max < size_min:
@@ -41,7 +51,7 @@ class SkewedSource(BaseSource):
         if time_max <= duration_max:
             raise ValueError("time_max must be > duration_max")
         super().__init__(num_allocations=num_allocations)
-        self.distribution = distribution
+        self.distribution = SizeDistribution(distribution)
         self.size_min = size_min
         self.size_max = size_max
         self.time_max = time_max
@@ -74,6 +84,7 @@ class TwoPlusTwoSource(BaseSource):
     """
 
     _GROUP = 4
+    _label_fields: ClassVar[tuple[str, ...]] = ("noise", "size_min", "size_max", "seed")
 
     def __init__(
         self,
@@ -99,6 +110,10 @@ class TwoPlusTwoSource(BaseSource):
         self, num_allocations: int | None = None, skip: int = 0
     ) -> tuple[Allocation, ...]:
         num = num_allocations if num_allocations is not None else self.num_allocations
+        if num < self._GROUP:
+            raise ValueError(
+                f"TwoPlusTwoSource needs at least {self._GROUP} allocations, got {num}"
+            )
         rng = random.Random(None if self.seed is None else self.seed + skip)
         obstructions = max(1, round(num * (1.0 - self.noise)) // self._GROUP)
 

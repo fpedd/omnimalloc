@@ -8,7 +8,8 @@ import pytest
 from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC, MinimallocAllocator
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.benchmark import plot_benchmark, run_benchmark, save_benchmark
-from omnimalloc.visualize import HAS_MATPLOTLIB
+
+from tests.markers import needs_matplotlib
 
 ALLOCATORS = (
     "greedy_by_size",
@@ -19,16 +20,18 @@ ALLOCATORS = (
 
 SIZE_VARIANTS = (64, 128, 256, 512, 1024)
 
+PINWHEEL_VARIANTS = (65, 129, 257, 513, 1025)
+
 MINIMALLOC_VARIANTS = tuple(f"{name}.1048576" for name in "ABCDEFGHIJK")
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+@needs_matplotlib
 @pytest.mark.parametrize(
     ("source", "variants"),
     [
         ("minimalloc", MINIMALLOC_VARIANTS),
         ("tiling", SIZE_VARIANTS),
-        ("pinwheel", SIZE_VARIANTS),
+        ("pinwheel", PINWHEEL_VARIANTS),
         ("random", SIZE_VARIANTS),
     ],
 )

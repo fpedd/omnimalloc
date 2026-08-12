@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.11", "nanobind>=2.0", "setuptools-scm>=8"]
+requires = ["scikit-build-core>=1.0", "nanobind>=2.0", "setuptools-scm>=8"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -8,16 +8,17 @@ dynamic = ["version"]
 description = "Your one-stop shop for static memory allocation."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Fabian Peddinghaus", email = "fabianpedd@gmail.com" }]
 keywords = ["memory", "allocation", "allocator", "static-allocation"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -67,7 +68,10 @@ cmake.build-type = "Release"
 build-dir = "build/{wheel_tag}"
 sdist.include = ["src/cpp/**"]
 sdist.exclude = [".github", "notebooks", "external"]
-metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
+
+[[tool.dynamic-metadata]]
+field = "version"
+provider = "scikit_build_core.metadata.setuptools_scm"
 
 # Version is derived from git tags (vX.Y.Z); the empty table enables the
 # setuptools-scm defaults, e.g. 0.3.1.dev3+ga8f8686 between releases.
@@ -76,9 +80,9 @@ metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux_*"
-# TODO(fpedd): Enable tests in the future
-# test-requires = ["pytest"]
-# test-command = "pytest {project}/tests/unit -x --no-header -q"
+test-requires = ["pytest"]
+test-extras = ["all"]
+test-command = "pytest {project}/tests/unit -x --no-header -q"
 
 [tool.cibuildwheel.linux]
 archs = ["auto"]
@@ -86,6 +90,9 @@ before-all = "yum install -y cmake || apk add cmake"
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
 
 [tool.ruff]
 line-length = 88

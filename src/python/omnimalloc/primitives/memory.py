@@ -34,7 +34,7 @@ class Memory:
 
     @cached_property
     def used_size(self) -> int:
-        """Total memory used by all pools."""
+        """Sum of the pools' derived sizes, blind to where pools sit."""
         return sum(pool.size for pool in self.pools)
 
     @cached_property

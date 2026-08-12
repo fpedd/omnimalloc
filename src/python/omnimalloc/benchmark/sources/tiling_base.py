@@ -6,7 +6,7 @@ import random
 from abc import abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 from omnimalloc.primitives import Allocation, IdType, Pool, TimePoint
 
@@ -36,24 +36,32 @@ class TilingBase(BaseSource):
     allocation each. They tile it perfectly, so ``capacity`` is the optimum.
     """
 
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "capacity",
+        "makespan",
+        "size_min",
+        "duration_min",
+        "seed",
+    )
+
     def __init__(
         self,
         num_allocations: int,
         capacity: int,
         makespan: int,
-        min_size: int,
-        min_duration: int,
+        size_min: int,
+        duration_min: int,
         seed: int | None,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if min_size <= 0:
-            raise ValueError("min_size must be positive")
-        if min_duration <= 0:
-            raise ValueError("min_duration must be positive")
+        if size_min <= 0:
+            raise ValueError("size_min must be positive")
+        if duration_min <= 0:
+            raise ValueError("duration_min must be positive")
         self.capacity = capacity
         self.makespan = makespan
-        self.min_size = min_size
-        self.min_duration = min_duration
+        self.size_min = size_min
+        self.duration_min = duration_min
         self.seed = seed
 
     @property
@@ -89,6 +97,10 @@ class TilingBase(BaseSource):
             ]
             idx = rng.choices(splittable, weights=weights, k=1)[0]
             tiles[idx : idx + 1] = self._split(tiles[idx], rng)
+        if len(tiles) != num:
+            raise ValueError(
+                f"cannot reach exactly {num} allocations, nearest is {len(tiles)}"
+            )
         return tiles
 
     def _variant_rng(self, skip: int) -> random.Random:

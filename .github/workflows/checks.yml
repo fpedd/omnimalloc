@@ -15,23 +15,19 @@ env:
   DEFAULT_PYTHON: "3.10"
   # TODO(fpedd): Make minimalloc more easily installable via PyPI
   MINIMALLOC_URL: "git+https://github.com/google/minimalloc.git"
+  # Force matplotlib's non-interactive backend; runners lack a working Tcl/Tk.
+  MPLBACKEND: Agg
 
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - run: sudo apt-get update && sudo apt-get install -y clang-format
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
       - run: uv sync --all-extras
       - run: uv run pre-commit run --all-files
 
@@ -39,21 +35,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
-      # Run example 1 without all
-      - run: uv sync --no-dev --no-extra all
+      # Example 01 must work without the extras
+      - run: uv sync
       - run: uv run python examples/01_basic.py
-      # Run example 2-4 with all
-      - run: uv sync --no-dev --extra all
+      # Examples 02 to 04 need them
+      - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
       - run: uv run python examples/02_plotting.py
       - run: uv run python examples/03_allocators.py
@@ -62,9 +52,7 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    # Force matplotlib's non-interactive backend; runners lack a working Tcl/Tk.
     env:
-      MPLBACKEND: Agg
       UV_PYTHON: ${{ matrix.python-version }} # outranks .python-version, which pins 3.10
     strategy:
       fail-fast: false
@@ -81,36 +69,30 @@ jobs:
           - os: windows-latest
             python-version: "3.14"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ matrix.python-version }}
-      - run: uv sync --extra all
-      # minimalloc builds from source; only known to build on Linux runners
+      - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
         if: runner.os == 'Linux'
-      - run: uv run pytest --cov-report=xml --cov-report=term-missing -v
+      # Gate coverage only where every optional path runs: Hub rate limits and
+      # the Linux-only minimalloc install starve the other legs of statements
+      - run: >
+          uv run pytest -v
+          ${{ matrix.os == 'ubuntu-latest'
+          && matrix.python-version == env.DEFAULT_PYTHON
+          && '--cov=omnimalloc --cov-fail-under=90 --cov-report=term-missing'
+          || '' }}
 
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
       - run: uv sync --all-extras
       - run: uv build
 
@@ -120,17 +102,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - run: sudo apt-get update && sudo apt-get install -y clang-tidy iwyu
       - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-      - run: uv python install ${{ env.DEFAULT_PYTHON }}
       - run: uv sync --all-extras
       - run: CMAKE_ARGS="-DENABLE_CLANG_TIDY=ON -DENABLE_IWYU=ON" uv build
 

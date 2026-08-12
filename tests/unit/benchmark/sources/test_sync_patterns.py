@@ -3,7 +3,7 @@
 #
 
 import pytest
-from omnimalloc.analysis import pressure, try_linearize
+from omnimalloc.analysis import antichain_pressure, try_linearize
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation
@@ -89,7 +89,7 @@ def test_sync_patterns_distinct_pools_differ() -> None:
 
 
 def test_sync_patterns_rejects_unknown_pattern() -> None:
-    with pytest.raises(ValueError, match="pattern"):
+    with pytest.raises(ValueError, match="not a valid SyncPattern"):
         SyncPatternSource(pattern="mesh")
 
 
@@ -114,7 +114,7 @@ def test_sync_patterns_pressure_is_bounded(pattern: str) -> None:
         num_allocations=10, num_threads=3, pattern=pattern, seed=5
     )
     allocations = source.get_allocations()
-    peak = pressure(allocations)
+    peak = antichain_pressure(allocations)
     assert peak >= max(a.size for a in allocations)
     assert peak <= sum(a.size for a in allocations)
 
@@ -164,9 +164,8 @@ def test_size_distribution_reaches_the_allocations() -> None:
 
 def test_label_carries_thread_count_and_topology() -> None:
     source = SyncPatternSource(num_threads=16, pattern="tree")
-    assert source.label() == (
-        "sync_pattern[num_threads=16,pattern=tree,speed_skew=1,size_distribution=uniform]"
-    )
+    assert source.label() == "sync_pattern[num_threads=16,pattern=tree]"
+    assert SyncPatternSource().label() == "sync_pattern"
 
 
 def test_label_differs_between_thread_counts() -> None:
@@ -176,7 +175,7 @@ def test_label_differs_between_thread_counts() -> None:
 
 
 def test_unknown_size_distribution_rejected() -> None:
-    with pytest.raises(ValueError, match="distribution must be one of"):
+    with pytest.raises(ValueError, match="not a valid SizeDistribution"):
         SyncPatternSource(size_distribution="normal")
 
 

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from omnimalloc._cpp import find_collision as _find_collision
 
-from .analysis.clock import uniform_dim
+from .analysis._clock import uniform_dim
 from .primitives import Allocation, IdType, Memory, Pool, System
 from .primitives.utils import ensure_allocations, ensure_unique_ids
 

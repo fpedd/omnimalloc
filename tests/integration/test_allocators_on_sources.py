@@ -25,7 +25,9 @@ from omnimalloc.benchmark.sources.generator import (
 from omnimalloc.primitives.memory import Memory
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
-from omnimalloc.visualize import HAS_MATPLOTLIB, plot_allocation
+from omnimalloc.visualize import plot_allocation
+
+from tests.markers import needs_matplotlib
 
 
 def test_greedy_by_duration_with_sequential_source() -> None:
@@ -229,7 +231,7 @@ def test_every_registered_allocator_on_random_source(name: str) -> None:
     assert all(a.offset is not None for a in allocated_pool.allocations)
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
+@needs_matplotlib
 def test_greedy_allocators_with_artifacts(artifacts_dir: Path) -> None:
     source = RandomSource(num_allocations=30, seed=42)
     allocations = source.get_allocations()

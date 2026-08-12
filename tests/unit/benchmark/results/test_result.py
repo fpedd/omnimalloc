@@ -13,6 +13,8 @@ from omnimalloc.allocators import GreedyAllocator
 from omnimalloc.benchmark.results.result import BenchmarkResult
 from omnimalloc.benchmark.sources.generator import RandomSource
 
+from tests.markers import needs_matplotlib
+
 Fixture = tuple[Any, GreedyAllocator, RandomSource]
 
 
@@ -102,10 +104,12 @@ def test_benchmark_result_frozen(allocated_pool: Fixture) -> None:
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
+@needs_matplotlib
 def test_benchmark_result_visualize_no_file(allocated_pool: Fixture) -> None:
     _make(allocated_pool).visualize()
 
 
+@needs_matplotlib
 def test_benchmark_result_visualize_with_file(allocated_pool: Fixture) -> None:
     result = _make(allocated_pool)
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:

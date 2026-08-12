@@ -4,7 +4,7 @@
 
 import pytest
 from omnimalloc import allocate, validate_allocation
-from omnimalloc.analysis import pressure
+from omnimalloc.analysis import antichain_pressure
 from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.primitives import Allocation
@@ -64,7 +64,9 @@ def test_concurrent_tiling_pressure_bounded_by_capacity(num_syncs: int) -> None:
         num_allocations=64, num_threads=4, num_syncs=num_syncs, capacity=capacity
     )
     allocations = source.get_allocations()
-    assert max(a.size for a in allocations) <= pressure(allocations) <= capacity
+    assert (
+        max(a.size for a in allocations) <= antichain_pressure(allocations) <= capacity
+    )
 
 
 def test_concurrent_tiling_ground_truth_is_valid_and_optimal() -> None:
@@ -116,10 +118,10 @@ def test_concurrent_tiling_rejects_nonpositive_threads() -> None:
 def test_concurrent_tiling_rejects_fewer_allocations_than_threads() -> None:
     with pytest.raises(ValueError, match="num_threads"):
         ConcurrentTilingSource(
-            num_allocations=2, num_threads=4, capacity=4096, min_size=1
+            num_allocations=2, num_threads=4, capacity=4096, size_min=1
         )
     source = ConcurrentTilingSource(
-        num_allocations=8, num_threads=4, capacity=4096, min_size=1
+        num_allocations=8, num_threads=4, capacity=4096, size_min=1
     )
     with pytest.raises(ValueError, match="num_threads"):
         source.get_allocations(num_allocations=2)
@@ -127,14 +129,14 @@ def test_concurrent_tiling_rejects_fewer_allocations_than_threads() -> None:
 
 def test_concurrent_tiling_rejects_band_below_min_size() -> None:
     with pytest.raises(ValueError, match="per-thread capacity"):
-        ConcurrentTilingSource(num_threads=4, capacity=4096, min_size=2048)
+        ConcurrentTilingSource(num_threads=4, capacity=4096, size_min=2048)
 
 
 def test_concurrent_tiling_rejects_num_syncs_out_of_range() -> None:
     with pytest.raises(ValueError, match="num_syncs"):
         ConcurrentTilingSource(num_syncs=-1)
     with pytest.raises(ValueError, match="num_syncs"):
-        ConcurrentTilingSource(num_syncs=100, makespan=64, min_size=1, min_duration=1)
+        ConcurrentTilingSource(num_syncs=100, makespan=64, size_min=1, duration_min=1)
 
 
 def test_concurrent_tiling_no_allocator_beats_the_optimum() -> None:
@@ -149,9 +151,10 @@ def test_concurrent_tiling_no_allocator_beats_the_optimum() -> None:
 
 def test_concurrent_tiling_label_carries_thread_count() -> None:
     assert (
-        ConcurrentTilingSource(num_allocations=16, num_threads=2).label()
-        == "concurrent_tiling[num_threads=2]"
+        ConcurrentTilingSource(num_allocations=16, num_threads=4).label()
+        == "concurrent_tiling[num_threads=4]"
     )
+    assert ConcurrentTilingSource(num_allocations=16).label() == "concurrent_tiling"
 
 
 def test_concurrent_tiling_known_optimum_is_the_capacity() -> None:

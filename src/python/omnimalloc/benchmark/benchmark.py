@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 
 from omnimalloc import allocate, validate_allocation
 from omnimalloc.allocators import BaseAllocator, available_allocators
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import IdType, Pool
 
 from .results import BenchmarkCampaign, BenchmarkReport, BenchmarkResult
@@ -28,20 +29,19 @@ class SkippedAllocator:
 
 
 def _resolve_parameterizable_variants(
-    variants: int | tuple[IdType, ...] | None,
+    source: BaseSource, variants: int | tuple[IdType, ...] | None
 ) -> tuple[int, ...]:
     if variants is None:
-        return (100,)
+        return (source.num_allocations,)
     if isinstance(variants, int):
         return (variants,)
     resolved_variants = []
     for v in variants:
-        if isinstance(v, int):
-            resolved_variants.append(v)
-        else:
-            logger.warning(
-                f"Skipping non-integer variant {v!r} for parameterizable source"
+        if not isinstance(v, int):
+            raise TypeError(
+                f"Non-integer variant {v!r} for parameterizable source {source.name()}"
             )
+        resolved_variants.append(v)
     return tuple(resolved_variants)
 
 
@@ -66,11 +66,23 @@ def _resolve_fixed_variants(
         elif isinstance(v, int) and 0 <= v < len(available):
             resolved_variants.append(available[v])
         else:
-            logger.warning(f"Skipping unknown variant {v!r} for source {source.name()}")
+            raise ValueError(f"Unknown variant {v!r} for source {source.name()}")
     return tuple(resolved_variants)
 
 
 VariantSpec = int | tuple[IdType, ...] | None
+
+
+def _ensure_known_variant_keys(
+    sources: tuple[BaseSource, ...],
+    variants: VariantSpec | dict[str, VariantSpec],
+) -> None:
+    if not isinstance(variants, dict):
+        return
+    known = {s.label() for s in sources} | {s.name() for s in sources}
+    unknown = sorted(set(variants) - known)
+    if unknown:
+        raise ValueError(f"Variants keys {unknown} match no source in this campaign")
 
 
 def _get_variant_ids(
@@ -85,7 +97,7 @@ def _get_variant_ids(
             variants[label] if label in variants else variants.get(source_inst.name())
         )
     if source_inst.is_parameterizable():
-        return _resolve_parameterizable_variants(variants)
+        return _resolve_parameterizable_variants(source_inst, variants)
     return _resolve_fixed_variants(source_inst, variants)
 
 
@@ -184,9 +196,13 @@ def run_benchmark(
 
     `variants` selects workloads per source: counts, names, indices, or a dict
     keyed by source. `iterations` re-runs one instance, measuring jitter.
+    Unlike `allocate`, `validate` defaults to True here.
     """
+    ensure_positive(iterations, "iterations")
     allocators = allocators or available_allocators()
     sources = sources or (DEFAULT_SOURCE,)
+    source_insts = tuple(BaseSource.resolve(source) for source in sources)
+    _ensure_known_variant_keys(source_insts, variants)
     campaign_id = campaign_id or "campaign_" + get_date_time_snake_case()
 
     reports = []
@@ -197,13 +213,12 @@ def run_benchmark(
     timer = Timer()
     timer.start()
 
-    for source in tqdm(
-        sources,
+    for source_inst in tqdm(
+        source_insts,
         desc="Sources",
         position=0,
         leave=False,
     ):
-        source_inst = BaseSource.resolve(source)
         if getattr(source_inst, "seed", 0) is None:
             logger.warning(
                 f"Source {source_inst.name()} has seed=None; each allocator "
@@ -215,7 +230,7 @@ def run_benchmark(
 
         for allocator in tqdm(
             allocators,
-            desc=f"Allocators [{source}]",
+            desc=f"Allocators [{source_inst.label()}]",
             position=1,
             leave=False,
         ):

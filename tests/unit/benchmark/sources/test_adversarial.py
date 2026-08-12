@@ -49,7 +49,7 @@ def test_dominant_distribution_concentrates_the_bytes() -> None:
 
 
 def test_skewed_source_rejects_an_unknown_distribution() -> None:
-    with pytest.raises(ValueError, match="distribution must be one of"):
+    with pytest.raises(ValueError, match="not a valid SizeDistribution"):
         SkewedSource(distribution="gaussian")
 
 
@@ -98,3 +98,8 @@ def test_two_plus_two_placements_validate_and_respect_the_bound() -> None:
         validate_allocation(placed)
         bound = antichain_pressure(allocations, work_budget=None)
         assert max(a.offset + a.size for a in placed.allocations) >= bound
+
+
+def test_two_plus_two_rejects_fewer_than_a_full_group() -> None:
+    with pytest.raises(ValueError, match="at least 4"):
+        TwoPlusTwoSource().get_allocations(num_allocations=3)

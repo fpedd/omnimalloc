@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
 
-from omnimalloc.analysis._pressure import pressure as _pressure
+from omnimalloc.analysis._pressure import antichain_pressure as _pressure
 from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import Allocation, IdType
@@ -38,7 +38,7 @@ class Pool:
 
     @cached_property
     def size(self) -> int:
-        """Memory extent from the pool base (offset 0) to the highest allocated end."""
+        """Extent from the pool base (offset 0) to the highest allocated end."""
         if not self.is_allocated:
             raise ValueError("cannot compute size of unallocated pool")
         return max((alloc.height or 0 for alloc in self.allocations), default=0)

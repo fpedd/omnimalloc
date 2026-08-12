@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, Literal, NamedTuple
 
-from omnimalloc.analysis import conflict_degrees, pressure, try_linearize
-from omnimalloc.analysis.clock import time_components, uniform_dim
+from omnimalloc.analysis import antichain_pressure, conflict_degrees, try_linearize
+from omnimalloc.analysis._clock import time_components, uniform_dim
+from omnimalloc.common.intervals import stack_around_pins
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import (
     Allocation,
@@ -203,7 +203,7 @@ def _lane_peaks(allocations: list[Allocation], dim: int) -> list[int]:
             _projected(alloc, extent)
             for alloc, extent in _visible_lane_extents(allocations, lane)
         )
-        peaks.append(pressure(projected))
+        peaks.append(antichain_pressure(projected))
     return peaks
 
 
@@ -258,16 +258,13 @@ def _get_y_limits(
 
 
 def _get_y_offsets(system: System) -> dict[Memory, dict[Pool, int]]:
-    offsets: dict[Memory, dict[Pool, int]] = defaultdict(dict)
+    offsets: dict[Memory, dict[Pool, int]] = {}
     for memory in system.memories:
-        current_offset = 0
-        for pool in memory.pools:
-            if pool.offset is not None:
-                offsets[memory][pool] = pool.offset
-            else:
-                offsets[memory][pool] = current_offset
-                current_offset += pool.size
-
+        stacked = stack_around_pins(
+            [pool.size for pool in memory.pools],
+            [pool.offset for pool in memory.pools],
+        )
+        offsets[memory] = dict(zip(memory.pools, stacked, strict=True))
     return offsets
 
 
@@ -466,7 +463,7 @@ def _draw_panel(
     panel: _Panel,
     y_limits: tuple[int, int],
     y_offsets: dict[Pool, int],
-    capacities: dict[str, dict[IdType, int]],
+    capacities: dict[IdType, dict[str, int]],
 ) -> None:
     memory = panel.memory
     if panel.title is not None:
@@ -502,9 +499,7 @@ def _draw_panel(
     limits: dict[str, int] = {"used": _memory_top(memory, y_offsets)}
     if memory.size is not None:
         limits["size"] = memory.size
-    for label, per_memory_capacity in capacities.items():
-        if memory.id in per_memory_capacity:
-            limits[label] = per_memory_capacity[memory.id]
+    limits.update(capacities.get(memory.id, {}))
 
     _draw_limit_lines(ax, limits)
 
@@ -512,7 +507,7 @@ def _draw_panel(
 def _visualize_system(
     system: System,
     path: Path | str | None,
-    capacities: dict[str, dict[IdType, int]],
+    capacities: dict[IdType, dict[str, int]],
     view: Literal["panel", "lanes"],
     max_lanes: int | None,
 ) -> None:
@@ -563,14 +558,15 @@ def _visualize_system(
 def plot_allocation(
     entity: System | Memory | Pool | Sequence[Allocation],
     path: Path | str | None = None,
-    capacities: dict[str, dict[IdType, int]] | None = None,
+    capacities: dict[IdType, dict[str, int]] | None = None,
     view: Literal["panel", "lanes"] = "panel",
     max_lanes: int | None = None,
 ) -> None:
     """Plot an allocated entity: `path=None` displays the figure, `path=...` saves it.
 
-    `view="panel"` draws each memory over a happens-before-monotone virtual time,
-    `view="lanes"` one subplot per thread. Neither shows a false overlap.
+    `view="panel"` draws each memory over a happens-before-monotone virtual
+    time, `view="lanes"` one subplot per thread; neither shows a false overlap.
+    `capacities` adds annotated limit lines beyond used and declared size.
     """
     if view not in ("panel", "lanes"):
         raise ValueError(f'view must be "panel" or "lanes", got {view!r}')
@@ -584,8 +580,11 @@ def plot_allocation(
     if not isinstance(entity, System | Memory | Pool):
         entity = Pool.from_allocations(entity)
 
+    if not entity.is_allocated:
+        raise ValueError(f"Cannot plot {entity.id!r}: not all allocations have offsets")
+
     if isinstance(entity, Pool):
-        entity = Memory(id=f"memory_{entity.id}", pools=(entity,))
+        entity = Memory(id=entity.id, pools=(entity,))
 
     if isinstance(entity, Memory):
         entity = System(id=f"system_{entity.id}", memories=(entity,))

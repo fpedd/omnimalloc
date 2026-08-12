@@ -23,7 +23,16 @@ class ConcurrentTilingSource(TilingSource):
     ``num_syncs`` messages, so ``capacity`` stays a provably achievable optimum.
     """
 
-    _label_fields: ClassVar[tuple[str, ...]] = ("num_threads",)
+    _label_fields: ClassVar[tuple[str, ...]] = (
+        "capacity",
+        "makespan",
+        "size_min",
+        "duration_min",
+        "seed",
+        "mem_cut_prob",
+        "num_threads",
+        "num_syncs",
+    )
 
     def __init__(
         self,
@@ -32,8 +41,8 @@ class ConcurrentTilingSource(TilingSource):
         num_syncs: int = 16,
         capacity: int = MB,
         makespan: int = 1024 * 1024,
-        min_size: int = KB,
-        min_duration: int = 1,
+        size_min: int = KB,
+        duration_min: int = 1,
         mem_cut_prob: float = 0.5,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
@@ -43,16 +52,16 @@ class ConcurrentTilingSource(TilingSource):
             raise ValueError("num_allocations must be >= num_threads")
         if capacity % num_threads:
             raise ValueError("capacity must be divisible by num_threads")
-        if capacity // num_threads < min_size:
-            raise ValueError("per-thread capacity must be >= min_size")
+        if capacity // num_threads < size_min:
+            raise ValueError("per-thread capacity must be >= size_min")
         if not 0 <= num_syncs < makespan:
             raise ValueError("num_syncs must be in [0, makespan)")
         super().__init__(
             num_allocations,
             capacity,
             makespan,
-            min_size,
-            min_duration,
+            size_min,
+            duration_min,
             mem_cut_prob,
             seed,
         )

@@ -43,6 +43,7 @@ env*/
 
 # Testing
 .coverage
+.coverage.*
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/

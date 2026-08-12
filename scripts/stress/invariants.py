@@ -25,7 +25,7 @@ from omnimalloc.analysis import (
     placement_pressure_per_allocation,
     try_linearize,
 )
-from omnimalloc.analysis.clock import time_components
+from omnimalloc.analysis._clock import time_components
 from omnimalloc.primitives import Allocation, IdType
 
 Allocs = Sequence[Allocation]

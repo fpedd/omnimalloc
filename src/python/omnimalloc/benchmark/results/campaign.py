@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import copy
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,12 @@ class BenchmarkCampaign:
         if not self.reports:
             raise ValueError("BenchmarkCampaign must contain at least one report")
         ensure_unique_ids(self.reports, "report")
+        try:
+            object.__setattr__(self, "metadata", copy.deepcopy(self.metadata))
+        except TypeError as error:
+            raise TypeError(
+                f"Campaign metadata must be deep-copyable: {error}"
+            ) from error
 
     @property
     def num_reports(self) -> int:
@@ -95,7 +102,7 @@ class BenchmarkCampaign:
 
     @property
     def default_metadata(self) -> dict[str, Any]:
-        # TODO(fpedd): Align this utils.py
+        """Environment plus campaign shape; `metadata` wins on a key clash."""
         return get_environment_metadata() | {
             "num_reports": self.num_reports,
             "num_results_per_report": round(self.num_results_per_report, 2),
