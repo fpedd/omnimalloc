@@ -57,6 +57,8 @@ def test_default_ceiling_is_eight_or_the_usable_cores() -> None:
 
 
 def test_ceiling_takes_the_value_set() -> None:
+    if available_cores() < 2:
+        pytest.skip("the ceiling clamps to the single usable core")
     set_max_threads(2)
     assert max_threads() == 2
     assert resolve_num_threads(None) == 2
