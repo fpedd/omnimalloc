@@ -3,6 +3,7 @@
 #
 
 import inspect
+import random
 from abc import abstractmethod
 from typing import ClassVar
 
@@ -20,6 +21,9 @@ class BaseSource(Registered):
 
     _strip_suffix: ClassVar[str] = "Source"
     _label_fields: ClassVar[tuple[str, ...]] = ()
+
+    # Declared for _variant_rng; only seeded subclasses set and use it
+    seed: int | None
 
     def __init__(
         self,
@@ -67,6 +71,14 @@ class BaseSource(Registered):
     def is_parameterizable(self) -> bool:
         """Whether this source can generate arbitrary allocation counts."""
         return True
+
+    def _resolve_count(self, num_allocations: int | None) -> int:
+        """The requested allocation count, defaulting to the configured one."""
+        return num_allocations if num_allocations is not None else self.num_allocations
+
+    def _variant_rng(self, skip: int) -> random.Random:
+        """Deterministic per-variant stream: same seed and skip, same problem."""
+        return random.Random(None if self.seed is None else self.seed + skip)
 
     def get_known_optimum(self, variant_id: IdType | None = None) -> int | None:
         """Provably achievable peak size for a variant, or None if unknown.

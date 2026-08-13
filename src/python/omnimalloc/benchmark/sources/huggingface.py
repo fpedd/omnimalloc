@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from importlib.util import find_spec
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from omnimalloc.benchmark.converters.model import model_to_allocations
 from omnimalloc.benchmark.converters.onnx import from_onnx
@@ -16,26 +16,24 @@ from omnimalloc.primitives import Allocation, IdType, Pool
 from ..utils import tqdm  # noqa: TID252
 from .base import BaseSource
 
-try:
+if TYPE_CHECKING:
     from huggingface_hub import HfApi, ModelInfo
 
-    HAS_HUGGINGFACE_HUB = True
-except ImportError:
-    HAS_HUGGINGFACE_HUB = False
-    HfApi = None  # ty: ignore[invalid-assignment]
-    ModelInfo = None  # ty: ignore[invalid-assignment]
-
+HAS_HUGGINGFACE_HUB = find_spec("huggingface_hub") is not None
 HAS_ONNX = find_spec("onnx") is not None
 
 
-def _get_hf_api() -> HfApi:
+def _get_hf_api() -> "HfApi":
     """Get HfApi instance, checking that dependency is available."""
     if not HAS_HUGGINGFACE_HUB:
         require_optional("huggingface-hub", "HuggingfaceSource")
+    # Deferred so importing this module never pays for the hub client
+    from huggingface_hub import HfApi
+
     return HfApi()
 
 
-def _list_onnx_models(limit: int = 10) -> list[ModelInfo]:
+def _list_onnx_models(limit: int = 10) -> list["ModelInfo"]:
     """Return ONNX models from Hugging Face Hub, excluding the legacy repository."""
     hf_api = _get_hf_api()
     models = hf_api.list_models(author="onnxmodelzoo", limit=limit + 1)
@@ -43,8 +41,8 @@ def _list_onnx_models(limit: int = 10) -> list[ModelInfo]:
 
 
 def _filter_onnx_opsets(
-    model_infos: list[ModelInfo], min_opset: int = 16
-) -> list[ModelInfo]:
+    model_infos: list["ModelInfo"], min_opset: int = 16
+) -> list["ModelInfo"]:
     """Filter ONNX models to only include the highest opset per base model name."""
     model_groups = defaultdict(list)
 
@@ -62,8 +60,9 @@ def _filter_onnx_opsets(
 
 
 def _gather_download_info(
-    model_infos: list[ModelInfo],
+    model_infos: list["ModelInfo"],
     filename_filter: str,
+    num_models: int,
     max_file_size_mb: float | None = 200,
 ) -> dict[str, str]:
     """Gather information about which models to download, filtering by size."""
@@ -71,6 +70,9 @@ def _gather_download_info(
     id_file_map = {}
 
     for model_info in model_infos:
+        # Each candidate costs one HTTP round-trip, so stop once enough passed
+        if len(id_file_map) == num_models:
+            break
         repo_files = hf_api.list_repo_tree(model_info.id, recursive=True)
         onnx_files = [
             f
@@ -122,9 +124,8 @@ def _download_onnx_models(
     """Download ONNX models and return local file paths."""
     models = _list_onnx_models(limit=num_models * 5)
     filtered = _filter_onnx_opsets(models)
-    id_file_map = _gather_download_info(filtered, ".onnx", max_file_size_mb=200)
-    id_file_map_limited = dict(list(id_file_map.items())[:num_models])
-    return _download_files(id_file_map_limited, output_dir, ".onnx")
+    id_file_map = _gather_download_info(filtered, ".onnx", num_models)
+    return _download_files(id_file_map, output_dir, ".onnx")
 
 
 class HuggingfaceSource(BaseSource):

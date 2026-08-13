@@ -58,20 +58,20 @@ std::vector<Allocation> tabu_search_place(
 
     // Sample a neighborhood of candidate swaps and keep the best admissible
     // one: non-tabu, or tabu but beating the best-ever solution (aspiration).
+    // Only the peak decides, so samples pay a peak scan, not a placement.
     size_t best_p1 = 0;
     size_t best_p2 = 0;
     int64_t best_candidate_peak = -1;
-    std::vector<Allocation> best_candidate_placed;
     bool best_is_tabu = false;
 
     for (int sample = 0; sample < config.neighborhood_size; ++sample) {
-      // Each sample costs a full placement, so the budget is read here too:
-      // checking only per iteration lets a whole neighborhood run past it
+      // Each sample costs a full first-fit pass, so the budget is read here
+      // too: checking only per iteration lets a whole neighborhood run past it
       if (deadline_expired(deadline)) {
         break;
       }
       const auto proposal =
-          propose_peak_swap(peaks, order, placer.indices(), rng);
+          propose_peak_swap(peaks, order, placer.adjacency(), rng);
       if (!proposal) {
         continue;
       }
@@ -82,8 +82,7 @@ std::vector<Allocation> tabu_search_place(
       bool is_tabu = tabu_it != tabu_until.end() && tabu_it->second > iteration;
 
       std::swap(order[target_pos], order[other_pos]);
-      std::vector<Allocation> candidate_placed = placer.place(order);
-      int64_t candidate_peak = peak_of(candidate_placed);
+      const int64_t candidate_peak = placer.peak(order);
       std::swap(order[target_pos],
                 order[other_pos]);  // undo; reapplied if chosen
 
@@ -91,7 +90,6 @@ std::vector<Allocation> tabu_search_place(
       if ((!is_tabu || aspires) &&
           (best_candidate_peak < 0 || candidate_peak < best_candidate_peak)) {
         best_candidate_peak = candidate_peak;
-        best_candidate_placed = std::move(candidate_placed);
         best_p1 = target_pos;
         best_p2 = other_pos;
         best_is_tabu = is_tabu;
@@ -102,8 +100,9 @@ std::vector<Allocation> tabu_search_place(
       continue;  // every sampled move was tabu without meeting aspiration
     }
 
+    // One placement per iteration: peak_positions needs the winner realized
     std::swap(order[best_p1], order[best_p2]);
-    current_placed = std::move(best_candidate_placed);
+    current_placed = placer.place(order);
     current_peak = best_candidate_peak;
     if (!best_is_tabu) {
       tabu_until[tabu_key(order[best_p1], order[best_p2], n)] =

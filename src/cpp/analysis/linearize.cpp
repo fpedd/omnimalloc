@@ -169,21 +169,18 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   }
 
   // Ranks: distinct counts ascending. On a chain, equal counts mean equal
-  // predecessor sets, so they share a rank and any member represents it.
+  // predecessor sets, so they share a rank (the last pushed one) and any
+  // member represents it.
   std::vector<int64_t> unique_counts;
   std::vector<int32_t> representative;
+  std::vector<int64_t> start_rank(k);
   for (size_t pos = 0; pos < k; ++pos) {
     const auto si = static_cast<size_t>(by_count[pos]);
     if (unique_counts.empty() || counts[si] != unique_counts.back()) {
       unique_counts.push_back(counts[si]);
       representative.push_back(by_count[pos]);
     }
-  }
-  std::vector<int64_t> start_rank(k);
-  for (size_t si = 0; si < k; ++si) {
-    start_rank[si] = std::lower_bound(unique_counts.begin(),
-                                      unique_counts.end(), counts[si]) -
-                     unique_counts.begin();
+    start_rank[si] = static_cast<int64_t>(unique_counts.size()) - 1;
   }
 
   // End rank: smallest rank whose representative start dominates the end,

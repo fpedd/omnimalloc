@@ -13,13 +13,6 @@
 
 namespace omnimalloc {
 
-// Index-based conflict adjacency: position i -> positions conflicting with i
-using ConflictIndices = std::vector<std::vector<size_t>>;
-
-// Map each allocation index to the indices of conflicting allocations
-[[nodiscard]] ConflictIndices compute_conflict_indices(
-    const std::vector<Allocation>& allocations);
-
 // Per-allocation count of conflicting allocations, aligned with `allocations`
 // and counted with multiplicity. Scalar timelines count in O(N log N) without
 // enumerating pairs; on vector clocks `work_budget` bounds the sweep.
@@ -44,7 +37,7 @@ class ConflictGraph {
                 std::optional<uint64_t> work_budget,
                 std::optional<uint64_t> max_entries = std::nullopt);
 
-  [[nodiscard]] size_t size() const noexcept { return adj_.offsets.size() - 1; }
+  [[nodiscard]] size_t size() const noexcept { return adj_.size(); }
   // Conflicting pairs in the relation, each counted once
   [[nodiscard]] uint64_t pair_count() const noexcept {
     return adj_.neighbors.size() / 2;

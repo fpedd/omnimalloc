@@ -13,6 +13,7 @@ from omnimalloc.primitives import Allocation, VectorClock
 
 from .base import BaseSource
 from .sizes import SizeDistribution, sample_sizes
+from .validation import ensure_size_range
 
 
 class SyncPattern(str, Enum):
@@ -82,10 +83,7 @@ class SyncPatternSource(BaseSource):
             raise ValueError("sync_period must be positive")
         if group_size is not None and group_size <= 0:
             raise ValueError("group_size must be positive")
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
-        if size_max < size_min:
-            raise ValueError("size_max must be >= size_min")
+        ensure_size_range(size_min, size_max)
         if max_lifetime is not None and max_lifetime <= 0:
             raise ValueError("max_lifetime must be positive")
         super().__init__(num_allocations=num_allocations)
@@ -104,8 +102,8 @@ class SyncPatternSource(BaseSource):
     def get_allocations(
         self, num_allocations: int | None = None, skip: int = 0
     ) -> tuple[Allocation, ...]:
-        num = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(None if self.seed is None else self.seed + skip)
+        num = self._resolve_count(num_allocations)
+        rng = self._variant_rng(skip)
         steps = self.steps or max(4 * self.speed_skew, 2 * num // self.num_threads)
         max_lifetime = self.max_lifetime or max(1, steps // 4)
         snapshots = self._simulate(steps, rng)

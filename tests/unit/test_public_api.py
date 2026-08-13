@@ -81,6 +81,8 @@ def _public_names(module: ModuleType) -> set[str]:
 
 
 def test_top_level_api_is_pinned() -> None:
+    for name in TOP_LEVEL_API:
+        getattr(omnimalloc, name)
     assert _public_names(omnimalloc) == TOP_LEVEL_API
 
 

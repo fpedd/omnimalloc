@@ -56,6 +56,25 @@ def _prefix_ids(pool: Pool) -> Pool:
     )
 
 
+def _load_pools(subset: MinimallocSubset, csv_dir: Path | None) -> list[Pool]:
+    """Load and id-qualify every CSV pool in the subset's directory."""
+    resolved = csv_dir if csv_dir is not None else _checkout_csv_dir(subset)
+    # Sort for a filesystem-independent, reproducible variant order
+    files = sorted(resolved.glob("*.csv")) if resolved is not None else []
+    if resolved is None:
+        logger.warning(
+            f"Not running from a source checkout, so the "
+            f"{subset.value!r} subset has no datasets; pass "
+            "csv_dir to read them from an install."
+        )
+    elif not files:
+        logger.warning(
+            f"No Minimalloc CSVs found in {resolved}; the "
+            f"{subset.value!r} subset yields no variants."
+        )
+    return [_prefix_ids(load_allocation(f)) for f in files]
+
+
 class MinimallocSource(BaseSource):
     """Fixed source loading pools from a directory of Minimalloc CSV files.
 
@@ -73,35 +92,11 @@ class MinimallocSource(BaseSource):
         self.subset = MinimallocSubset(subset)
         # The label must carry an explicit csv_dir but not the checkout default
         self.csv_dir = Path(csv_dir) if csv_dir is not None else None
-        self._cached_pools: list[Pool] | None = None
+        self._pools = _load_pools(self.subset, self.csv_dir)
 
         # An empty dataset keeps the base invariant; the accessors raise instead
         num_allocs = sum(len(p.allocations) for p in self._pools)
         super().__init__(num_allocations=max(num_allocs, 1))
-
-    @property
-    def _pools(self) -> list[Pool]:
-        if self._cached_pools is None:
-            csv_dir = (
-                self.csv_dir
-                if self.csv_dir is not None
-                else _checkout_csv_dir(self.subset)
-            )
-            # Sort for a filesystem-independent, reproducible variant order
-            files = sorted(csv_dir.glob("*.csv")) if csv_dir is not None else []
-            if csv_dir is None:
-                logger.warning(
-                    f"Not running from a source checkout, so the "
-                    f"{self.subset.value!r} subset has no datasets; pass "
-                    "csv_dir to read them from an install."
-                )
-            elif not files:
-                logger.warning(
-                    f"No Minimalloc CSVs found in {csv_dir}; the "
-                    f"{self.subset.value!r} subset yields no variants."
-                )
-            self._cached_pools = [_prefix_ids(load_allocation(f)) for f in files]
-        return self._cached_pools
 
     def _all_allocations(self) -> tuple[Allocation, ...]:
         return tuple(alloc for pool in self._pools for alloc in pool.allocations)

@@ -10,6 +10,7 @@ from omnimalloc.primitives import Allocation
 
 from .base import BaseSource
 from .sizes import SizeDistribution, sample_sizes
+from .validation import ensure_duration_range, ensure_size_range
 
 
 class SkewedSource(BaseSource):
@@ -40,14 +41,8 @@ class SkewedSource(BaseSource):
         duration_max: int = 64,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
-        if size_max < size_min:
-            raise ValueError("size_max must be >= size_min")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
-        if duration_max < duration_min:
-            raise ValueError("duration_max must be >= duration_min")
+        ensure_size_range(size_min, size_max)
+        ensure_duration_range(duration_min, duration_max)
         if time_max <= duration_max:
             raise ValueError("time_max must be > duration_max")
         super().__init__(num_allocations=num_allocations)
@@ -62,8 +57,8 @@ class SkewedSource(BaseSource):
     def get_allocations(
         self, num_allocations: int | None = None, skip: int = 0
     ) -> tuple[Allocation, ...]:
-        num = num_allocations if num_allocations is not None else self.num_allocations
-        rng = random.Random(None if self.seed is None else self.seed + skip)
+        num = self._resolve_count(num_allocations)
+        rng = self._variant_rng(skip)
         sizes = sample_sizes(rng, num, self.distribution, self.size_min, self.size_max)
 
         allocations = []
@@ -96,10 +91,7 @@ class TwoPlusTwoSource(BaseSource):
     ) -> None:
         if not 0.0 <= noise < 1.0:
             raise ValueError("noise must be in [0, 1)")
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
-        if size_max < size_min:
-            raise ValueError("size_max must be >= size_min")
+        ensure_size_range(size_min, size_max)
         super().__init__(num_allocations=num_allocations)
         self.noise = noise
         self.size_min = size_min
@@ -109,12 +101,12 @@ class TwoPlusTwoSource(BaseSource):
     def get_allocations(
         self, num_allocations: int | None = None, skip: int = 0
     ) -> tuple[Allocation, ...]:
-        num = num_allocations if num_allocations is not None else self.num_allocations
+        num = self._resolve_count(num_allocations)
         if num < self._GROUP:
             raise ValueError(
                 f"TwoPlusTwoSource needs at least {self._GROUP} allocations, got {num}"
             )
-        rng = random.Random(None if self.seed is None else self.seed + skip)
+        rng = self._variant_rng(skip)
         obstructions = max(1, round(num * (1.0 - self.noise)) // self._GROUP)
 
         allocations = []

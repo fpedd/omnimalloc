@@ -54,12 +54,15 @@ class BaseAllocator(Registered):
 
     def _ensure_preconditions(
         self, allocations: tuple["Allocation", ...]
-    ) -> dict["IdType", int | None]:
+    ) -> dict["IdType", int]:
         """Shared entry contract; returns the pinned offsets keyed by id."""
         ensure_unique_ids(allocations, "allocation")
         uniform_dim(allocations)
         self.ensure_supported(allocations)
-        pins = {alloc.id: alloc.offset for alloc in allocations if alloc.is_allocated}
+        pins: dict[IdType, int] = {}
+        for alloc in allocations:
+            if alloc.offset is not None:
+                pins[alloc.id] = alloc.offset
         if pins:
             self._ensure_pins_placeable(allocations)
         return pins
@@ -68,7 +71,7 @@ class BaseAllocator(Registered):
         self,
         allocations: tuple["Allocation", ...],
         placed: tuple["Allocation", ...],
-        pins: dict["IdType", int | None],
+        pins: dict["IdType", int],
     ) -> None:
         """Shared exit contract: same set, fully placed, pins untouched."""
         self._ensure_same_set(allocations, placed)
@@ -128,7 +131,7 @@ class BaseAllocator(Registered):
             raise ValueError(f"{self.name()} returned a different allocation set")
 
     def _ensure_placed(
-        self, placed: tuple["Allocation", ...], pins: dict["IdType", int | None]
+        self, placed: tuple["Allocation", ...], pins: dict["IdType", int]
     ) -> None:
         """Every allocation comes back placed, and every pin comes back put."""
         unplaced = next((alloc for alloc in placed if alloc.offset is None), None)
