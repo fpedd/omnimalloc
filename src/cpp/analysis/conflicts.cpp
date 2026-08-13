@@ -5,6 +5,7 @@
 #include "conflicts.hpp"
 
 #include <algorithm>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -37,28 +38,12 @@ void check_sweep_budget(const ConflictSweep& sweep,
   }
 }
 
-// Pairwise happens-before adjacency unpacked from CSR form
-ConflictIndices indices_from_adjacency(size_t n, const CsrAdjacency& adj) {
-  ConflictIndices indices(n);
-  for (size_t i = 0; i < n; ++i) {
-    indices[i].assign(adj.neighbors.begin() + adj.offsets[i],
-                      adj.neighbors.begin() + adj.offsets[i + 1]);
-  }
-  return indices;
-}
-
 }  // namespace
 
 CsrAdjacency build_conflict_adjacency(
     const std::vector<Allocation>& allocations) {
   const ConflictSweep sweep = build_conflict_sweep(allocations);
   return sweep.adjacency(parallel_threads(sweep.count()));
-}
-
-ConflictIndices compute_conflict_indices(
-    const std::vector<Allocation>& allocations) {
-  return indices_from_adjacency(allocations.size(),
-                                build_conflict_adjacency(allocations));
 }
 
 ConflictGraph::ConflictGraph(const std::vector<Allocation>& allocations,
@@ -93,8 +78,8 @@ int64_t ConflictGraph::degree(size_t index) const {
 
 std::vector<int32_t> ConflictGraph::neighbors(size_t index) const {
   check_index(index);
-  return {adj_.neighbors.begin() + adj_.offsets[index],
-          adj_.neighbors.begin() + adj_.offsets[index + 1]};
+  const std::span<const int32_t> row = adj_.row(index);
+  return {row.begin(), row.end()};
 }
 
 std::vector<int64_t> conflict_degrees(

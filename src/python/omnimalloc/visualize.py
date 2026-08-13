@@ -3,8 +3,9 @@
 #
 
 from collections.abc import Sequence
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from omnimalloc.analysis import antichain_pressure, conflict_degrees, try_linearize
 from omnimalloc.analysis._clock import time_components, uniform_dim
@@ -19,31 +20,11 @@ from omnimalloc.primitives import (
     System,
 )
 
-try:
-    import matplotlib.pyplot as plt
+if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-    from matplotlib.patches import Patch, Rectangle
-    from matplotlib.ticker import FuncFormatter, MaxNLocator, MultipleLocator
 
-    HAS_MATPLOTLIB = True
-
-except ImportError:
-    from types import SimpleNamespace
-
-    HAS_MATPLOTLIB = False
-
-    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        subplots=None,
-        show=None,
-    )
-    Axes = None  # ty: ignore[invalid-assignment]
-    Figure = None  # ty: ignore[invalid-assignment]
-    Patch = None  # ty: ignore[invalid-assignment]
-    Rectangle = None  # ty: ignore[invalid-assignment]
-    FuncFormatter = None  # ty: ignore[invalid-assignment]
-    MaxNLocator = None  # ty: ignore[invalid-assignment]
-    MultipleLocator = None  # ty: ignore[invalid-assignment]
+HAS_MATPLOTLIB = find_spec("matplotlib") is not None
 
 # Rendering guard: plot annotation gives up within tens of milliseconds
 # rather than stall on a second-scale conflict sweep.
@@ -269,13 +250,15 @@ def _get_y_offsets(system: System) -> dict[Memory, dict[Pool, int]]:
 
 
 def _draw_allocation(
-    ax: Axes,
+    ax: "Axes",
     alloc: Allocation,
     offset: int,
     color: str,
     extent: tuple[int, int],
 ) -> None:
     """Draw a single allocation rectangle over its projected lifetime."""
+    from matplotlib.patches import Rectangle
+
     assert alloc.offset is not None
     start, end = extent
     y_pos = offset + alloc.offset
@@ -299,9 +282,11 @@ def _draw_allocation(
 
 
 def _draw_pool_background(
-    ax: Axes, y_offset: int, pool_size: int, colors: set[str]
+    ax: "Axes", y_offset: int, pool_size: int, colors: set[str]
 ) -> None:
     """Draw background rectangle for allocation pool (gray for mixed/empty kinds)."""
+    from matplotlib.patches import Rectangle
+
     color = next(iter(colors)) if len(colors) == 1 else "gray"
     x_min, x_max = ax.get_xlim()
     rect = Rectangle(
@@ -315,7 +300,7 @@ def _draw_pool_background(
     ax.add_patch(rect)
 
 
-def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
+def _draw_limit_lines(ax: "Axes", limits: dict[str, int]) -> None:
     """Draw annotated horizontal lines for used size, declared size, and extras."""
     _, x_max = ax.get_xlim()
     for name, value in limits.items():
@@ -339,8 +324,10 @@ def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
         )
 
 
-def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
+def _set_axes_ticks(ax: "Axes", y_limit: int, num_ticks: int = 8) -> None:
     """Configure axis ticks and formatters."""
+    from matplotlib.ticker import FuncFormatter, MaxNLocator, MultipleLocator
+
     tick_size = y_limit / num_ticks
     divisor, unit = _byte_unit(y_limit)
     ax.yaxis.set_major_locator(MultipleLocator(tick_size))
@@ -419,8 +406,10 @@ def _projection_panels(system: System) -> tuple[list[_Panel], str | None]:
     return panels, caveat
 
 
-def _add_legend(fig: Figure) -> None:
+def _add_legend(fig: "Figure") -> None:
     """Add figure legend for allocation kinds."""
+    from matplotlib.patches import Patch
+
     handles = [
         Patch(color=color, label=kind.name, alpha=0.8)
         for kind, color in KIND_COLOR_MAP.items()
@@ -435,7 +424,7 @@ def _add_legend(fig: Figure) -> None:
 
 
 def _set_axes_limits(
-    ax: Axes,
+    ax: "Axes",
     x_limits: tuple[int, int],
     y_limits: tuple[int, int],
     size: int | None,
@@ -459,7 +448,7 @@ def _set_axes_limits(
 
 
 def _draw_panel(
-    ax: Axes,
+    ax: "Axes",
     panel: _Panel,
     y_limits: tuple[int, int],
     y_offsets: dict[Pool, int],
@@ -511,6 +500,8 @@ def _visualize_system(
     view: Literal["panel", "lanes"],
     max_lanes: int | None,
 ) -> None:
+    import matplotlib.pyplot as plt
+
     if view == "lanes":
         panels, caveat = _lane_panels(system, max_lanes)
     else:

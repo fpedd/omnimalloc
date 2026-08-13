@@ -3,9 +3,10 @@
 #
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from omnimalloc._cpp import first_fit_place
+from omnimalloc._cpp import FirstFitPlacer, first_fit_place
 from omnimalloc.analysis import conflict_degrees, placement_pressure
 from omnimalloc.analysis._clock import time_components, uniform_dim
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
@@ -38,28 +39,38 @@ def order_by_area(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]
     return tuple(sorted(allocations, key=lambda a: a.area, reverse=True))
 
 
-def order_by_conflict(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-    """Order by conflict degree (most conflicted first)."""
-    degrees = _sort_degrees(allocations)
+def _conflict_load(_alloc: Allocation, degree: int) -> int:
+    return degree
+
+
+def _conflict_size_load(alloc: Allocation, degree: int) -> int:
+    return degree * alloc.size
+
+
+def _order_by_load(
+    allocations: tuple[Allocation, ...],
+    degrees: list[int],
+    load: Callable[[Allocation, int], int],
+) -> tuple[Allocation, ...]:
+    """Order by `load` over precomputed conflict degrees (largest first, size ties)."""
     paired = sorted(
         zip(allocations, degrees, strict=True),
-        key=lambda pair: (pair[1], pair[0].size),
+        key=lambda pair: (load(pair[0], pair[1]), pair[0].size),
         reverse=True,
     )
     return tuple(alloc for alloc, _ in paired)
+
+
+def order_by_conflict(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    """Order by conflict degree (most conflicted first)."""
+    return _order_by_load(allocations, _sort_degrees(allocations), _conflict_load)
 
 
 def order_by_conflict_size(
     allocations: tuple[Allocation, ...],
 ) -> tuple[Allocation, ...]:
     """Order by conflict degree times size (largest first)."""
-    degrees = _sort_degrees(allocations)
-    paired = sorted(
-        zip(allocations, degrees, strict=True),
-        key=lambda pair: (pair[1] * pair[0].size, pair[0].size),
-        reverse=True,
-    )
-    return tuple(alloc for alloc, _ in paired)
+    return _order_by_load(allocations, _sort_degrees(allocations), _conflict_size_load)
 
 
 def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
@@ -168,6 +179,25 @@ class GreedyBySizeAllocator(GreedyAllocator):
         return super()._allocate(order_by_size(allocations))
 
 
+def _order_by_input(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    return allocations
+
+
+_OrderFn = Callable[[tuple[Allocation, ...]], tuple[Allocation, ...]]
+
+# The portfolio's variants in their tie-breaking order: equal peaks go to the
+# earlier entry, mirroring the variant tuple this table replaced.
+_PORTFOLIO_ORDERS: tuple[tuple[str, _OrderFn], ...] = (
+    ("greedy", _order_by_input),
+    ("greedy_by_size", order_by_size),
+    ("greedy_by_duration", order_by_duration),
+    ("greedy_by_area", order_by_area),
+    ("greedy_by_conflict", order_by_conflict),
+    ("greedy_by_conflict_size", order_by_conflict_size),
+    ("greedy_by_start", order_by_start),
+)
+
+
 class GreedyByAllAllocator(GreedyAllocator):
     """Greedy allocator that runs every variant and keeps the best result."""
 
@@ -176,13 +206,33 @@ class GreedyByAllAllocator(GreedyAllocator):
         self._num_threads = num_threads
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        variants: tuple[BaseAllocator, ...] = (
-            GreedyAllocator(),
-            GreedyBySizeAllocator(),
-            GreedyByDurationAllocator(),
-            GreedyByAreaAllocator(),
-            GreedyByConflictAllocator(),
-            GreedyByConflictSizeAllocator(),
-            GreedyByStartAllocator(),
-        )
-        return allocate_parallel(allocations, variants, num_threads=self._num_threads)
+        # One resident placer serves every variant: the conflict adjacency is
+        # built once and each order crosses the C++ boundary as a permutation.
+        # A workload the placer refuses would have failed all seven variants.
+        try:
+            placer = FirstFitPlacer(allocations)
+        except ValueError as e:
+            raise RuntimeError("Every allocator variant failed") from e
+
+        positions = {alloc.id: i for i, alloc in enumerate(allocations)}
+
+        def score(order: _OrderFn) -> tuple[int, list[int]]:
+            permutation = [positions[alloc.id] for alloc in order(allocations)]
+            return placer.peak(permutation), permutation
+
+        workers = min(resolve_num_threads(self._num_threads), len(_PORTFOLIO_ORDERS))
+        scored = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(score, order) for _, order in _PORTFOLIO_ORDERS]
+            for (name, _), future in zip(_PORTFOLIO_ORDERS, futures, strict=True):
+                try:
+                    scored.append(future.result())
+                except Exception:
+                    logger.warning(
+                        "Variant %s failed; skipping it", name, exc_info=True
+                    )
+
+        if not scored:
+            raise RuntimeError("Every allocator variant failed")
+        _, best_permutation = min(scored, key=lambda item: item[0])
+        return tuple(placer.place(best_permutation))

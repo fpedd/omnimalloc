@@ -12,8 +12,7 @@ namespace omnimalloc {
 
 namespace {
 
-int64_t find_best_fit_offset(
-    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans) {
+int64_t find_best_fit_offset(int64_t size, const std::vector<Interval>& spans) {
   // Scan every gap between the sorted placed spans, keep the smallest that fits
   int64_t cursor = 0;
   int64_t best_offset = 0;
@@ -37,7 +36,7 @@ std::vector<Allocation> best_fit_place(
     const std::vector<Allocation>& allocations) {
   // Lambda rather than the function pointer so the placement loop inlines
   // the offset scan instead of an indirect call per allocation
-  return place_indexed(allocations, compute_conflict_indices(allocations),
+  return place_indexed(allocations, build_conflict_adjacency(allocations),
                        [](int64_t size, const auto& spans) {
                          return find_best_fit_offset(size, spans);
                        });

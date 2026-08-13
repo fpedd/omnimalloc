@@ -123,8 +123,7 @@ def _write_allocator_reports(
     allocator_dir = source_dir / allocator_name
     allocator_dir.mkdir(parents=True, exist_ok=True)
 
-    for variant_label in sorted(variant_dict.keys()):
-        reports = variant_dict[variant_label]
+    for variant_label, reports in variant_dict.items():
         variant_dir = allocator_dir / variant_label
         variant_dir.mkdir(parents=True, exist_ok=True)
 
@@ -152,11 +151,11 @@ def _write_source_reports(
     source_dir = base_dir / "sources" / source_name / "allocators"
     source_dir.mkdir(parents=True, exist_ok=True)
 
-    for allocator_name in sorted(allocator_dict.keys()):
+    for allocator_name, variant_dict in allocator_dict.items():
         _write_allocator_reports(
             source_dir,
             allocator_name,
-            allocator_dict[allocator_name],
+            variant_dict,
             visualize_iterations,
             pbar,
         )
@@ -165,6 +164,7 @@ def _write_source_reports(
 def _write_nested_reports(
     base_dir: Path, campaign: BenchmarkCampaign, visualize_iterations: bool
 ) -> None:
+    # The grouping property already sorts every level, so iteration order holds
     reports_by_source = campaign.reports_by_source_allocator_variant
 
     total_iterations = (
@@ -181,11 +181,11 @@ def _write_nested_reports(
         unit=unit,
         leave=False,
     ) as pbar:
-        for source_name in sorted(reports_by_source.keys()):
+        for source_name, allocator_dict in reports_by_source.items():
             _write_source_reports(
                 base_dir,
                 source_name,
-                reports_by_source[source_name],
+                allocator_dict,
                 visualize_iterations,
                 pbar,
             )

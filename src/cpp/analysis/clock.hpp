@@ -318,17 +318,22 @@ inline std::vector<int64_t> interval_peaks(
     const std::vector<std::pair<int64_t, int64_t>>& times,
     const std::vector<int64_t>& weights) {
   const std::vector<int64_t> bounds = slot_bounds(times);
+  // Compressed once, then reused by both the delta pass and the queries
+  std::vector<std::pair<size_t, size_t>> windows(times.size());
+  for (size_t i = 0; i < times.size(); ++i) {
+    windows[i] = {slot_index(bounds, times[i].first),
+                  slot_index(bounds, times[i].second)};
+  }
   std::vector<int64_t> pressure(bounds.size(), 0);
   for (size_t i = 0; i < times.size(); ++i) {
-    pressure[slot_index(bounds, times[i].first)] += weights[i];
-    pressure[slot_index(bounds, times[i].second)] -= weights[i];
+    pressure[windows[i].first] += weights[i];
+    pressure[windows[i].second] -= weights[i];
   }
   std::partial_sum(pressure.begin(), pressure.end(), pressure.begin());
   const MaxSegtree live(pressure);
   std::vector<int64_t> peaks(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
-    peaks[i] = live.max(slot_index(bounds, times[i].first),
-                        slot_index(bounds, times[i].second));
+    peaks[i] = live.max(windows[i].first, windows[i].second);
   }
   return peaks;
 }
@@ -339,6 +344,12 @@ inline std::vector<int64_t> interval_peaks(
 struct CsrAdjacency {
   std::vector<int64_t> offsets;
   std::vector<int32_t> neighbors;
+
+  [[nodiscard]] size_t size() const noexcept { return offsets.size() - 1; }
+  [[nodiscard]] std::span<const int32_t> row(size_t index) const noexcept {
+    return {neighbors.data() + offsets[index],
+            static_cast<size_t>(offsets[index + 1] - offsets[index])};
+  }
 };
 
 // Ceiling on the neighbor entries one adjacency may materialize, 4 bytes each.

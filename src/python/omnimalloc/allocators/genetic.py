@@ -19,9 +19,11 @@ from omnimalloc.primitives import Allocation
 
 from .greedy import (
     GreedyAllocator,
+    _conflict_load,
+    _conflict_size_load,
+    _order_by_load,
+    _sort_degrees,
     order_by_area,
-    order_by_conflict,
-    order_by_conflict_size,
     order_by_duration,
     order_by_size,
     order_by_start,
@@ -39,6 +41,13 @@ except ImportError:
 # DEAP's operators are hardwired to the global random module, so the seeded
 # section is a process-wide critical section rather than per-instance state
 _GLOBAL_RNG_LOCK = threading.Lock()
+
+
+def _evaluate_permutation(
+    permutation: list[int], placer: FirstFitPlacer
+) -> tuple[float]:
+    """Evaluate a permutation by computing its greedy peak memory usage."""
+    return (float(placer.peak(permutation)),)
 
 
 class GeneticAllocator(GreedyAllocator):
@@ -91,27 +100,22 @@ class GeneticAllocator(GreedyAllocator):
                 fitness=creator.OmnimallocFitnessMin,  # ty: ignore[unresolved-attribute]
             )
 
-    def _evaluate_permutation(
-        self, permutation: list[int], placer: FirstFitPlacer
-    ) -> tuple[float]:
-        """Evaluate a permutation by computing its greedy peak memory usage."""
-        return (float(placer.peak(permutation)),)
-
     def _heuristic_permutations(
         self, allocations: tuple[Allocation, ...]
     ) -> list[list[int]]:
         """Create seed permutations mirroring the greedy sort heuristics."""
-        orders = (
-            order_by_size,
-            order_by_duration,
-            order_by_area,
-            order_by_conflict,
-            order_by_conflict_size,
-            order_by_start,
+        degrees = _sort_degrees(allocations)
+        orderings = (
+            order_by_size(allocations),
+            order_by_duration(allocations),
+            order_by_area(allocations),
+            _order_by_load(allocations, degrees, _conflict_load),
+            _order_by_load(allocations, degrees, _conflict_size_load),
+            order_by_start(allocations),
         )
         positions = {alloc.id: i for i, alloc in enumerate(allocations)}
         permutations = [
-            [positions[alloc.id] for alloc in order(allocations)] for order in orders
+            [positions[alloc.id] for alloc in ordering] for ordering in orderings
         ]
         return permutations[: self._population_size]
 
@@ -146,7 +150,7 @@ class GeneticAllocator(GreedyAllocator):
             creator.OmnimallocIndividual,  # ty: ignore[unresolved-attribute]
             toolbox.indices,  # ty: ignore[unresolved-attribute]
         )
-        toolbox.register("evaluate", self._evaluate_permutation, placer=placer)
+        toolbox.register("evaluate", _evaluate_permutation, placer=placer)
         toolbox.register("mate", tools.cxOrdered)
         toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
         # TODO(fpedd): Try larger tournsize and selNSGA2
