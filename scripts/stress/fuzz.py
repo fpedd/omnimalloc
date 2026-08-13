@@ -43,6 +43,10 @@ FAST_KWARGS: dict[str, dict[str, float | int]] = {
     "telamalloc": {"timeout": 1.0},
 }
 
+# The budget makes these anytime: under load two identical calls can stop at
+# different search depths, so only the resulting peak is required to agree.
+ANYTIME = frozenset(FAST_KWARGS)
+
 # Brute-force references are quadratic, so they run only on small instances
 BRUTE_LIMIT = 200
 CLIQUE_LIMIT = 26
@@ -146,7 +150,10 @@ def check_allocator(
 
     fails = check_placement(allocations, placed, name, {})
     repeat = tuple(fresh(name).allocate(allocations))
-    if [a.offset for a in repeat] != [a.offset for a in placed]:
+    if name in ANYTIME:
+        if peak_of(repeat) != peak_of(placed):
+            fails.append(f"{name}: peak differs across two identical calls")
+    elif [a.offset for a in repeat] != [a.offset for a in placed]:
         fails.append(f"{name}: not deterministic across two identical calls")
     if deep:
         fails += _check_pins(allocations, placed, name, rng, allocator)
