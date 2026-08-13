@@ -1793,7 +1793,7 @@ provides-extras = ["all"]
 dev = [
     { name = "ipykernel", specifier = ">=6.30.0" },
     { name = "ipywidgets", specifier = ">=8.1.0" },
-    { name = "nanobind", specifier = ">=2.0" },
+    { name = "nanobind", specifier = ">=2.5" },
     { name = "nbconvert", specifier = ">=7.16.0" },
     { name = "pre-commit", specifier = ">=4.0.0" },
     { name = "pytest", specifier = ">=8.0" },

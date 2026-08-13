@@ -40,6 +40,7 @@ nanobind_add_module(
   _cpp
   NB_STATIC
   NOMINSIZE
+  NB_SUPPRESS_WARNINGS
   src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/first_fit.cpp
   src/cpp/allocators/local_search.cpp
@@ -59,6 +60,25 @@ nanobind_add_module(
 
 target_include_directories(_cpp PRIVATE src/cpp)
 target_link_libraries(_cpp PRIVATE Threads::Threads)
+
+option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if(MSVC)
+  target_compile_options(_cpp PRIVATE /W4 $<$<BOOL:${WARNINGS_AS_ERRORS}>:/WX>)
+else()
+  target_compile_options(
+    _cpp
+    PRIVATE -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wno-sign-conversion
+            -Wshadow
+            -Wold-style-cast
+            -Wcast-qual
+            -Wcast-align
+            $<$<BOOL:${WARNINGS_AS_ERRORS}>:-Werror>)
+endif()
 
 if(ENABLE_CLANG_TIDY)
   set_target_properties(_cpp PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_PROGRAM}")
