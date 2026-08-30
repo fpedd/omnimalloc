@@ -25,13 +25,13 @@ class RandomAllocator(GreedyAllocator):
         rng = random.Random(self._seed)
         placer = FirstFitPlacer(allocations)
         order = list(range(len(allocations)))
-        rng.shuffle(order)
-        best_order, best_peak = list(order), placer.peak(order)
+        best_order: list[int] = []
+        best_peak: int | None = None
 
-        for _ in range(self._num_trials - 1):
+        for _ in range(self._num_trials):
             rng.shuffle(order)
             peak = placer.peak(order)
-            if peak < best_peak:
+            if best_peak is None or peak < best_peak:
                 best_order, best_peak = list(order), peak
 
         return tuple(placer.place(best_order))

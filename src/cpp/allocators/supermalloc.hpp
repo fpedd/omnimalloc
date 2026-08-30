@@ -35,6 +35,13 @@ struct Solution {
   int64_t peak;
 };
 
+// One greedy packing as index-aligned offsets plus its peak height;
+// materialized into a Solution only for a portfolio's winner.
+struct Packing {
+  std::vector<int64_t> offsets;
+  int64_t height;
+};
+
 // A temporal allocation problem: immutable structure (sections, overlaps,
 // spans) shared across copies, plus mutable search state (offsets, floors,
 // totals, best_height) that the hot loop updates via `apply_at`/`revert`.
@@ -114,7 +121,7 @@ class Partition {
   // First-fit packing in `heuristic` order (empty keeps the input order):
   // each buffer takes the lowest gap among its already-placed overlaps. Cheap
   // incumbent for a fresh (fully unplaced) partition.
-  [[nodiscard]] Solution greedy_pack(const std::string& heuristic) const;
+  [[nodiscard]] Packing greedy_pack(const std::string& heuristic) const;
 
   // Reorder allocations by `heuristic`: each character is a descending sort
   // key (one of A, C, L, O, T, U, W, Z; throws otherwise), original index
@@ -168,7 +175,7 @@ class Partition {
                      int start, int end) const;
 
   // First-fit packing in `order`; body of `greedy_pack`.
-  [[nodiscard]] Solution first_fit(const std::vector<int>& order) const;
+  [[nodiscard]] Packing first_fit(const std::vector<int>& order) const;
 
   // Derive the incremental search state (candidates, tops, cuts) from
   // `offsets_`, `min_offsets_`, and the section spans.

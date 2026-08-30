@@ -7,6 +7,8 @@ import random
 from enum import Enum
 from typing import Final
 
+from .validation import ensure_size_range
+
 
 class SizeDistribution(str, Enum):
     """Size distribution families, ordered from flattest to most skewed.
@@ -46,10 +48,7 @@ def sample_sizes(
     `bimodal` the 90/10 accelerator mix, `dominant` one buffer at 90%.
     """
     distribution = SizeDistribution(distribution)
-    if size_min <= 0:
-        raise ValueError("size_min must be positive")
-    if size_max < size_min:
-        raise ValueError("size_max must be >= size_min")
+    ensure_size_range(size_min, size_max)
     if count <= 0:
         return []
 

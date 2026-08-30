@@ -66,8 +66,6 @@ class BenchmarkReport:
         """Human-readable label for this variant."""
         if self.variant_id is None:
             return f"{self.num_allocations}"
-        if isinstance(self.variant_id, str):
-            return self.variant_id
         return f"{self.variant_id}"
 
     @property
@@ -81,7 +79,8 @@ class BenchmarkReport:
 
     @property
     def total_num_allocations(self) -> int:
-        return sum(r.num_allocations for r in self.results)
+        # __post_init__ enforces a uniform count across the iterations
+        return self.num_results * self.num_allocations
 
     @property
     def num_results(self) -> int:

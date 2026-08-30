@@ -11,6 +11,7 @@ from typing import ClassVar, Generic, TypeVar
 from omnimalloc.primitives import Allocation, IdType, Pool, TimePoint
 
 from .base import BaseSource
+from .validation import ensure_duration_range, ensure_size_range
 
 TimeT_co = TypeVar("TimeT_co", bound=TimePoint, covariant=True)
 
@@ -54,10 +55,8 @@ class TilingBase(BaseSource):
         seed: int | None,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_size_range(size_min)
+        ensure_duration_range(duration_min)
         self.capacity = capacity
         self.makespan = makespan
         self.size_min = size_min
@@ -103,10 +102,6 @@ class TilingBase(BaseSource):
             )
         return tiles
 
-    def _variant_rng(self, skip: int) -> random.Random:
-        """Deterministic per-variant stream: same seed and skip, same problem."""
-        return random.Random(None if self.seed is None else self.seed + skip)
-
     def _placed_tiles(self, num: int, skip: int) -> Sequence[_Tile[TimePoint]]:
         """One placed tile per allocation to generate; the subclass hook."""
         return self._build_tiles(num, self._variant_rng(skip))
@@ -114,7 +109,7 @@ class TilingBase(BaseSource):
     def _tile_allocations(
         self, num_allocations: int | None, skip: int, with_offsets: bool
     ) -> tuple[Allocation, ...]:
-        num = num_allocations if num_allocations is not None else self.num_allocations
+        num = self._resolve_count(num_allocations)
         return tuple(
             Allocation(
                 id=skip + i,

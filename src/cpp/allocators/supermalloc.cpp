@@ -473,29 +473,25 @@ void Partition::order_indices(std::vector<int>& indices,
   indices = std::move(sorted);
 }
 
-Solution Partition::first_fit(const std::vector<int>& order) const {
-  const int n = static_cast<int>(data_->allocations.size());
-  std::vector<int64_t> offsets(static_cast<size_t>(n), -1);
+Packing Partition::first_fit(const std::vector<int>& order) const {
+  const size_t n = data_->allocations.size();
+  std::vector<int64_t> offsets(n, -1);
+  std::vector<Interval> placed(n, kUnplaced);
   int64_t height = 0;
-  std::vector<std::pair<int64_t, int64_t>> intervals;
-  for (int i : order) {
-    intervals.clear();
-    for (int j : data_->overlaps[i]) {
-      if (offsets[j] >= 0) {
-        intervals.emplace_back(offsets[j], offsets[j] + data_->alloc_sizes[j]);
-      }
-    }
-    std::sort(intervals.begin(), intervals.end());
-
+  std::vector<Interval> intervals;
+  std::vector<Interval> scratch;
+  for (const int i : order) {
+    gather_placed_spans(data_->overlaps[i], placed, intervals, scratch);
     const int64_t size = data_->alloc_sizes[i];
     const int64_t offset = first_fit_offset(size, intervals);
-    offsets[i] = offset;
+    offsets[static_cast<size_t>(i)] = offset;
+    placed[static_cast<size_t>(i)] = {offset, offset + size};
     height = std::max(height, offset + size);
   }
-  return Solution{apply_offsets(data_->allocations, offsets), height};
+  return Packing{std::move(offsets), height};
 }
 
-Solution Partition::greedy_pack(const std::string& heuristic) const {
+Packing Partition::greedy_pack(const std::string& heuristic) const {
   std::vector<int> order(data_->allocations.size());
   std::iota(order.begin(), order.end(), 0);
   order_indices(order, heuristic, 0, static_cast<int>(data_->sections.size()));
@@ -948,7 +944,7 @@ Solution greedy_pack_portfolio(const Partition& partition,
   validate_heuristics(heuristics);
 
   const auto deadline = compute_deadline(timeout);
-  std::vector<std::optional<Solution>> results(heuristics.size());
+  std::vector<std::optional<Packing>> results(heuristics.size());
   std::atomic<size_t> next{0};
 
   // The first heuristic is packed regardless of the deadline so that at
@@ -963,11 +959,13 @@ Solution greedy_pack_portfolio(const Partition& partition,
       },
       num_threads, heuristics.size());
 
-  std::optional<Solution> best;
+  // Only the winner is materialized into placed Allocation copies.
+  std::optional<Packing> best;
   for (auto& r : results) {
-    if (r && (!best || r->peak < best->peak)) best = std::move(*r);
+    if (r && (!best || r->height < best->height)) best = std::move(*r);
   }
-  return std::move(*best);
+  return Solution{apply_offsets(partition.allocations(), best->offsets),
+                  best->height};
 }
 
 std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,

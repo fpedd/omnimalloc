@@ -30,8 +30,8 @@ constexpr int64_t kUnbounded = std::numeric_limits<int64_t>::max() / 4;
 
 // Connected components of the overlap graph: the paper's "phases". Buffers
 // in different components never interact, so each packs independently.
-std::vector<std::vector<int>> build_phases(const ConflictIndices& neighbors) {
-  const int n = static_cast<int>(neighbors.size());
+std::vector<std::vector<int>> build_phases(const CsrAdjacency& adj) {
+  const int n = static_cast<int>(adj.size());
   std::vector<std::vector<int>> phases;
   std::vector<char> visited(n, 0);
   for (int seed = 0; seed < n; ++seed) {
@@ -45,10 +45,10 @@ std::vector<std::vector<int>> build_phases(const ConflictIndices& neighbors) {
       int idx = stack.back();
       stack.pop_back();
       phase.push_back(idx);
-      for (size_t other : neighbors[idx]) {
-        if (!visited[other]) {
-          visited[other] = 1;
-          stack.push_back(static_cast<int>(other));
+      for (const int32_t other : adj.row(static_cast<size_t>(idx))) {
+        if (!visited[static_cast<size_t>(other)]) {
+          visited[static_cast<size_t>(other)] = 1;
+          stack.push_back(other);
         }
       }
     }
@@ -88,10 +88,9 @@ QueueKey queue_key(const Allocation& alloc, int idx, int evictions,
 // fitting gap, evicting the cheapest blocking set on conflict and requeueing it
 // at raised priority; a spent eviction budget wipes and re-packs the phase.
 std::optional<std::vector<int64_t>> pack_phase(
-    const std::vector<Allocation>& allocations,
-    const ConflictIndices& neighbors, const std::vector<int>& phase,
-    int64_t capacity, int max_backtracks, const Deadline& deadline,
-    bool size_major, uint64_t seed) {
+    const std::vector<Allocation>& allocations, const CsrAdjacency& adj,
+    const std::vector<int>& phase, int64_t capacity, int max_backtracks,
+    const Deadline& deadline, bool size_major, uint64_t seed) {
   std::vector<int64_t> offsets(allocations.size(), -1);
   std::vector<int> evictions(allocations.size(), 0);
   std::mt19937_64 rng(seed);
@@ -106,6 +105,7 @@ std::optional<std::vector<int64_t>> pack_phase(
   // Scratch buffers for the placement loop, reused across queue pops.
   std::vector<std::pair<int64_t, int>> occupied;   // (offset, neighbor)
   std::vector<std::pair<int64_t, int64_t>> spans;  // (offset, end)
+  std::vector<int64_t> candidates;                 // repair offsets
 
   while (true) {
     for (int idx : phase) {
@@ -130,9 +130,9 @@ std::optional<std::vector<int64_t>> pack_phase(
       // spans inherit occupied's offset order (ties differ only in end
       // order, which cannot change a gap scan's result), so one sort does.
       occupied.clear();
-      for (size_t other : neighbors[idx]) {
-        if (offsets[other] >= 0) {
-          occupied.emplace_back(offsets[other], static_cast<int>(other));
+      for (const int32_t other : adj.row(static_cast<size_t>(idx))) {
+        if (offsets[static_cast<size_t>(other)] >= 0) {
+          occupied.emplace_back(offsets[static_cast<size_t>(other)], other);
         }
       }
       std::sort(occupied.begin(), occupied.end());
@@ -153,7 +153,8 @@ std::optional<std::vector<int64_t>> pack_phase(
       // Conflict: no gap fits below `capacity`. Score the candidate
       // placements (offset 0, flush above each blocker, flush below each
       // blocker) by the blockers each would displace; take the cheapest.
-      std::vector<int64_t> candidates{0};
+      candidates.clear();
+      candidates.push_back(0);
       for (const auto& [offset, other] : occupied) {
         const int64_t end = offset + allocations[other].size();
         if (end + size <= capacity) {
@@ -232,16 +233,15 @@ int64_t phase_peak(const std::vector<Allocation>& allocations,
 // search on capacity down toward the load lower bound. Budget-exhausted
 // attempts count as infeasible, keeping the search anytime rather than exact.
 void solve_phase(const std::vector<Allocation>& allocations,
-                 const ConflictIndices& neighbors,
-                 const std::vector<int>& phase, int64_t lower_bound,
-                 const TelamallocConfig& config, const Deadline& deadline,
-                 std::vector<int64_t>& result) {
+                 const CsrAdjacency& adj, const std::vector<int>& phase,
+                 int64_t lower_bound, const TelamallocConfig& config,
+                 const Deadline& deadline, std::vector<int64_t>& result) {
   // Unbounded capacity never conflicts, so these incumbents are plain
   // first-fit in each tiered order and cannot fail. The winner's order also
   // steers the capacity search below.
-  auto by_duration = pack_phase(allocations, neighbors, phase, kUnbounded, 0,
+  auto by_duration = pack_phase(allocations, adj, phase, kUnbounded, 0,
                                 std::nullopt, false, config.seed);
-  auto by_size = pack_phase(allocations, neighbors, phase, kUnbounded, 0,
+  auto by_size = pack_phase(allocations, adj, phase, kUnbounded, 0,
                             std::nullopt, true, config.seed);
   const int64_t duration_peak = phase_peak(allocations, phase, *by_duration);
   const int64_t size_peak = phase_peak(allocations, phase, *by_size);
@@ -258,7 +258,7 @@ void solve_phase(const std::vector<Allocation>& allocations,
     }
     const int64_t mid = low + (high - low) / 2;
     auto attempt =
-        pack_phase(allocations, neighbors, phase, mid, config.max_backtracks,
+        pack_phase(allocations, adj, phase, mid, config.max_backtracks,
                    deadline, size_major, config.seed);
     if (attempt) {
       best = std::move(*attempt);
@@ -284,13 +284,13 @@ std::vector<Allocation> telamalloc_place(
   // Bound by kUnbounded so the unbounded-capacity pack_phase incumbents in
   // solve_phase can never fail and the cursor arithmetic cannot overflow.
   check_total_size(allocations, kUnbounded);
-  const ConflictIndices neighbors = compute_conflict_indices(allocations);
+  const CsrAdjacency adj = build_conflict_adjacency(allocations);
   if (allocations.size() < 2) {
-    return first_fit_place_indexed(allocations, neighbors);
+    return first_fit_place_indexed(allocations, adj);
   }
 
   const Deadline deadline = make_deadline(config.timeout);
-  const auto phases = build_phases(neighbors);
+  const auto phases = build_phases(adj);
 
   // Solve phases in descending load order: the global peak is the max over
   // phases, so the dominant phase should get the wall-clock budget first.
@@ -305,8 +305,8 @@ std::vector<Allocation> telamalloc_place(
 
   std::vector<int64_t> result(allocations.size(), -1);
   for (const auto& [lower_bound, p] : order) {
-    solve_phase(allocations, neighbors, phases[p], lower_bound, config,
-                deadline, result);
+    solve_phase(allocations, adj, phases[p], lower_bound, config, deadline,
+                result);
   }
   return apply_offsets(allocations, result);
 }

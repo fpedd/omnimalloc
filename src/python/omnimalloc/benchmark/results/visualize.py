@@ -3,8 +3,9 @@
 #
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from omnimalloc.common.optional import require_optional
 
@@ -12,26 +13,11 @@ from .campaign import BenchmarkCampaign
 from .report import BenchmarkReport
 from .result import BenchmarkResult
 
-try:
-    import matplotlib.pyplot as plt
+if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-    from matplotlib.lines import Line2D
 
-    HAS_MATPLOTLIB = True
-except ImportError:
-    from types import SimpleNamespace
-
-    HAS_MATPLOTLIB = False
-    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        subplots=None,
-        savefig=None,
-        show=None,
-        close=None,
-    )
-    Line2D = None  # ty: ignore[invalid-assignment]
-    Axes = None  # ty: ignore[invalid-assignment]
-    Figure = None  # ty: ignore[invalid-assignment]
+HAS_MATPLOTLIB = find_spec("matplotlib") is not None
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +58,8 @@ def _get_sorted_reports(
 
 
 def _draw_graphs(
-    ax: Axes,
-    ax2: Axes,
+    ax: "Axes",
+    ax2: "Axes",
     name: str,
     color: str,
     is_categorical: bool,
@@ -160,11 +146,13 @@ def _draw_graphs(
 
 
 def _draw_subplot(
-    ax: Axes,
+    ax: "Axes",
     source_name: str,
     source_data: dict[str, dict[str, tuple[BenchmarkReport, ...]]],
     allocator_names: tuple[str, ...],
 ) -> None:
+    import matplotlib.pyplot as plt
+
     ax2 = ax.twinx()
 
     is_categorical = _is_categorical(source_data)
@@ -202,7 +190,7 @@ def _draw_subplot(
     ax.set_title(f"Source: {source_name}", fontsize=12, fontweight="bold", pad=10)
 
 
-def _add_footer(campaign: BenchmarkCampaign, fig: Figure) -> None:
+def _add_footer(campaign: BenchmarkCampaign, fig: "Figure") -> None:
     metadata_text = _format_metadata(campaign.metadata)
     txt = fig.text(
         0.5,
@@ -217,7 +205,9 @@ def _add_footer(campaign: BenchmarkCampaign, fig: Figure) -> None:
     txt._get_wrap_line_width = lambda: fig.bbox.width * 0.90  # ty: ignore[unresolved-attribute]  # noqa: SLF001
 
 
-def _add_legend(fig: Figure, allocator_names: tuple[str, ...]) -> None:
+def _add_legend(fig: "Figure", allocator_names: tuple[str, ...]) -> None:
+    from matplotlib.lines import Line2D
+
     handles = [
         Line2D(
             [],
@@ -241,7 +231,9 @@ def _add_legend(fig: Figure, allocator_names: tuple[str, ...]) -> None:
     )
 
 
-def _create_figure(num_sources: int) -> tuple[Figure, list[Axes]]:
+def _create_figure(num_sources: int) -> tuple["Figure", list["Axes"]]:
+    import matplotlib.pyplot as plt
+
     fig, axs = plt.subplots(
         nrows=num_sources,
         ncols=1,
@@ -254,6 +246,8 @@ def _visualize_campaign(
     campaign: BenchmarkCampaign,
     path: Path | str | None,
 ) -> None:
+    import matplotlib.pyplot as plt
+
     source_names = campaign.source_names
     allocator_names = campaign.allocator_names
     reports_by_source = campaign.reports_by_source_allocator_variant

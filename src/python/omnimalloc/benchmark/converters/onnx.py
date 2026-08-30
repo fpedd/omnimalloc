@@ -3,36 +3,26 @@
 #
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import AllocationKind
 
 from .model import Buffer, Model, Op
 
-try:
+if TYPE_CHECKING:
     import onnx
 
-    HAS_ONNX = True
-except ImportError:
-    from types import SimpleNamespace
-
-    HAS_ONNX = False
-    onnx = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        checker=SimpleNamespace(check_model=None),
-        shape_inference=SimpleNamespace(infer_shapes=None),
-        load_model=None,
-        helper=SimpleNamespace(tensor_dtype_to_np_dtype=None),
-        ModelProto=None,
-        TensorProto=None,
-        ValueInfoProto=None,
-        NodeProto=None,
-    )
+HAS_ONNX = find_spec("onnx") is not None
 
 logger = logging.getLogger(__name__)
 
 
-def _from_onnx_model(onnx_model: onnx.ModelProto) -> Model:
+def _from_onnx_model(onnx_model: "onnx.ModelProto") -> Model:
+    import onnx
+
     onnx.checker.check_model(onnx_model, full_check=True)
     onnx_model = onnx.shape_inference.infer_shapes(
         onnx_model,
@@ -76,7 +66,9 @@ def _from_onnx_model(onnx_model: onnx.ModelProto) -> Model:
     return Model(id=name, ops=ops, buffers=buffers)
 
 
-def _tensor_proto_to_buffer(tensor: onnx.TensorProto) -> Buffer:
+def _tensor_proto_to_buffer(tensor: "onnx.TensorProto") -> Buffer:
+    import onnx
+
     original_shape = tuple(tensor.dims)
     shape = tuple(dim for dim in original_shape if dim > 0)
     if len(shape) != len(original_shape):
@@ -93,8 +85,10 @@ def _tensor_proto_to_buffer(tensor: onnx.TensorProto) -> Buffer:
 
 
 def _value_info_to_buffer(
-    value_info: onnx.ValueInfoProto, kind: AllocationKind
+    value_info: "onnx.ValueInfoProto", kind: AllocationKind
 ) -> Buffer:
+    import onnx
+
     tt = value_info.type.tensor_type
     original_shape = tuple(int(dim.dim_value) for dim in tt.shape.dim)
     shape = tuple(dim for dim in original_shape if dim > 0)
@@ -112,7 +106,7 @@ def _value_info_to_buffer(
 
 
 def _node_to_op(
-    node: onnx.NodeProto, buffers: dict[str | int, Buffer], op_id: str
+    node: "onnx.NodeProto", buffers: dict[str | int, Buffer], op_id: str
 ) -> Op:
     input_buffers = []
     for name in node.input:
@@ -136,10 +130,11 @@ def _node_to_op(
     )
 
 
-def from_onnx(onnx_input: onnx.ModelProto | str | Path) -> Model:
+def from_onnx(onnx_input: "onnx.ModelProto | str | Path") -> Model:
     """Convert ONNX model or file path to Model."""
     if not HAS_ONNX:
         require_optional("onnx", "ONNX model conversion")
+    import onnx
 
     if isinstance(onnx_input, (str, Path)):
         return _from_onnx_model(onnx.load_model(onnx_input))
