@@ -61,6 +61,35 @@ nanobind_add_module(
 target_include_directories(_cpp PRIVATE src/cpp)
 target_link_libraries(_cpp PRIVATE Threads::Threads)
 
+# 64-bit atomics compile to libatomic calls on targets without native
+# double-word atomics (32-bit ARM as Raspberry Pi OS builds it, among others).
+# Without the link the module still links, since extension modules leave symbols
+# undefined by design, but fails to load: undefined __atomic_*_8.
+include(CheckCXXSourceCompiles)
+set(INT64_ATOMICS_SOURCE
+    "
+#include <atomic>
+#include <cstdint>
+int main() {
+  std::atomic<std::int64_t> value{0};
+  std::int64_t expected = 0;
+  value.fetch_add(1);
+  value.compare_exchange_weak(expected, 2);
+  return static_cast<int>(value.load());
+}
+")
+check_cxx_source_compiles("${INT64_ATOMICS_SOURCE}" HAVE_NATIVE_INT64_ATOMICS)
+if(NOT HAVE_NATIVE_INT64_ATOMICS)
+  set(CMAKE_REQUIRED_LIBRARIES atomic)
+  check_cxx_source_compiles("${INT64_ATOMICS_SOURCE}"
+                            HAVE_LIBATOMIC_INT64_ATOMICS)
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  if(NOT HAVE_LIBATOMIC_INT64_ATOMICS)
+    message(FATAL_ERROR "64-bit atomics require libatomic, which was not found")
+  endif()
+  target_link_libraries(_cpp PRIVATE atomic)
+endif()
+
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 if(MSVC)
