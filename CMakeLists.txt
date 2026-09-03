@@ -61,6 +61,20 @@ nanobind_add_module(
 target_include_directories(_cpp PRIVATE src/cpp)
 target_link_libraries(_cpp PRIVATE Threads::Threads)
 
+# 64-bit atomics compile to libatomic calls where the target has no native
+# double-word atomics (32-bit ARM as Raspberry Pi OS builds it); the module then
+# links but fails to load with an undefined __atomic_*_8 symbol.
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles(
+  "#include <atomic>
+   #include <cstdint>
+   std::atomic<std::int64_t> value;
+   int main() { return static_cast<int>(value.fetch_add(1)); }"
+  HAVE_NATIVE_INT64_ATOMICS)
+if(NOT HAVE_NATIVE_INT64_ATOMICS)
+  target_link_libraries(_cpp PRIVATE atomic)
+endif()
+
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 if(MSVC)
