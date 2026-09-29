@@ -7,6 +7,8 @@ import random
 from enum import Enum
 from typing import Final
 
+from omnimalloc.common.validation import ensure_positive
+
 
 class SizeDistribution(str, Enum):
     """Size distribution families, ordered from flattest to most skewed.
@@ -46,8 +48,7 @@ def sample_sizes(
     `bimodal` the 90/10 accelerator mix, `dominant` one buffer at 90%.
     """
     distribution = SizeDistribution(distribution)
-    if size_min <= 0:
-        raise ValueError("size_min must be positive")
+    ensure_positive(size_min, "size_min")
     if size_max < size_min:
         raise ValueError("size_max must be >= size_min")
     if count <= 0:
@@ -81,7 +82,7 @@ def _zipf(rng: random.Random, size_min: int, size_max: int) -> int:
 
 
 def _bimodal(rng: random.Random, count: int, size_min: int, size_max: int) -> list[int]:
-    boundary = max(size_min, math.isqrt(size_min * size_max))
+    boundary = math.isqrt(size_min * size_max)
     sizes = []
     for _ in range(count):
         if rng.random() < _SMALL_FRACTION:

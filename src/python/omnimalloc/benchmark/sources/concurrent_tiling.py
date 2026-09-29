@@ -7,6 +7,7 @@ from bisect import bisect_right
 from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import TimePoint, VectorClock
 
 from .tiling import TilingSource
@@ -24,12 +25,7 @@ class ConcurrentTilingSource(TilingSource):
     """
 
     _label_fields: ClassVar[tuple[str, ...]] = (
-        "capacity",
-        "makespan",
-        "size_min",
-        "duration_min",
-        "seed",
-        "mem_cut_prob",
+        *TilingSource._label_fields,  # noqa: SLF001
         "num_threads",
         "num_syncs",
     )
@@ -46,10 +42,7 @@ class ConcurrentTilingSource(TilingSource):
         mem_cut_prob: float = 0.5,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if num_threads <= 0:
-            raise ValueError("num_threads must be positive")
-        if num_allocations < num_threads:
-            raise ValueError("num_allocations must be >= num_threads")
+        ensure_positive(num_threads, "num_threads")
         if capacity % num_threads:
             raise ValueError("capacity must be divisible by num_threads")
         if capacity // num_threads < size_min:
@@ -96,7 +89,7 @@ class ConcurrentTilingSource(TilingSource):
         """Deliver random sync messages, max-merging the receiver's clock."""
         knowledge = [[0] * self.num_threads for _ in range(self.num_threads)]
         histories: list[_SyncHistory] = [([], []) for _ in range(self.num_threads)]
-        if self.num_threads < 2 or not self.num_syncs:
+        if self.num_threads < 2:
             return histories
         # All workers share the local step scale, so delivering messages in
         # instant order is a causally consistent execution.

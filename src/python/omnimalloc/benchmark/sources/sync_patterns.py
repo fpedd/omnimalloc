@@ -9,6 +9,7 @@ from math import isqrt
 from typing import ClassVar, Final
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation, VectorClock
 
 from .base import BaseSource
@@ -72,22 +73,16 @@ class SyncPatternSource(BaseSource):
         max_lifetime: int | None = None,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if num_threads <= 0:
-            raise ValueError("num_threads must be positive")
-        if speed_skew <= 0:
-            raise ValueError("speed_skew must be positive")
+        ensure_positive(num_threads, "num_threads")
+        ensure_positive(speed_skew, "speed_skew")
         if steps is not None and steps < 2:
             raise ValueError("steps must be >= 2")
-        if sync_period <= 0:
-            raise ValueError("sync_period must be positive")
-        if group_size is not None and group_size <= 0:
-            raise ValueError("group_size must be positive")
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(sync_period, "sync_period")
+        ensure_positive(group_size, "group_size", allow_none=True)
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
-        if max_lifetime is not None and max_lifetime <= 0:
-            raise ValueError("max_lifetime must be positive")
+        ensure_positive(max_lifetime, "max_lifetime", allow_none=True)
         super().__init__(num_allocations=num_allocations)
         self.num_threads = num_threads
         self.pattern = SyncPattern(pattern)
@@ -192,7 +187,7 @@ class SyncPatternSource(BaseSource):
         self, clocks: list[list[int]], step: int, _rng: random.Random
     ) -> None:
         if step % self.sync_period == 0:
-            _merge(clocks, range(self.num_threads // 2 or 1))
+            _merge(clocks, range(max(2, self.num_threads // 2)))
 
     def _sync_sparse(
         self, clocks: list[list[int]], step: int, rng: random.Random

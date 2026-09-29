@@ -3,131 +3,65 @@
 #
 
 import re
-from collections import defaultdict
-from importlib.util import find_spec
+from collections.abc import Iterable
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, Final, cast
 
 from omnimalloc.benchmark.converters.model import model_to_allocations
-from omnimalloc.benchmark.converters.onnx import from_onnx
+from omnimalloc.benchmark.converters.onnx import HAS_ONNX, from_onnx
+from omnimalloc.common.constants import MB
 from omnimalloc.common.optional import require_optional
-from omnimalloc.primitives import Allocation, IdType, Pool
+from omnimalloc.primitives import Pool
 
-from ..utils import tqdm  # noqa: TID252
-from .base import BaseSource
+from .base import FixedSource, prefix_ids
 
 try:
-    from huggingface_hub import HfApi, ModelInfo
+    from huggingface_hub import HfApi, RepoFile
 
     HAS_HUGGINGFACE_HUB = True
 except ImportError:
     HAS_HUGGINGFACE_HUB = False
-    HfApi = None  # ty: ignore[invalid-assignment]
-    ModelInfo = None  # ty: ignore[invalid-assignment]
+    HfApi = RepoFile = cast("Any", None)
 
-HAS_ONNX = find_spec("onnx") is not None
-
-
-def _get_hf_api() -> HfApi:
-    """Get HfApi instance, checking that dependency is available."""
-    if not HAS_HUGGINGFACE_HUB:
-        require_optional("huggingface-hub", "HuggingfaceSource")
-    return HfApi()
+_MIN_OPSET: Final[int] = 16
+_MAX_FILE_SIZE: Final[int] = 200 * MB
 
 
-def _list_onnx_models(limit: int = 10) -> list[ModelInfo]:
-    """Return ONNX models from Hugging Face Hub, excluding the legacy repository."""
-    hf_api = _get_hf_api()
-    models = hf_api.list_models(author="onnxmodelzoo", limit=limit + 1)
-    return [m for m in models if m.id != "onnxmodelzoo/legacy_models"][:limit]
-
-
-def _filter_onnx_opsets(
-    model_infos: list[ModelInfo], min_opset: int = 16
-) -> list[ModelInfo]:
-    """Filter ONNX models to only include the highest opset per base model name."""
-    model_groups = defaultdict(list)
-
-    for model_info in model_infos:
-        match = re.search(r"Opset(\d+)", model_info.id)
-        if not match:
+def _latest_opsets(repo_ids: Iterable[str]) -> list[str]:
+    """Keep the highest opset of each model; the zoo has one repo per opset."""
+    latest: dict[str, tuple[int, str]] = {}
+    for repo_id in repo_ids:
+        match = re.search(r"Opset(\d+)", repo_id)
+        if match is None or int(match.group(1)) < _MIN_OPSET:
             continue
         opset = int(match.group(1))
-        if opset < min_opset:
-            continue
-        base_name = re.sub(r"Opset\d+", "", model_info.id)
-        model_groups[base_name].append((opset, model_info))
-
-    return [max(models, key=lambda x: x[0])[1] for models in model_groups.values()]
+        base_name = repo_id.replace(match.group(0), "")
+        if base_name not in latest or opset > latest[base_name][0]:
+            latest[base_name] = (opset, repo_id)
+    return [repo_id for _, repo_id in latest.values()]
 
 
-def _gather_download_info(
-    model_infos: list[ModelInfo],
-    filename_filter: str,
-    max_file_size_mb: float | None = 200,
-) -> dict[str, str]:
-    """Gather information about which models to download, filtering by size."""
-    hf_api = _get_hf_api()
-    id_file_map = {}
-
-    for model_info in model_infos:
-        repo_files = hf_api.list_repo_tree(model_info.id, recursive=True)
-        onnx_files = [
+def _download_onnx_models(num_models: int, output_dir: str | Path | None) -> list[Path]:
+    """Download the first `num_models` single-file ONNX zoo models of bounded size."""
+    api = HfApi()
+    listed = api.list_models(author="onnxmodelzoo", limit=5 * num_models)
+    paths: list[Path] = []
+    for repo_id in _latest_opsets(model.id for model in listed):
+        if len(paths) == num_models:
+            break
+        files = [
             f
-            for f in repo_files
-            if f.path.endswith(filename_filter) and hasattr(f, "size")
+            for f in api.list_repo_tree(repo_id, recursive=True)
+            if isinstance(f, RepoFile) and f.path.endswith(".onnx")
         ]
-
-        if len(onnx_files) != 1:
+        if len(files) != 1 or not 0 < files[0].size <= _MAX_FILE_SIZE:
             continue
-
-        file_info = onnx_files[0]
-        if file_info.size is None:
-            continue
-
-        # ty does not narrow file_info.size from the None check above
-        size_mb = file_info.size / (1024 * 1024)  # ty: ignore[unsupported-operator]
-        if max_file_size_mb is not None and size_mb > max_file_size_mb:
-            continue
-
-        id_file_map[model_info.id] = file_info.path
-
-    return id_file_map
+        path = api.hf_hub_download(repo_id, files[0].path, local_dir=output_dir)
+        paths.append(Path(path))
+    return paths
 
 
-def _download_files(
-    id_file_map: dict[str, str],
-    output_dir: str | Path | None = None,
-    filename_filter: str = ".onnx",
-) -> list[Path]:
-    """Download files from Hugging Face Hub and return their local paths."""
-    hf_api = _get_hf_api()
-    desc = f"Downloading {len(id_file_map)} '{filename_filter}' models from HuggingFace"
-
-    local_paths = []
-    for repo_id, filename in tqdm(id_file_map.items(), desc=desc, leave=False):
-        local_path = hf_api.hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            local_dir=output_dir,
-        )
-        local_paths.append(Path(local_path))
-
-    return local_paths
-
-
-def _download_onnx_models(
-    num_models: int = 10, output_dir: str | Path | None = None
-) -> list[Path]:
-    """Download ONNX models and return local file paths."""
-    models = _list_onnx_models(limit=num_models * 5)
-    filtered = _filter_onnx_opsets(models)
-    id_file_map = _gather_download_info(filtered, ".onnx", max_file_size_mb=200)
-    id_file_map_limited = dict(list(id_file_map.items())[:num_models])
-    return _download_files(id_file_map_limited, output_dir, ".onnx")
-
-
-class HuggingfaceSource(BaseSource):
+class HuggingfaceSource(FixedSource):
     """Fixed source of Huggingface ONNX model allocations, one variant per model."""
 
     _label_fields: ClassVar[tuple[str, ...]] = ("num_models", "output_dir")
@@ -141,74 +75,18 @@ class HuggingfaceSource(BaseSource):
             require_optional("onnx", "HuggingfaceSource")
         if not HAS_HUGGINGFACE_HUB:
             require_optional("huggingface-hub", "HuggingfaceSource")
-
         super().__init__()
         self.num_models = num_models
         self.output_dir = output_dir
 
-        self._model_paths: list[Path] | None = None
-        self._model_pools: dict[str, Pool] | None = None
-        self._downloaded_num_models: int | None = None
-
-    def _ensure_downloaded(self) -> None:
-        # Re-download when num_models changed (e.g. grown via
-        # get_available_variants) since the cached download.
-        if (
-            self._model_pools is not None
-            and self._downloaded_num_models == self.num_models
-        ):
-            return
-
-        self._downloaded_num_models = self.num_models
-        self._model_paths = _download_onnx_models(self.num_models, self.output_dir)
-        self._model_pools = {}
-        for model_path in self._model_paths:
-            model = from_onnx(model_path)
-            allocations = model_to_allocations(model)
-            model_name = model_path.stem
-            pool = Pool(id=f"hf_{model_name}", allocations=tuple(allocations))
-            self._model_pools[model_name] = pool
-
-    def is_parameterizable(self) -> bool:
-        return False
-
-    def get_available_variants(self, count: int | None = None) -> tuple[str, ...]:
-        if count is not None:
-            self.num_models = max(self.num_models, count)
-        self._ensure_downloaded()
-        assert self._model_pools is not None
-        return tuple(self._model_pools.keys())
-
-    def get_variant(self, variant_id: IdType) -> Pool:
-        self._ensure_downloaded()
-        assert self._model_pools is not None
-
-        if isinstance(variant_id, int):
-            model_names = list(self._model_pools.keys())
-            if not (0 <= variant_id < len(model_names)):
-                msg = f"Model index {variant_id} out of range [0, {len(model_names)})"
-                raise ValueError(msg)
-            return self._model_pools[model_names[variant_id]]
-
-        if variant_id not in self._model_pools:
-            msg = f"Model '{variant_id}' not found in Huggingface source"
-            raise ValueError(msg)
-
-        return self._model_pools[variant_id]
-
-    def get_allocations(
-        self, num_allocations: int | None = None, skip: int = 0
-    ) -> tuple[Allocation, ...]:
-        self._ensure_downloaded()
-        assert self._model_pools is not None
-
-        all_allocations: list[Allocation] = []
-        for pool in self._model_pools.values():
-            all_allocations.extend(pool.allocations)
-
-        if skip >= len(all_allocations):
-            return ()
-        end = (
-            len(all_allocations) if num_allocations is None else skip + num_allocations
+    def _load_pools(self) -> tuple[Pool, ...]:
+        # Models share tensor names, so their allocation ids need qualifying
+        return tuple(
+            prefix_ids(
+                Pool(
+                    id=path.stem,
+                    allocations=tuple(model_to_allocations(from_onnx(path))),
+                )
+            )
+            for path in _download_onnx_models(self.num_models, self.output_dir)
         )
-        return tuple(all_allocations[skip:end])

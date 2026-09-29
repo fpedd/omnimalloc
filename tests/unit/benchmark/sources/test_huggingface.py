@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import functools
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from omnimalloc.benchmark.sources import huggingface
 from omnimalloc.benchmark.sources.huggingface import (
     HAS_HUGGINGFACE_HUB,
     HAS_ONNX,
@@ -19,101 +18,75 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def skip_when_rate_limited(test: Callable[..., None]) -> Callable[..., None]:
-    @functools.wraps(test)
-    def wrapper(*args: object, **kwargs: object) -> None:
-        # Local import so collection works without huggingface_hub installed
-        from huggingface_hub.errors import HfHubHTTPError
+def _save_tiny_model(path: Path) -> Path:
+    """Input -> Relu -> hidden -> Relu -> output, one workspace tensor."""
+    import onnx
+    from onnx import TensorProto, helper
 
-        try:
-            test(*args, **kwargs)
-        except HfHubHTTPError as error:
-            if error.response.status_code == 429:
-                pytest.skip("Hugging Face Hub rate limited the request")
-            raise
+    def value(name: str) -> "onnx.ValueInfoProto":
+        return helper.make_tensor_value_info(name, TensorProto.FLOAT, [1, 8])
 
-    return wrapper
-
-
-def test_huggingface_source_creation() -> None:
-    """Test basic HuggingfaceSource instantiation."""
-    source = HuggingfaceSource(num_models=1)
-    assert source.num_models == 1
-    assert source._model_paths is None  # noqa: SLF001
-    assert source._model_pools is None  # noqa: SLF001
-    # HuggingfaceSource is a fixed source, so num_allocations is from base class
-    assert source.num_allocations == 100  # Default from BaseSource
+    graph = helper.make_graph(
+        [
+            helper.make_node("Relu", ["input"], ["hidden"], name="relu_0"),
+            helper.make_node("Relu", ["hidden"], ["output"], name="relu_1"),
+        ],
+        path.stem,
+        [value("input")],
+        [value("output")],
+        value_info=[value("hidden")],
+    )
+    onnx.save(helper.make_model(graph), path)
+    return path
 
 
-def test_huggingface_source_creation_with_params(artifacts_dir: Path) -> None:
-    """Test HuggingfaceSource with custom parameters."""
-    source = HuggingfaceSource(num_models=2, output_dir=str(artifacts_dir))
-    assert source.num_models == 2
-    assert source.output_dir == str(artifacts_dir)
+@pytest.fixture
+def local_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve two tiny local models in place of the Hub download."""
+    paths = [_save_tiny_model(tmp_path / f"model_{i}.onnx") for i in range(2)]
+    monkeypatch.setattr(
+        huggingface, "_download_onnx_models", lambda num_models, _: paths[:num_models]
+    )
 
 
-@skip_when_rate_limited
-def test_huggingface_source_get_allocations_single_model(artifacts_dir: Path) -> None:
-    """Test downloading and extracting allocations from a single model.
-
-    This test downloads from Huggingface and may be slow.
-    """
-    source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
-    allocations = source.get_allocations()
-
-    # Should have allocations from the model
-    assert len(allocations) > 0
-    assert all(hasattr(alloc, "id") for alloc in allocations)
-    assert all(hasattr(alloc, "size") for alloc in allocations)
-    assert all(hasattr(alloc, "start") for alloc in allocations)
-    assert all(hasattr(alloc, "end") for alloc in allocations)
+@pytest.mark.usefixtures("local_models")
+def test_huggingface_source_downloads_lazily() -> None:
+    source = HuggingfaceSource(num_models=2)
+    assert "pools" not in vars(source)
+    assert source.get_available_variants() == ("model_0", "model_1")
 
 
-@skip_when_rate_limited
-def test_huggingface_source_get_allocations_with_count(artifacts_dir: Path) -> None:
-    """Test getting a limited number of allocations."""
-    source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
-    allocations = source.get_allocations(num_allocations=5)
-
-    # Should have at most 5 allocations
-    assert len(allocations) <= 5
+@pytest.mark.usefixtures("local_models")
+def test_huggingface_source_qualifies_ids_across_models() -> None:
+    allocations = HuggingfaceSource(num_models=2).get_allocations()
+    assert [a.id for a in allocations] == ["model_0_hidden", "model_1_hidden"]
 
 
-@skip_when_rate_limited
-def test_huggingface_source_get_allocations_with_skip(artifacts_dir: Path) -> None:
-    """Test skipping allocations."""
-    source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
-    all_allocations = source.get_allocations()
-    skipped_allocations = source.get_allocations(skip=2)
-
-    # Should skip first 2
-    if len(all_allocations) > 2:
-        assert len(skipped_allocations) == len(all_allocations) - 2
-        assert skipped_allocations[0] == all_allocations[2]
+@pytest.mark.usefixtures("local_models")
+def test_huggingface_source_get_variant_by_name_and_index() -> None:
+    source = HuggingfaceSource(num_models=2)
+    assert source.get_variant("model_1") is source.get_variant(1)
+    with pytest.raises(ValueError, match="not found"):
+        source.get_variant("model_2")
 
 
-@skip_when_rate_limited
-def test_huggingface_source_caching(artifacts_dir: Path) -> None:
-    """Test that models are cached after first download."""
-    source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
-
-    # First call downloads
-    allocations1 = source.get_allocations()
-    assert source._model_paths is not None  # noqa: SLF001
-    assert source._model_pools is not None  # noqa: SLF001
-
-    # Second call uses cache
-    allocations2 = source.get_allocations()
-    assert allocations1 == allocations2
+@pytest.mark.usefixtures("local_models")
+def test_huggingface_source_get_allocations_slices() -> None:
+    source = HuggingfaceSource(num_models=2)
+    assert source.get_allocations(num_allocations=1, skip=1) == (
+        source.get_allocations()[1],
+    )
 
 
-@skip_when_rate_limited
-def test_huggingface_source_allocation_kinds(artifacts_dir: Path) -> None:
-    """Test that allocations have appropriate allocation kinds."""
-    source = HuggingfaceSource(num_models=1, output_dir=str(artifacts_dir))
-    allocations = source.get_allocations()
+def test_huggingface_source_downloads_a_real_model(tmp_path: Path) -> None:
+    from huggingface_hub.errors import HfHubHTTPError
 
-    # Should have various allocation kinds
-    kinds = {alloc.kind for alloc in allocations if alloc.kind is not None}
-    # At least workspace or input/output/constant should be present
-    assert len(kinds) > 0
+    source = HuggingfaceSource(num_models=1, output_dir=tmp_path)
+    try:
+        pools = source.pools
+    except HfHubHTTPError as error:
+        if error.response.status_code == 429:
+            pytest.skip("Hugging Face Hub rate limited the request")
+        raise
+    assert len(pools) == 1
+    assert pools[0].allocations

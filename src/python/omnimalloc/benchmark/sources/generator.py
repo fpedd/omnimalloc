@@ -7,6 +7,7 @@ from abc import abstractmethod
 from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation, AllocationKind
 
 from .base import BaseSource
@@ -61,16 +62,14 @@ class RandomSource(_GeneratorSource):
         seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
         if time_min < 0:
             raise ValueError("time_min must be non-negative")
         if time_max <= time_min:
             raise ValueError("time_max must be > time_min")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_positive(duration_min, "duration_min")
         if duration_max < duration_min:
             raise ValueError("duration_max must be >= duration_min")
         if duration_max > (time_max - time_min):
@@ -91,8 +90,7 @@ class RandomSource(_GeneratorSource):
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         size = rng.randint(self.size_min, self.size_max)
         duration = rng.randint(self.duration_min, self.duration_max)
-        max_start = self.time_max - duration
-        start = rng.randint(self.time_min, max(self.time_min, max_start))
+        start = rng.randint(self.time_min, self.time_max - duration)
 
         kind = None
         if self.kinds:
@@ -126,12 +124,9 @@ class UniformSource(_GeneratorSource):
         seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size <= 0:
-            raise ValueError("size must be positive")
-        if duration <= 0:
-            raise ValueError("duration must be positive")
-        if time_max <= 0:
-            raise ValueError("time_max must be positive")
+        ensure_positive(size, "size")
+        ensure_positive(duration, "duration")
+        ensure_positive(time_max, "time_max")
         if duration > time_max:
             raise ValueError("duration must be <= time_max")
 
@@ -141,8 +136,7 @@ class UniformSource(_GeneratorSource):
         self.seed = seed
 
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
-        max_start = max(0, self.time_max - self.duration)
-        start = rng.randint(0, max_start)
+        start = rng.randint(0, self.time_max - self.duration)
 
         return Allocation(
             id=alloc_id,
@@ -179,12 +173,12 @@ class PowerOf2Source(_GeneratorSource):
             raise ValueError("size_exponent_min must be non-negative")
         if size_exponent_max < size_exponent_min:
             raise ValueError("size_exponent_max must be >= size_exponent_min")
-        if time_max <= 0:
-            raise ValueError("time_max must be positive")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_positive(time_max, "time_max")
+        ensure_positive(duration_min, "duration_min")
         if duration_max < duration_min:
             raise ValueError("duration_max must be >= duration_min")
+        if duration_max > time_max:
+            raise ValueError("duration_max must be <= time_max")
 
         self.size_exponent_min = size_exponent_min
         self.size_exponent_max = size_exponent_max
@@ -196,7 +190,7 @@ class PowerOf2Source(_GeneratorSource):
     def _generate_one(self, rng: random.Random, alloc_id: int) -> Allocation:
         exponent = rng.randint(self.size_exponent_min, self.size_exponent_max)
         duration = rng.randint(self.duration_min, self.duration_max)
-        start = rng.randint(0, max(0, self.time_max - duration))
+        start = rng.randint(0, self.time_max - duration)
 
         return Allocation(
             id=alloc_id,
@@ -225,8 +219,7 @@ class HighContentionSource(_GeneratorSource):
         seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
         if time_window < 2:
@@ -271,12 +264,10 @@ class SequentialSource(BaseSource):
         seed: int | None = DEFAULT_SEED,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_positive(duration_min, "duration_min")
         if duration_max < duration_min:
             raise ValueError("duration_max must be >= duration_min")
 

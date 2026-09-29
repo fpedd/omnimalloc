@@ -57,10 +57,7 @@ def _resolve_parameterizable_variants(
 def _resolve_fixed_variants(
     source: BaseSource, variants: int | tuple[IdType, ...] | None
 ) -> tuple[str, ...]:
-    variant_count = (
-        variants if isinstance(variants, int) else len(variants) if variants else None
-    )
-    available = source.get_available_variants(variant_count)
+    available = source.get_available_variants()
     if available is None:
         return ()
     if variants is None:
@@ -183,7 +180,7 @@ def _benchmark_report(
     # The ground truth is a property of the instance, not the allocator, and
     # the tiling sources rebuild their whole construction to read it
     if variant_id not in known_optima:
-        known_optima[variant_id] = source.get_known_optimum(variant_id)
+        known_optima[variant_id] = source.get_known_optimum()
 
     return BenchmarkReport(
         id=report_id,

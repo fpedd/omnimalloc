@@ -202,7 +202,7 @@ def test_base_source_label_separates_instances() -> None:
 
 
 def test_base_source_known_optimum_is_unknown_by_default() -> None:
-    assert RandomSource(num_allocations=10, seed=42).get_known_optimum(10) is None
+    assert RandomSource().get_known_optimum() is None
 
 
 def test_get_memories_with_skip_returns_requested_count() -> None:

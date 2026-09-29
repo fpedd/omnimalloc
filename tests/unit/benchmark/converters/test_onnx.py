@@ -11,7 +11,7 @@ from omnimalloc.benchmark.converters.onnx import HAS_ONNX
 if HAS_ONNX:
     import numpy as np
     import onnx
-    from omnimalloc.benchmark.converters.model import ITEMBITS
+    from omnimalloc.benchmark.converters.model import ITEMBITS, Buffer, Op
     from omnimalloc.benchmark.converters.onnx import (
         _node_to_op,
         _tensor_proto_to_buffer,
@@ -96,98 +96,29 @@ def test_sub_byte_buffers_are_sized_packed(dtype_name: str, count: int) -> None:
     assert _tensor_proto_to_buffer(packed).size == len(packed.raw_data)
 
 
-def test_tensor_proto_to_buffer() -> None:
+@pytest.mark.parametrize(
+    ("data_type", "dtype"),
+    [(TensorProto.FLOAT, "float32"), (TensorProto.INT64, "int64")],
+)
+def test_tensor_proto_to_buffer(data_type: int, dtype: str) -> None:
     tensor = helper.make_tensor(
-        "test_tensor",
-        TensorProto.FLOAT,
-        [2, 3, 4],
-        np.zeros([2, 3, 4], dtype=np.float32).tobytes(),
-        raw=True,
+        "tensor", data_type, [2, 3], np.zeros(6, dtype=dtype).tobytes(), raw=True
     )
 
     buffer = _tensor_proto_to_buffer(tensor)
 
-    assert buffer.id == "test_tensor"
-    assert buffer.shape == (2, 3, 4)
-    assert buffer.dtype == "float32"
-    assert buffer.kind == AllocationKind.CONSTANT
+    assert buffer == Buffer("tensor", (2, 3), dtype, AllocationKind.CONSTANT)
 
 
-def test_tensor_proto_to_buffer_different_dtype() -> None:
-    tensor = helper.make_tensor(
-        "int_tensor",
-        TensorProto.INT64,
-        [3, 5],
-        np.ones([3, 5], dtype=np.int64).tobytes(),
-        raw=True,
-    )
+@pytest.mark.parametrize(
+    "kind", [AllocationKind.WORKSPACE, AllocationKind.INPUT, AllocationKind.OUTPUT]
+)
+def test_value_info_to_buffer(kind: AllocationKind) -> None:
+    value_info = helper.make_tensor_value_info("value", TensorProto.INT32, [5, 10])
 
-    buffer = _tensor_proto_to_buffer(tensor)
+    buffer = _value_info_to_buffer(value_info, kind)
 
-    assert buffer.id == "int_tensor"
-    assert buffer.shape == (3, 5)
-    assert buffer.dtype == "int64"
-    assert buffer.kind == AllocationKind.CONSTANT
-
-
-def test_value_info_to_buffer() -> None:
-    value_info = helper.make_tensor_value_info("test_value", TensorProto.INT32, [5, 10])
-
-    buffer = _value_info_to_buffer(value_info, AllocationKind.WORKSPACE)
-
-    assert buffer.id == "test_value"
-    assert buffer.shape == (5, 10)
-    assert buffer.dtype == "int32"
-    assert buffer.kind == AllocationKind.WORKSPACE
-
-
-def test_value_info_to_buffer_input_kind() -> None:
-    value_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 224])
-
-    buffer = _value_info_to_buffer(value_info, AllocationKind.INPUT)
-
-    assert buffer.kind == AllocationKind.INPUT
-
-
-def test_value_info_to_buffer_output_kind() -> None:
-    value_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1000])
-
-    buffer = _value_info_to_buffer(value_info, AllocationKind.OUTPUT)
-
-    assert buffer.kind == AllocationKind.OUTPUT
-
-
-def test_value_info_to_buffer_filters_zero_dims() -> None:
-    value_info = helper.make_tensor_value_info(
-        "test_value", TensorProto.FLOAT, [3, 0, 5]
-    )
-
-    buffer = _value_info_to_buffer(value_info, AllocationKind.WORKSPACE)
-
-    assert buffer.shape == (3, 5)
-
-
-def test_node_to_op(simple_onnx_model: "onnx.ModelProto") -> None:
-    graph = simple_onnx_model.graph
-    node = graph.node[0]
-
-    buffers = {}
-    for init in graph.initializer:
-        buf = _tensor_proto_to_buffer(init)
-        buffers[buf.id] = buf
-    for inp in graph.input:
-        buf = _value_info_to_buffer(inp, AllocationKind.INPUT)
-        buffers[buf.id] = buf
-    for val in graph.value_info:
-        buf = _value_info_to_buffer(val, AllocationKind.WORKSPACE)
-        buffers[buf.id] = buf
-
-    op = _node_to_op(node, buffers, node.name)
-
-    assert op.id == "matmul_node"
-    assert op.op_type == "MatMul"
-    assert len(op.inputs) == 2
-    assert len(op.outputs) == 1
+    assert buffer == Buffer("value", (5, 10), "int32", kind)
 
 
 def test_node_to_op_handles_missing_buffers(
@@ -197,9 +128,7 @@ def test_node_to_op_handles_missing_buffers(
 
     op = _node_to_op(node, {}, node.name)
 
-    assert op.id == "matmul_node"
-    assert len(op.inputs) == 0
-    assert len(op.outputs) == 0
+    assert op == Op(id="matmul_node")
 
 
 def test_from_onnx_model_proto(simple_onnx_model: "onnx.ModelProto") -> None:
@@ -276,3 +205,26 @@ def test_from_onnx_skips_initializers_relisted_as_inputs(
     model = from_onnx(simple_onnx_model)
 
     assert model.buffers["weights"].kind == AllocationKind.CONSTANT
+
+
+def test_from_onnx_names_the_model_after_its_graph(
+    simple_onnx_model: "onnx.ModelProto",
+) -> None:
+    simple_onnx_model.doc_string = "A long free-text description."
+    assert from_onnx(simple_onnx_model).id == "test_model"
+
+
+def test_from_onnx_skips_zero_size_tensors(
+    simple_onnx_model: "onnx.ModelProto",
+) -> None:
+    empty = helper.make_tensor_value_info("empty", TensorProto.FLOAT, [3, 0])
+    simple_onnx_model.graph.value_info.append(empty)
+    assert "empty" not in from_onnx(simple_onnx_model).buffers
+
+
+def test_from_onnx_takes_symbolic_dims_as_one(
+    simple_onnx_model: "onnx.ModelProto",
+) -> None:
+    batch = helper.make_tensor_value_info("batch", TensorProto.FLOAT, ["N", 4])
+    simple_onnx_model.graph.value_info.append(batch)
+    assert from_onnx(simple_onnx_model).buffers["batch"].shape == (1, 4)

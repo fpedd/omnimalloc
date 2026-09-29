@@ -6,6 +6,7 @@ import random
 from typing import ClassVar
 
 from omnimalloc.common.constants import DEFAULT_SEED, KB, MB
+from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation
 
 from .base import BaseSource
@@ -40,12 +41,10 @@ class SkewedSource(BaseSource):
         duration_max: int = 64,
         seed: int | None = DEFAULT_SEED,
     ) -> None:
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_positive(duration_min, "duration_min")
         if duration_max < duration_min:
             raise ValueError("duration_max must be >= duration_min")
         if time_max <= duration_max:
@@ -96,8 +95,7 @@ class TwoPlusTwoSource(BaseSource):
     ) -> None:
         if not 0.0 <= noise < 1.0:
             raise ValueError("noise must be in [0, 1)")
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
+        ensure_positive(size_min, "size_min")
         if size_max < size_min:
             raise ValueError("size_max must be >= size_min")
         super().__init__(num_allocations=num_allocations)
@@ -134,14 +132,14 @@ class TwoPlusTwoSource(BaseSource):
 
         while len(allocations) < num:
             lane = rng.randrange(2)
-            step = rng.randrange(self._GROUP * obstructions or 1)
+            step = rng.randrange(self._GROUP * obstructions)
             start = (step, 0) if lane == 0 else (0, step)
             end = (step + 1, 0) if lane == 0 else (0, step + 1)
             allocations.append(
                 self._allocation(rng, skip + len(allocations), start, end)
             )
 
-        return tuple(allocations[:num])
+        return tuple(allocations)
 
     def _allocation(
         self,

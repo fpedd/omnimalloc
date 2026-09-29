@@ -31,7 +31,7 @@ def test_minimalloc_source_default_subset_is_challenging() -> None:
     reason="dataset discovery only resolves from a source checkout",
 )
 def test_minimalloc_source_discovers_the_checkout_datasets() -> None:
-    assert MinimallocSource().num_allocations > 0
+    assert MinimallocSource().get_available_variants()
 
 
 def test_checkout_csv_dir_stops_at_the_project_root(
@@ -49,43 +49,16 @@ def test_checkout_csv_dir_stops_at_the_project_root(
     assert minimalloc._checkout_csv_dir(MinimallocSubset.SMALL) == checkout  # noqa: SLF001
 
 
-def test_minimalloc_source_accepts_enum_member() -> None:
-    source = MinimallocSource(MinimallocSubset.SMALL)
-    assert source.subset is MinimallocSubset.SMALL
+@pytest.mark.parametrize("subset", [MinimallocSubset.SMALL, "small"])
+def test_minimalloc_source_accepts_enum_member_or_string(subset: str) -> None:
+    assert MinimallocSource(subset).subset is MinimallocSubset.SMALL
 
 
-def test_minimalloc_source_accepts_string_alias() -> None:
-    source = MinimallocSource("small")
-    assert source.subset is MinimallocSubset.SMALL
-    assert source.subset == "small"
-
-
-def test_minimalloc_source_examples_subset() -> None:
-    source = _source("examples")
-    assert source.subset == "examples"
-    variants = source.get_available_variants()
-    assert len(variants) == 1  # Only one example pool
-
-
-def test_minimalloc_source_small_subset() -> None:
-    source = _source("small")
-    assert source.subset == "small"
-    variants = source.get_available_variants()
-    assert len(variants) > 0
-    assert all(v[0].islower() for v in variants)
-
-
-def test_minimalloc_source_challenging_subset() -> None:
-    source = _source("challenging")
-    variants = source.get_available_variants()
-    assert len(variants) > 0
-
-
-def test_minimalloc_source_subsets_are_disjoint() -> None:
+def test_minimalloc_source_subsets_are_non_empty_and_disjoint() -> None:
     examples = set(_source("examples").get_available_variants())
     small = set(_source("small").get_available_variants())
     challenging = set(_source("challenging").get_available_variants())
-    assert examples
+    assert len(examples) == 1
     assert small
     assert challenging
     assert examples.isdisjoint(small)
@@ -122,17 +95,11 @@ def test_minimalloc_source_get_allocation_keeps_kind_none() -> None:
     assert allocation.kind is None
 
 
-def test_minimalloc_source_get_variant_by_id() -> None:
+def test_minimalloc_source_get_variant_by_id_and_index() -> None:
     source = _source("small")
-    variants = source.get_available_variants()
-    pool = source.get_variant(variants[0])
-    assert pool.id == variants[0]
-
-
-def test_minimalloc_source_get_variant_by_index() -> None:
-    source = _source("small")
-    pool = source.get_variant(0)
-    assert pool.id in source.get_available_variants()
+    first = source.get_available_variants()[0]
+    assert source.get_variant(first).id == first
+    assert source.get_variant(0).id == first
 
 
 def test_minimalloc_source_get_variant_unknown_id() -> None:
