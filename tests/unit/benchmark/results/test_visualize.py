@@ -17,8 +17,6 @@ from omnimalloc.benchmark.results.visualize import (
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
 
-from tests.markers import needs_matplotlib
-
 
 def _result(size: int = 10) -> BenchmarkResult:
     source = RandomSource(num_allocations=size, seed=42)
@@ -86,11 +84,10 @@ def test_canonicalize_artifact() -> None:
     assert campaign_from_campaign is campaign
 
 
-@needs_matplotlib
 def test_plot_benchmark_without_path_shows_figure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(True))

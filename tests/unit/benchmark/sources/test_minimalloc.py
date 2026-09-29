@@ -11,7 +11,8 @@ from omnimalloc.benchmark.sources.minimalloc import MinimallocSource, Minimalloc
 from omnimalloc.io import save_allocation
 from omnimalloc.primitives import Allocation, Pool
 
-from tests.paths import EXTERNAL_DIR
+# The CSV datasets live in the repository, not in the installed package
+EXTERNAL_DIR = Path(__file__).resolve().parents[4] / "external"
 
 
 def _source(subset: str) -> MinimallocSource:
