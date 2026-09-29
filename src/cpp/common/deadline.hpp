@@ -13,11 +13,13 @@
 
 namespace omnimalloc {
 
+// Absolute steady-clock deadline; nullopt disables the budget
+using Deadline = std::optional<std::chrono::steady_clock::time_point>;
+
 // Deadline `timeout` seconds from now, or nullopt when the budget is disabled.
 // Throws on a non-positive or non-finite `timeout`, so the boundary has exactly
 // two states even for raw-binding callers that bypass Python-side validation.
-[[nodiscard]] inline std::optional<std::chrono::steady_clock::time_point>
-make_deadline(std::optional<double> timeout) {
+[[nodiscard]] inline Deadline make_deadline(std::optional<double> timeout) {
   if (!timeout) {
     return std::nullopt;
   }
@@ -34,9 +36,7 @@ make_deadline(std::optional<double> timeout) {
 }
 
 // True when `deadline` is set and has passed.
-[[nodiscard]] inline bool deadline_expired(
-    const std::optional<std::chrono::steady_clock::time_point>&
-        deadline) noexcept {
+[[nodiscard]] inline bool deadline_expired(const Deadline& deadline) noexcept {
   return deadline && std::chrono::steady_clock::now() >= *deadline;
 }
 
