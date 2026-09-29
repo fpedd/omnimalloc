@@ -17,8 +17,6 @@ from omnimalloc.benchmark.results.visualize import (
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
 
-from tests.markers import needs_matplotlib
-
 
 def _result(size: int = 10) -> BenchmarkResult:
     source = RandomSource(num_allocations=size, seed=42)
@@ -39,7 +37,6 @@ def _report(report_id: str, variant_id: object, size: int = 10) -> BenchmarkRepo
 
 
 def test_get_allocator_color() -> None:
-    """Test allocator color cycling."""
     color_0 = _get_allocator_color(0)
     color_5 = _get_allocator_color(5)
     color_10 = _get_allocator_color(10)
@@ -50,7 +47,6 @@ def test_get_allocator_color() -> None:
 
 
 def test_format_metadata() -> None:
-    """Test metadata formatting."""
     metadata = {"model_name": "resnet50", "batch_size": 32, "dtype": "float32"}
     formatted = _format_metadata(metadata)
 
@@ -67,7 +63,6 @@ def test_format_metadata() -> None:
 
 
 def test_canonicalize_artifact() -> None:
-    """Test artifact canonicalization to campaign."""
     result = _result()
 
     campaign_from_result = _canonicalize_artifact(result)
@@ -86,11 +81,10 @@ def test_canonicalize_artifact() -> None:
     assert campaign_from_campaign is campaign
 
 
-@needs_matplotlib
 def test_plot_benchmark_without_path_shows_figure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(True))
