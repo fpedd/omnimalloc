@@ -8,13 +8,26 @@ checking every placement, so it doubles as a fuzz pass. ``--budget`` drops slow 
 """
 
 import argparse
-from math import isnan, nan
+from math import isnan
 from pathlib import Path
-from statistics import mean
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+from _plot import (
+    AXIS,
+    INK_SECONDARY,
+    SERIES,
+    Sample,
+    fmt_seconds,
+    log_time_axes,
+    plot_series,
+    series_means,
+    style_axes,
+    titles,
+    two_panel_figure,
+)
 from omnimalloc.allocators import BaseAllocator
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
@@ -40,16 +53,6 @@ ALLOCATORS = (
     "naive",
 )
 
-SURFACE = "#fcfcfb"
-INK = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-INK_MUTED = "#898781"
-GRID = "#e1e0d9"
-AXIS = "#c3c2b7"
-SERIES = ("#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#e87ba4")
-
-Sample = dict[str, Any]
-
 
 def _timed(
     allocator: BaseAllocator, allocations: "tuple[Allocation, ...]"
@@ -63,11 +66,6 @@ def _timed(
                 allocator.allocate(allocations)
             seconds = min(seconds, timer.elapsed_s)
     return seconds, placed
-
-
-def _peak(placed: "tuple[Allocation, ...]") -> int:
-    heights = [alloc.height for alloc in placed if alloc.height is not None]
-    return max(heights, default=0)
 
 
 def _run_allocators(
@@ -95,12 +93,12 @@ def _run_allocators(
             validate_allocation(Pool(id=context, allocations=placed))
         else:
             assert all(a.offset is not None and a.offset >= 0 for a in placed)
-            assert _peak(placed) <= sum(a.size for a in placed)
+            assert placement_pressure(placed) <= sum(a.size for a in placed)
         sample["times"][name] = seconds
-        sample["peaks"][name] = _peak(placed)
+        sample["peaks"][name] = placement_pressure(placed)
         if seconds > budget:
             dropped.add(name)
-            print(f"dropping {name} after {_fmt(seconds)} at {context}")
+            print(f"dropping {name} after {fmt_seconds(seconds)} at {context}")
     return sample
 
 
@@ -159,35 +157,6 @@ def collect(args: argparse.Namespace) -> list[Sample]:
     return samples
 
 
-def _series_means(
-    samples: list[Sample],
-    sizes: list[int],
-    family: str,
-    name: str,
-    key: str,
-    expected: int,
-) -> list[float]:
-    means = []
-    for size in sizes:
-        values = [
-            s[key][name]
-            for s in samples
-            if s["family"] == family and s["size"] == size and name in s[key]
-        ]
-        means.append(mean(values) if len(values) >= expected else nan)
-    return means
-
-
-def _fmt(seconds: float) -> str:
-    if isnan(seconds):
-        return "-"
-    if seconds < 1e-3:
-        return f"{seconds * 1e6:.0f} us"
-    if seconds < 1.0:
-        return f"{seconds * 1e3:.1f} ms"
-    return f"{seconds:.2f} s"
-
-
 def _print_summary(samples: list[Sample], args: argparse.Namespace) -> None:
     expected = {
         "sync": len(args.patterns) * args.repeats,
@@ -198,64 +167,16 @@ def _print_summary(samples: list[Sample], args: argparse.Namespace) -> None:
         print(f"\n{family} wall time / quality (peak over optimum or best-of-run)")
         print(f"{'':<{width}}  " + "".join(f"{size:>16}" for size in args.sizes))
         for name in args.allocators:
-            times = _series_means(
+            times = series_means(
                 samples, args.sizes, family, name, "times", family_expected
             )
-            ratios = _series_means(samples, args.sizes, family, name, "ratios", 1)
+            ratios = series_means(samples, args.sizes, family, name, "ratios", 1)
             cells = [
-                f"{_fmt(t)} {'-' if isnan(r) else f'{r:.3f}'}"
+                f"{fmt_seconds(t)} {'-' if isnan(r) else f'{r:.3f}'}"
                 for t, r in zip(times, ratios, strict=True)
             ]
             print(f"{name:<{width}}  " + "".join(f"{cell:>16}" for cell in cells))
     print()
-
-
-def _style_axes(ax: "Axes") -> None:
-    ax.set_facecolor(SURFACE)
-    ax.grid(visible=True, which="major", color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-    ax.tick_params(colors=INK_MUTED, labelcolor=INK_SECONDARY, labelsize=9)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("bottom", "left"):
-        ax.spines[side].set_color(AXIS)
-
-
-def _plot_series(
-    ax: "Axes", sizes: list[int], values: list[float], label: str, color: str
-) -> None:
-    # An all-NaN series (allocator skipped or dropped everywhere) would leave
-    # the log-scaled axis without positive values and crash on save
-    if all(isnan(value) for value in values):
-        return
-    ax.plot(
-        sizes,
-        values,
-        label=label,
-        color=color,
-        linewidth=2,
-        marker="o",
-        markersize=5.5,
-        markeredgecolor=SURFACE,
-        markeredgewidth=1,
-    )
-
-
-def _finish_time_axes(ax: "Axes", sizes: list[int]) -> None:
-    _style_axes(ax)
-    ax.set_yscale("log")
-    ax.set_xscale("log")
-    ax.set_xticks(sizes, [f"{size:,}" for size in sizes])
-    ax.tick_params(which="minor", bottom=False)
-    ax.set_ylabel("wall time [s]", color=INK_SECONDARY, fontsize=10)
-
-
-def _titles(ax: "Axes", title: str, caption: str) -> None:
-    ax.set_title(title, loc="left", color=INK, fontsize=12, fontweight="medium", pad=22)
-    note = ax.text(
-        0.0, 1.04, caption, transform=ax.transAxes, fontsize=8.5, color=INK_MUTED
-    )
-    note.set_in_layout(False)
 
 
 def _legend(ax: "Axes") -> None:
@@ -271,24 +192,16 @@ def _render_family(
     quality_label: str,
     expected: int,
 ) -> "Figure":
-    fig, (ax_time, ax_ratio) = plt.subplots(
-        2,
-        1,
-        sharex=True,
-        figsize=(8, 6.4),
-        height_ratios=(3, 1.4),
-        layout="constrained",
-    )
-    fig.set_facecolor(SURFACE)
+    fig, ax_time, ax_ratio = two_panel_figure()
     for name, color in zip(args.allocators, SERIES, strict=False):
-        times = _series_means(samples, args.sizes, family, name, "times", expected)
-        _plot_series(ax_time, args.sizes, times, name, color)
-        ratios = _series_means(samples, args.sizes, family, name, "ratios", 1)
-        _plot_series(ax_ratio, args.sizes, ratios, name, color)
-    _finish_time_axes(ax_time, args.sizes)
-    _titles(ax_time, title, caption)
+        times = series_means(samples, args.sizes, family, name, "times", expected)
+        plot_series(ax_time, args.sizes, times, name, color)
+        ratios = series_means(samples, args.sizes, family, name, "ratios", 1)
+        plot_series(ax_ratio, args.sizes, ratios, name, color)
+    log_time_axes(ax_time, args.sizes)
+    titles(ax_time, title, caption)
     _legend(ax_time)
-    _style_axes(ax_ratio)
+    style_axes(ax_ratio)
     ax_ratio.axhline(1.0, color=AXIS, linewidth=1)
     ax_ratio.set_ylabel(quality_label, color=INK_SECONDARY, fontsize=9)
     ax_ratio.set_xlabel("problem size [allocations]", color=INK_SECONDARY, fontsize=10)

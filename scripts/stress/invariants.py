@@ -73,9 +73,9 @@ def brute_collisions(allocations: Allocs) -> list[tuple[int, int]]:
             if second.offset is None:
                 continue
             other_low, other_high = second.offset, second.offset + second.size
-            if low < other_high and other_low < high:
-                if first.conflicts_with(second):
-                    bad.append((i, j))
+            overlap = low < other_high and other_low < high
+            if overlap and first.conflicts_with(second):
+                bad.append((i, j))
     return bad
 
 
@@ -286,11 +286,11 @@ def check_order_invariance(allocations: Allocs, rng: random.Random) -> list[str]
         fails.append("conflict_degrees is not permutation-equivariant")
 
     ids = [a.id for a in allocations]
-    if len(set(ids)) == len(ids):
-        if antichain_pressure_per_allocation(
-            shuffled
-        ) != antichain_pressure_per_allocation(allocations):
-            fails.append("antichain_pressure_per_allocation depends on input order")
+    unique = len(set(ids)) == len(ids)
+    if unique and antichain_pressure_per_allocation(
+        shuffled
+    ) != antichain_pressure_per_allocation(allocations):
+        fails.append("antichain_pressure_per_allocation depends on input order")
     return fails
 
 

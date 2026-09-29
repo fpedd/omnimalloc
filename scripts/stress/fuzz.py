@@ -34,18 +34,19 @@ from workloads import Workload, catalog
 
 # The search allocators get a short budget: this sweep checks contracts, and
 # their default seconds-scale budgets would dominate its runtime.
-FAST_KWARGS: dict[str, dict[str, float | int]] = {
-    "genetic": {"population_size": 12, "generations": 4, "timeout": 1.0},
-    "simulated_annealing": {"max_iterations": 500, "timeout": 1.0},
-    "tabu_search": {"max_iterations": 200, "timeout": 1.0},
-    "hill_climb": {"iterations": 200, "timeout": 1.0},
+# No timeouts: under load a deadline would stop identical calls at other depths
+FAST_KWARGS: dict[str, dict[str, float | int | None]] = {
+    "genetic": {"population_size": 12, "max_generations": 4, "timeout": None},
+    "simulated_annealing": {"max_iterations": 500, "timeout": None},
+    "tabu_search": {"max_iterations": 50, "timeout": None},
+    "hill_climb": {"max_iterations": 200, "timeout": None},
+    "random": {"num_trials": 20, "timeout": None},
+    "telamalloc": {"max_backtracks": 1000, "timeout": None},
     "supermalloc": {"timeout": 1.0},
-    "telamalloc": {"timeout": 1.0},
 }
 
-# The budget makes these anytime: under load two identical calls can stop at
-# different search depths, so only the resulting peak is required to agree.
-ANYTIME = frozenset(FAST_KWARGS)
+# Bounded only by its deadline, so repeats may stop at different depths
+ANYTIME = frozenset({"supermalloc"})
 
 # Brute-force references are quadratic, so they run only on small instances
 BRUTE_LIMIT = 200
@@ -56,15 +57,13 @@ OPTIONAL = frozenset({"minimalloc"})
 
 
 def build_allocator(name: str) -> BaseAllocator | None:
-    """Instantiate with the sweep's short budget, or plainly, or not at all."""
-    allocator_type = BaseAllocator.get(name)
+    """Instantiate with the sweep's budget; None if a dependency is missing."""
     try:
-        return allocator_type(**FAST_KWARGS.get(name, {}))
-    except (TypeError, ImportError, RuntimeError):
-        try:
-            return allocator_type()
-        except Exception:  # noqa: BLE001
-            return None
+        return BaseAllocator.get(name)(**FAST_KWARGS.get(name, {}))
+    except (ImportError, RuntimeError):
+        if name not in OPTIONAL:
+            raise
+        return None
 
 
 def fresh(name: str) -> BaseAllocator:
@@ -150,10 +149,7 @@ def check_allocator(
 
     fails = check_placement(allocations, placed, name, {})
     repeat = tuple(fresh(name).allocate(allocations))
-    if name in ANYTIME:
-        if peak_of(repeat) != peak_of(placed):
-            fails.append(f"{name}: peak differs across two identical calls")
-    elif [a.offset for a in repeat] != [a.offset for a in placed]:
+    if name not in ANYTIME and [a.offset for a in repeat] != [a.offset for a in placed]:
         fails.append(f"{name}: not deterministic across two identical calls")
     if deep:
         fails += _check_pins(allocations, placed, name, rng, allocator)
