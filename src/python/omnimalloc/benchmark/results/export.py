@@ -93,8 +93,8 @@ def _create_zip_archive(base_dir: Path, final_path: Path) -> Path:
 
 
 def _dir_name(label: str) -> str:
-    """A label as one path component; labels may carry an explicit path."""
-    return re.sub(r"[/\\]", "_", label)
+    """A label as one path component, safe on every OS; labels may carry paths."""
+    return re.sub(r'[<>:"/\\|?*]', "_", label)
 
 
 def _write_iterations(base_dir: Path, campaign: BenchmarkCampaign) -> None:

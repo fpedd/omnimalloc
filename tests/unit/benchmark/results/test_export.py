@@ -16,7 +16,11 @@ from omnimalloc.benchmark.results import (
     BenchmarkReport,
     BenchmarkResult,
 )
-from omnimalloc.benchmark.results.export import RESULTS_CSV_COLUMNS, save_benchmark
+from omnimalloc.benchmark.results.export import (
+    RESULTS_CSV_COLUMNS,
+    _dir_name,
+    save_benchmark,
+)
 from omnimalloc.benchmark.sources import MinimallocSource, RandomSource
 from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 from omnimalloc.io import save_allocation
@@ -176,3 +180,7 @@ def test_save_benchmark_plots_iterations_one_dir_per_label(tmp_path: Path) -> No
     (source_dir,) = (output_path / "sources").iterdir()
     iteration = source_dir / "allocators" / "greedy" / "p" / "iterations"
     assert (iteration / "iteration_0.pdf").is_file()
+
+
+def test_dir_name_is_one_component_on_every_os() -> None:
+    assert _dir_name(r'src[dir=C:\a/b] <"x|y?*>') == "src[dir=C__a_b] __x_y___"
