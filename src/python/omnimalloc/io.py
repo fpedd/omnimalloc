@@ -75,8 +75,12 @@ def _write_pool(pool: Pool, path: Path) -> Path:
         writer = csv.writer(csvfile)
         writer.writerow(fields)
         for alloc in pool.allocations:
-            row = [alloc.id, _format_time(alloc.start), _format_time(alloc.end)]
-            row.append(alloc.size)
+            row = [
+                alloc.id,
+                _format_time(alloc.start),
+                _format_time(alloc.end),
+                alloc.size,
+            ]
             if with_offsets:
                 row.append(alloc.offset)
             if with_kinds:
@@ -91,27 +95,33 @@ def save_allocation(
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
     A `Pool` writes exactly `path`; a `Memory` or `System` fans out per pool.
-    Offsets, kinds, clocks, and a pinned pool base all round-trip. Unpinned
-    saves are pure minimalloc; the base's `# pool_offset` line deviates.
+    Offsets, kinds, clocks, and a pinned pool base round-trip; pool ids do not.
+    Unpinned saves are pure minimalloc; the base's `# pool_offset` line deviates.
     """
     path_ = Path(path)
-    path_.parent.mkdir(parents=True, exist_ok=True)
     if not isinstance(entity, System | Memory | Pool):
         entity = Pool.from_allocations(entity)
     if isinstance(entity, Pool):
-        return (_write_pool(entity, path_),)
-    return tuple(
-        _write_pool(pool, path_.with_name(f"{path_.stem}_{name}.csv"))
-        for name, pool in _collect_pools(entity).items()
-    )
+        targets = {path_: entity}
+    else:
+        targets = {
+            path_.with_name(f"{path_.stem}_{name}.csv"): pool
+            for name, pool in _collect_pools(entity).items()
+        }
+    # CSV cannot tell 1 from "1"; check all pools first so a rejection writes nothing
+    for pool in targets.values():
+        if len({str(a.id) for a in pool.allocations}) != len(pool.allocations):
+            raise ValueError("allocation ids must be unique after string conversion")
+    path_.parent.mkdir(parents=True, exist_ok=True)
+    return tuple(_write_pool(pool, target) for target, pool in targets.items())
 
 
 def load_allocation(path: str | Path) -> Pool:
     """Load a minimalloc-format CSV file into a Pool.
 
-    Loading is pool-level: the pool takes the file stem as its id. `offset` and
-    `kind` columns and the `# pool_offset` base line restore a round-trip-equal
-    result.
+    Loading is pool-level: the pool takes the file stem as its id, and string
+    ids spelled as canonical integers read back as ints. `offset` and `kind`
+    columns and the `# pool_offset` base line restore what save wrote.
     """
     path_ = Path(path)
     allocations = []

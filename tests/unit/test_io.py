@@ -167,6 +167,31 @@ def test_save_memory_rejects_pool_ids_colliding_after_str(tmp_path: Path) -> Non
         save_allocation(memory, tmp_path / "problem.csv")
 
 
+def test_save_pool_rejects_allocation_ids_colliding_after_str(tmp_path: Path) -> None:
+    allocations = (
+        Allocation(id=1, size=4, start=0, end=1),
+        Allocation(id="1", size=4, start=0, end=1),
+    )
+    with pytest.raises(ValueError, match="unique after string conversion"):
+        save_allocation(allocations, tmp_path / "pool.csv")
+
+
+def test_save_memory_writes_nothing_when_a_later_pool_is_rejected(
+    tmp_path: Path,
+) -> None:
+    colliding = Pool(
+        id="bad",
+        allocations=(
+            Allocation(id=1, size=4, start=0, end=1),
+            Allocation(id="1", size=4, start=0, end=1),
+        ),
+    )
+    memory = Memory(id="mem", pools=(make_pool("ok"), colliding))
+    with pytest.raises(ValueError, match="unique after string conversion"):
+        save_allocation(memory, tmp_path / "problem.csv")
+    assert not any(tmp_path.iterdir())
+
+
 def test_save_vector_time_joins_components_with_colons(tmp_path: Path) -> None:
     pool = Pool(
         id="p0",
