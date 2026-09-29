@@ -346,11 +346,21 @@ std::vector<Allocation> first_fit_place_indexed(
 std::vector<Allocation> first_fit_place(
     const std::vector<Allocation>& allocations) {
   PTIME("first_fit_place total");
-  std::optional<PTimer> t1(std::in_place, "compute_conflict_indices");
-  auto idx = compute_conflict_indices(allocations);
-  t1.reset();
-  PTIME("place_indexed");
-  return first_fit_place_indexed(allocations, idx);
+  // The CSR path of the omni portfolio: flat neighbor rows and flat placed
+  // spans instead of per-row vectors and Allocation-sized strides
+  check_total_size(allocations);
+  const CsrAdjacency adj = build_conflict_adjacency(allocations);
+  PTIME("place_order + apply");
+  const size_t n = allocations.size();
+  std::vector<int64_t> sizes(n);
+  std::ranges::transform(allocations, sizes.begin(), &Allocation::size);
+  std::vector<int64_t> pins(n);
+  std::ranges::transform(allocations, pins.begin(), [](const Allocation& a) {
+    return a.offset().value_or(-1);
+  });
+  std::vector<int32_t> order(n);
+  std::iota(order.begin(), order.end(), 0);
+  return apply_offsets(allocations, place_order(adj, sizes, pins, order));
 }
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)
