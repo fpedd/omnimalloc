@@ -12,7 +12,7 @@ from omnimalloc.common.registry import Registered
 from omnimalloc.primitives.utils import ensure_unique_ids
 
 if TYPE_CHECKING:
-    from omnimalloc.primitives import Allocation, IdType
+    from omnimalloc.primitives import Allocation
 
 
 class BaseAllocator(Registered):
@@ -44,35 +44,43 @@ class BaseAllocator(Registered):
     def allocate(
         self, allocations: tuple["Allocation", ...]
     ) -> tuple["Allocation", ...]:
-        """Validate shared preconditions, then run the allocator."""
-        pins = self._ensure_preconditions(allocations)
+        """Place the allocations; the result keeps input order and every pin."""
+        self._ensure_preconditions(allocations)
         if not allocations:
             return allocations
-        placed = self._allocate(allocations)
-        self._ensure_postconditions(allocations, placed, pins)
-        return placed
+        return self._finish(allocations, self._allocate(allocations))
 
-    def _ensure_preconditions(
-        self, allocations: tuple["Allocation", ...]
-    ) -> dict["IdType", int | None]:
-        """Shared entry contract; returns the pinned offsets keyed by id."""
+    def _ensure_preconditions(self, allocations: tuple["Allocation", ...]) -> None:
+        """Shared entry contract: unique ids, one clock dim, supported, pins apart."""
         ensure_unique_ids(allocations, "allocation")
         uniform_dim(allocations)
         self.ensure_supported(allocations)
-        pins = {alloc.id: alloc.offset for alloc in allocations if alloc.is_allocated}
-        if pins:
-            self._ensure_pins_placeable(allocations)
-        return pins
+        self._ensure_pins_placeable(allocations)
 
-    def _ensure_postconditions(
-        self,
-        allocations: tuple["Allocation", ...],
-        placed: tuple["Allocation", ...],
-        pins: dict["IdType", int | None],
-    ) -> None:
-        """Shared exit contract: same set, fully placed, pins untouched."""
-        self._ensure_same_set(allocations, placed)
-        self._ensure_placed(placed, pins)
+    def _finish(
+        self, allocations: tuple["Allocation", ...], placed: tuple["Allocation", ...]
+    ) -> tuple["Allocation", ...]:
+        """Shared exit contract: `placed` in input order, all placed, pins put.
+
+        A dropped or padded result would win when ranked by peak, so refuse it.
+        """
+        if len(placed) != len(allocations):
+            raise ValueError(f"{self.name()} returned a different allocation set")
+        by_id = {alloc.id: alloc for alloc in placed}
+        ordered = []
+        for alloc in allocations:
+            result = by_id.get(alloc.id)
+            if result is None:
+                raise ValueError(f"{self.name()} returned a different allocation set")
+            if result.offset is None:
+                raise ValueError(f"{self.name()} left allocation {alloc.id!r} unplaced")
+            if alloc.offset is not None and result.offset != alloc.offset:
+                raise ValueError(
+                    f"{self.name()} moved pinned allocation {alloc.id!r} "
+                    f"from {alloc.offset} to {result.offset}"
+                )
+            ordered.append(result)
+        return tuple(ordered)
 
     @abstractmethod
     def _allocate(
@@ -117,29 +125,3 @@ class BaseAllocator(Registered):
                 f"pinned allocations {pinned[first].id!r} and "
                 f"{pinned[second].id!r} already collide"
             )
-
-    def _ensure_same_set(
-        self, allocations: tuple["Allocation", ...], placed: tuple["Allocation", ...]
-    ) -> None:
-        """Refuse a dropped or padded result; ranked by peak, it would win."""
-        placed_ids = {alloc.id for alloc in placed}
-        wanted_ids = {alloc.id for alloc in allocations}
-        if len(placed) != len(allocations) or placed_ids != wanted_ids:
-            raise ValueError(f"{self.name()} returned a different allocation set")
-
-    def _ensure_placed(
-        self, placed: tuple["Allocation", ...], pins: dict["IdType", int | None]
-    ) -> None:
-        """Every allocation comes back placed, and every pin comes back put."""
-        unplaced = next((alloc for alloc in placed if alloc.offset is None), None)
-        if unplaced is not None:
-            raise ValueError(f"{self.name()} left allocation {unplaced.id!r} unplaced")
-        if not pins:
-            return
-        for alloc in placed:
-            pinned_at = pins.get(alloc.id)
-            if pinned_at is not None and pinned_at != alloc.offset:
-                raise ValueError(
-                    f"{self.name()} moved pinned allocation {alloc.id!r} "
-                    f"from {pinned_at} to {alloc.offset}"
-                )

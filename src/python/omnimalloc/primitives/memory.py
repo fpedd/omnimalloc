@@ -4,10 +4,9 @@
 
 from dataclasses import dataclass, replace
 from functools import cached_property
-from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from omnimalloc.common.intervals import stack_around_pins
+from omnimalloc.common.intervals import first_overlap, stack_around_pins
 from omnimalloc.common.validation import ensure_non_negative
 
 from .allocation import IdType
@@ -33,11 +32,6 @@ class Memory:
             ensure_non_negative(self.size, "size")
 
     @cached_property
-    def used_size(self) -> int:
-        """Sum of the pools' derived sizes, blind to where pools sit."""
-        return sum(pool.size for pool in self.pools)
-
-    @cached_property
     def extent(self) -> int:
         """Highest address any pool occupies: the capacity this memory needs."""
         tops = [p.offset + p.size for p in self.pools if p.offset is not None]
@@ -47,13 +41,8 @@ class Memory:
 
     @cached_property
     def is_allocated(self) -> bool:
-        """True if all pools have been allocated."""
-        return all(pool.is_allocated for pool in self.pools)
-
-    @cached_property
-    def any_allocated(self) -> bool:
-        """True if any pool has a placed allocation."""
-        return any(pool.any_allocated for pool in self.pools)
+        """True if every pool has a base and all its allocations are placed."""
+        return all(pool.offset is not None and pool.is_allocated for pool in self.pools)
 
     def with_pools(self, pools: tuple[Pool, ...]) -> "Memory":
         """Return new Memory with specified pools."""
@@ -80,12 +69,16 @@ def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
 
 def _ensure_pinned_bases_disjoint(pools: tuple[Pool, ...]) -> None:
     """Reject pinned bases that already overlap; no layout can satisfy them."""
-    pinned = sorted(
-        [(pool.offset, pool) for pool in pools if pool.offset is not None],
-        key=lambda item: item[0],
-    )
-    for (lower_base, lower), (upper_base, upper) in pairwise(pinned):
-        if upper_base < lower_base + lower.size:
-            raise ValueError(
-                f"pinned pools {lower.id!r} and {upper.id!r} already overlap"
-            )
+    pinned = [pool for pool in pools if pool.offset is not None]
+    spans = [
+        (pool.offset, pool.offset + pool.size)
+        for pool in pools
+        if pool.offset is not None
+    ]
+    overlap = first_overlap(spans)
+    if overlap is not None:
+        first, second = overlap
+        raise ValueError(
+            f"pinned pools {pinned[first].id!r} and {pinned[second].id!r} "
+            "already overlap"
+        )
