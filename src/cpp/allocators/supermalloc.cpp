@@ -8,7 +8,6 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
-#include <iterator>
 #include <mutex>
 #include <numeric>
 #include <optional>
@@ -20,6 +19,7 @@
 
 #include "allocators/first_fit.hpp"
 #include "common/deadline.hpp"
+#include "common/parallel.hpp"
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -46,12 +46,8 @@ constexpr std::string_view kSortKeys = "ACLOTUWZ";
 int64_t heuristic_key(char code, const Allocation& a, int64_t span_len,
                       int64_t overlap_count, int64_t max_total) {
   switch (code) {
-    case 'A': {
-      // Saturate instead of overflowing; both factors are positive.
-      const int64_t duration = a.duration();
-      const int64_t size = a.size();
-      return duration > INT64_MAX / size ? INT64_MIN + 1 : -(duration * size);
-    }
+    case 'A':
+      return -a.area();
     case 'C':
       return -span_len;
     case 'L':
@@ -124,11 +120,12 @@ std::shared_ptr<Partition::SharedData> Partition::make_shared_data(
   });
 }
 
-std::shared_ptr<Partition::SharedData> Partition::build_shared_data(
+std::shared_ptr<Partition::SharedData> Partition::sweep(
     std::vector<Allocation> allocations) {
   const int n = static_cast<int>(allocations.size());
 
-  // Tuple ordering puts EXIT (0) before ENTER (1) at equal timestamps.
+  // Tuple ordering puts EXIT (0) before ENTER (1) at equal timestamps, so
+  // lifetimes that merely touch never overlap.
   std::vector<std::tuple<int64_t, int, int>> events;
   events.reserve(static_cast<size_t>(n) * 2);
   for (int i = 0; i < n; ++i) {
@@ -142,24 +139,14 @@ std::shared_ptr<Partition::SharedData> Partition::build_shared_data(
   std::vector<std::pair<int, int>> section_spans(static_cast<size_t>(n));
 
   std::unordered_set<int> alive;
-
-  bool has_prev = false;
   int64_t prev_time = 0;
-  int prev_event = 0;
-
   for (const auto& [time, event, idx] : events) {
     // A section is a maximal span over which the alive set is constant, so
-    // snapshot it (when non-empty) right before it changes.
-    const bool time_changed = !has_prev || time != prev_time;
-    const bool exit_to_enter =
-        has_prev && prev_event == kExitEvent && event == kEnterEvent;
-    if (!alive.empty() && (time_changed || exit_to_enter)) {
+    // snapshot it (when non-empty) right before time advances.
+    if (!alive.empty() && time != prev_time) {
       sections.emplace_back(alive.begin(), alive.end());
     }
-
-    has_prev = true;
     prev_time = time;
-    prev_event = event;
 
     if (event == kExitEvent) {
       section_spans[idx].second = static_cast<int>(sections.size());
@@ -220,7 +207,7 @@ Partition Partition::from_allocations(std::vector<Allocation> allocations) {
   // signed overflow everywhere downstream.
   check_total_size(allocations);
 
-  auto data = build_shared_data(std::move(allocations));
+  auto data = sweep(std::move(allocations));
 
   const int n = static_cast<int>(data->allocations.size());
   const size_t num_sections = data->sections.size();
@@ -306,11 +293,14 @@ bool Partition::can_allocate_at(int idx, bool monotonic_floor,
 
 bool Partition::placement_feasible(const PlacementUndo& undo, int64_t offset,
                                    bool monotonic_floor) const noexcept {
-  // With `monotonic_floor`, the parent's placement `offset` floors every
-  // section. On spanned sections this equals the check `can_allocate_at`
-  // already passed, so it adds no false rejections there.
+  // The first `last - first` floor changes are the spanned sections, which
+  // `can_allocate_at` already validated at identical values (the placement
+  // `offset` is below their new floor); only the inferred floors remain.
+  const auto [first, last] = data_->section_spans[undo.idx];
   const int64_t floor_min = monotonic_floor ? offset : 0;
-  for (const auto& [s, old_floor] : undo.floor_changes) {
+  for (size_t k = static_cast<size_t>(last - first);
+       k < undo.floor_changes.size(); ++k) {
+    const int s = undo.floor_changes[k].first;
     if (std::max(section_floors_[s], floor_min) + section_totals_[s] >=
         best_height_) {
       return false;
@@ -333,8 +323,8 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   undo.min_offset_changes.clear();
 
   offsets_[idx] = offset;
-  candidates_.erase({offset, idx});
-  tops_.erase(tops_.find(top));
+  // Placed allocations read as +inf, so the scans below skip them untested
+  min_offsets_[idx] = INT64_MAX;
 
   for (int s = first; s < last; ++s) {
     undo.floor_changes.emplace_back(s, section_floors_[s]);
@@ -347,20 +337,11 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
 
   // Propagate the placed allocation's top to overlapping unplaced
   // allocations, tracking affected sections for the floor inference below.
-  // Extract/insert node handles reuse tree nodes instead of reallocating.
   for (int j : data_->overlaps[idx]) {
-    if (offsets_[j] >= 0) continue;
     const int64_t old_min = min_offsets_[j];
     if (top <= old_min) continue;
     undo.min_offset_changes.emplace_back(j, old_min);
     min_offsets_[j] = top;
-    auto candidate = candidates_.extract({old_min, j});
-    candidate.value() = {top, j};
-    candidates_.insert(std::move(candidate));
-    const int64_t j_size = data_->alloc_sizes[j];
-    auto top_node = tops_.extract(tops_.find(old_min + j_size));
-    top_node.value() = top + j_size;
-    tops_.insert(std::move(top_node));
     if (!floor_inference) continue;
     const auto [jf, jl] = data_->section_spans[j];
     for (int s = jf; s < jl; ++s) {
@@ -372,25 +353,21 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   }
 
   // Raise section floors where every remaining unplaced allocation has been
-  // pushed above the current floor. Sections in [first, last) host the
-  // just-placed allocation, so their floor cannot be raised further.
+  // pushed above the current floor.
   for (int s : touched_sections_) {
     affected_scratch_[s] = 0;
-    if (first <= s && s < last) continue;
     const int64_t floor_s = section_floors_[s];
     int64_t s_min = INT64_MAX;
-    bool floor_pinned = false;
     for (int b : data_->sections[s]) {
-      if (offsets_[b] >= 0) continue;
       const int64_t off = min_offsets_[b];
       if (off <= floor_s) {
-        floor_pinned = true;
+        s_min = floor_s;
         break;
       }
-      if (off < s_min) s_min = off;
+      s_min = std::min(s_min, off);
     }
-    if (!floor_pinned && s_min < INT64_MAX) {
-      undo.floor_changes.emplace_back(s, section_floors_[s]);
+    if (floor_s < s_min && s_min < INT64_MAX) {
+      undo.floor_changes.emplace_back(s, floor_s);
       section_floors_[s] = s_min;
     }
   }
@@ -399,20 +376,35 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   return undo;
 }
 
-void Partition::revert(const PlacementUndo& undo) {
-  const auto [first, last] = data_->section_spans[undo.idx];
-  const int64_t alloc_size = data_->alloc_sizes[undo.idx];
+void Partition::rekey(int j, int64_t from, int64_t to) {
+  // Extract/insert node handles reuse tree nodes instead of reallocating
+  const int64_t size = data_->alloc_sizes[j];
+  auto candidate = candidates_.extract({from, j});
+  candidate.value() = {to, j};
+  candidates_.insert(std::move(candidate));
+  auto top = tops_.extract(tops_.find(from + size));
+  top.value() = to + size;
+  tops_.insert(std::move(top));
+}
+
+void Partition::commit(const PlacementUndo& undo) {
+  const int idx = undo.idx;
+  candidates_.erase({offsets_[idx], idx});
+  tops_.erase(tops_.find(offsets_[idx] + data_->alloc_sizes[idx]));
+  for (const auto& [j, old_min] : undo.min_offset_changes) {
+    rekey(j, old_min, min_offsets_[j]);
+  }
+}
+
+void Partition::revert(const PlacementUndo& undo, bool committed) {
+  const int idx = undo.idx;
+  const auto [first, last] = data_->section_spans[idx];
+  const int64_t alloc_size = data_->alloc_sizes[idx];
   for (const auto& [s, old_floor] : undo.floor_changes) {
     section_floors_[s] = old_floor;
   }
   for (const auto& [j, old_min] : undo.min_offset_changes) {
-    const int64_t j_size = data_->alloc_sizes[j];
-    auto candidate = candidates_.extract({min_offsets_[j], j});
-    candidate.value() = {old_min, j};
-    candidates_.insert(std::move(candidate));
-    auto top_node = tops_.extract(tops_.find(min_offsets_[j] + j_size));
-    top_node.value() = old_min + j_size;
-    tops_.insert(std::move(top_node));
+    if (committed) rekey(j, min_offsets_[j], old_min);
     min_offsets_[j] = old_min;
   }
   for (int s = first; s < last; ++s) {
@@ -421,21 +413,23 @@ void Partition::revert(const PlacementUndo& undo) {
   for (int b = first; b < last - 1; ++b) {
     if (cuts_[b]++ == 0) --num_zero_cuts_;
   }
-  offsets_[undo.idx] = -1;
-  candidates_.emplace(min_offsets_[undo.idx], undo.idx);
-  tops_.insert(min_offsets_[undo.idx] + alloc_size);
+  min_offsets_[idx] = offsets_[idx];
+  offsets_[idx] = -1;
+  if (committed) {
+    candidates_.emplace(min_offsets_[idx], idx);
+    tops_.insert(min_offsets_[idx] + alloc_size);
+  }
   --undo_depth_;
 }
 
 void Partition::order_indices(std::vector<int>& indices,
                               const std::string& heuristic, int start,
                               int end) const {
-  const int n = static_cast<int>(data_->allocations.size());
+  if (heuristic.empty()) return;
   const int m = static_cast<int>(indices.size());
   const size_t key_len = heuristic.size() + 1;
-
-  std::vector<char> member(static_cast<size_t>(n), 0);
-  for (int idx : indices) member[idx] = 1;
+  const bool need_overlaps = heuristic.find('O') != std::string::npos;
+  const bool need_totals = heuristic.find('T') != std::string::npos;
 
   // Per-allocation sort keys, row-major in one flat buffer; the original
   // index is the final tiebreaker.
@@ -447,11 +441,20 @@ void Partition::order_indices(std::vector<int>& indices,
     const auto [first, last] = data_->section_spans[idx];
     const int lo = std::max(first, start);
     const int hi = std::min(last, end);
+    // `indices` are exactly the allocations whose first section is in band
     int64_t overlap_count = 0;
-    for (int j : data_->overlaps[idx]) overlap_count += member[j];
+    if (need_overlaps) {
+      for (int j : data_->overlaps[idx]) {
+        const int j_first = data_->section_spans[j].first;
+        overlap_count +=
+            static_cast<int64_t>(start <= j_first && j_first < end);
+      }
+    }
     int64_t max_total = 0;
-    for (int s = lo; s < hi; ++s) {
-      if (section_totals_[s] > max_total) max_total = section_totals_[s];
+    if (need_totals) {
+      for (int s = lo; s < hi; ++s) {
+        max_total = std::max(max_total, section_totals_[s]);
+      }
     }
     for (size_t k = 0; k < heuristic.size(); ++k) {
       row[k] =
@@ -548,89 +551,55 @@ Partition Partition::reorder(const std::string& heuristic) const {
   return reordered;
 }
 
-std::optional<Partition> Partition::build_sub_partition(int start,
-                                                        int end) const {
-  const int n = static_cast<int>(data_->allocations.size());
-
-  // A placed buffer may still straddle a zero-cut boundary; assign it to the
-  // band holding its first section so the sub-parts stay disjoint for merge.
-  // Its height still constrains the other bands via the carried floors.
-  std::vector<int> sub_old_indices;
-  sub_old_indices.reserve(static_cast<size_t>(n));
-  for (int i = 0; i < n; ++i) {
-    const auto [first, last] = data_->section_spans[i];
-    const bool placed = offsets_[i] >= 0;
-    const bool include = placed ? (start <= first && first < end)
-                                : (first < end && last > start);
-    if (include) sub_old_indices.push_back(i);
-  }
-  if (sub_old_indices.empty()) return std::nullopt;
-
+Partition Partition::build_sub_partition(std::vector<int> indices, int start,
+                                         int end,
+                                         std::vector<int>& new_index) const {
   // Keys computed from the parent's data clamped to the band equal the
   // sub-part's own, so this matches a build-then-reorder exactly.
-  if (!heuristic_.empty()) {
-    order_indices(sub_old_indices, heuristic_, start, end);
-  }
+  order_indices(indices, heuristic_, start, end);
 
-  const int sub_n = static_cast<int>(sub_old_indices.size());
-  const int sub_num_sections = end - start;
+  const size_t m = indices.size();
+  for (size_t k = 0; k < m; ++k) new_index[indices[k]] = static_cast<int>(k);
+  const auto in_band = [&](int j) {
+    const int j_first = data_->section_spans[j].first;
+    return start <= j_first && j_first < end;
+  };
 
-  std::vector<int> old_to_new(static_cast<size_t>(n), -1);
   std::vector<Allocation> sub_allocs;
-  sub_allocs.reserve(static_cast<size_t>(sub_n));
-  std::vector<int64_t> sub_alloc_sizes;
-  sub_alloc_sizes.reserve(static_cast<size_t>(sub_n));
-  for (int new_idx = 0; new_idx < sub_n; ++new_idx) {
-    const int old_idx = sub_old_indices[new_idx];
-    old_to_new[old_idx] = new_idx;
-    sub_allocs.push_back(data_->allocations[old_idx]);
-    sub_alloc_sizes.push_back(data_->alloc_sizes[old_idx]);
+  sub_allocs.reserve(m);
+  std::vector<int64_t> sub_alloc_sizes(m);
+  std::vector<std::pair<int, int>> sub_section_spans(m);
+  std::vector<std::vector<int>> sub_overlaps(m);
+  std::vector<int64_t> sub_min_offsets(m);
+  std::vector<int64_t> sub_offsets(m);
+  for (size_t k = 0; k < m; ++k) {
+    const int i = indices[k];
+    const auto [first, last] = data_->section_spans[i];
+    sub_allocs.push_back(data_->allocations[i]);
+    sub_alloc_sizes[k] = data_->alloc_sizes[i];
+    sub_section_spans[k] = {first - start, std::min(last, end) - start};
+    sub_min_offsets[k] = min_offsets_[i];
+    sub_offsets[k] = offsets_[i];
+    for (int j : data_->overlaps[i]) {
+      if (in_band(j)) sub_overlaps[k].push_back(new_index[j]);
+    }
   }
 
-  std::vector<std::pair<int, int>> sub_section_spans(
-      static_cast<size_t>(sub_n));
-  std::vector<int64_t> sub_min_offsets(static_cast<size_t>(sub_n));
-  std::vector<int64_t> sub_offsets(static_cast<size_t>(sub_n));
-  for (int new_idx = 0; new_idx < sub_n; ++new_idx) {
-    const int old_idx = sub_old_indices[new_idx];
-    const auto [first, last] = data_->section_spans[old_idx];
-    sub_section_spans[new_idx] = {std::max(first, start) - start,
-                                  std::min(last, end) - start};
-    sub_min_offsets[new_idx] = min_offsets_[old_idx];
-    sub_offsets[new_idx] = offsets_[old_idx];
-  }
-
-  std::vector<std::vector<int>> sub_sections(
-      static_cast<size_t>(sub_num_sections));
+  std::vector<std::vector<int>> sub_sections(static_cast<size_t>(end - start));
   for (int s = start; s < end; ++s) {
-    auto& bucket = sub_sections[s - start];
-    for (int idx : data_->sections[s]) {
-      if (old_to_new[idx] >= 0) bucket.push_back(old_to_new[idx]);
+    for (int i : data_->sections[s]) {
+      if (in_band(i)) sub_sections[s - start].push_back(new_index[i]);
     }
   }
 
-  std::vector<std::vector<int>> sub_overlaps(static_cast<size_t>(sub_n));
-  for (int new_idx = 0; new_idx < sub_n; ++new_idx) {
-    const int old_idx = sub_old_indices[new_idx];
-    auto& bucket = sub_overlaps[new_idx];
-    for (int j_old : data_->overlaps[old_idx]) {
-      if (old_to_new[j_old] >= 0) bucket.push_back(old_to_new[j_old]);
-    }
-  }
-
-  std::vector<int64_t> sub_section_floors(section_floors_.begin() + start,
-                                          section_floors_.begin() + end);
-  std::vector<int64_t> sub_section_totals(section_totals_.begin() + start,
-                                          section_totals_.begin() + end);
-
-  auto sub_data =
+  Partition sub(
       make_shared_data(std::move(sub_allocs), std::move(sub_alloc_sizes),
                        std::move(sub_sections), std::move(sub_overlaps),
-                       std::move(sub_section_spans));
-
-  Partition sub(std::move(sub_data), std::move(sub_min_offsets),
-                std::move(sub_section_floors), std::move(sub_section_totals),
-                std::move(sub_offsets), best_height_);
+                       std::move(sub_section_spans)),
+      std::move(sub_min_offsets),
+      {section_floors_.begin() + start, section_floors_.begin() + end},
+      {section_totals_.begin() + start, section_totals_.begin() + end},
+      std::move(sub_offsets), best_height_);
   sub.heuristic_ = heuristic_;
   return sub;
 }
@@ -638,37 +607,37 @@ std::optional<Partition> Partition::build_sub_partition(int start,
 std::optional<std::vector<Partition>> Partition::decompose() const {
   if (num_zero_cuts_ == 0) return std::nullopt;
 
-  std::vector<int> boundaries{0};
-  for (size_t b = 0; b < cuts_.size(); ++b) {
-    if (cuts_[b] == 0) boundaries.push_back(static_cast<int>(b + 1));
+  // Bands split the sections at zero cuts. No unplaced allocation crosses a
+  // zero cut, so each allocation joins the band of its first section; a
+  // placed one straddling a cut thereby lands in exactly one sub-part, while
+  // its height still constrains the other bands via the carried floors.
+  const int num_sections = static_cast<int>(data_->sections.size());
+  std::vector<int> band_starts{0};
+  std::vector<int> band_of(static_cast<size_t>(num_sections), 0);
+  for (int s = 1; s < num_sections; ++s) {
+    if (cuts_[s - 1] == 0) band_starts.push_back(s);
+    band_of[s] = static_cast<int>(band_starts.size()) - 1;
   }
-  boundaries.push_back(static_cast<int>(data_->sections.size()));
+  band_starts.push_back(num_sections);
 
+  std::vector<std::vector<int>> members(band_starts.size() - 1);
+  const int n = static_cast<int>(data_->allocations.size());
+  for (int i = 0; i < n; ++i) {
+    members[band_of[data_->section_spans[i].first]].push_back(i);
+  }
+
+  // Shared scratch: the bands are disjoint, so no entry is ever reused.
+  std::vector<int> new_index(static_cast<size_t>(n));
   std::vector<Partition> sub_parts;
-  for (size_t b = 0; b + 1 < boundaries.size(); ++b) {
-    std::optional<Partition> sub =
-        build_sub_partition(boundaries[b], boundaries[b + 1]);
-    if (sub) sub_parts.push_back(std::move(*sub));
+  for (size_t b = 0; b < members.size(); ++b) {
+    if (members[b].empty()) continue;
+    sub_parts.push_back(build_sub_partition(
+        std::move(members[b]), band_starts[b], band_starts[b + 1], new_index));
   }
   return sub_parts;
 }
 
 namespace {
-
-// Lock-free minimum: lower `shared` to `h` if it is smaller.
-void lower_shared(std::atomic<int64_t>* shared, int64_t h) {
-  if (!shared) return;
-  int64_t cur = shared->load(std::memory_order_relaxed);
-  while (h < cur && !shared->compare_exchange_weak(cur, h)) {
-  }
-}
-
-// Pull in any improvement a sibling portfolio thread published.
-void pull_shared(const std::atomic<int64_t>* shared, Partition& node) {
-  if (!shared) return;
-  const int64_t gb = shared->load(std::memory_order_relaxed);
-  if (gb < node.best_height()) node.set_best_height(gb);
-}
 
 // Run-wide search invariants plus the node counter.
 struct SearchCtx {
@@ -678,7 +647,7 @@ struct SearchCtx {
   // The portfolio-wide best bound and the problem's lower bound: once they
   // meet, the whole portfolio is done. Checked on every node so sub-part
   // solves, which otherwise never read the shared bound, stop promptly.
-  const std::atomic<int64_t>* portfolio_best;
+  std::atomic<int64_t>& portfolio_best;
   int64_t problem_lower_bound;
   int64_t nodes = 0;
   // Set when a limit is hit or the portfolio finished; makes every frame on
@@ -687,35 +656,37 @@ struct SearchCtx {
   bool stopped = false;
 };
 
-// Concatenate sub-part solutions; the sub-parts are disjoint by construction.
-Solution merge_solutions(std::vector<Solution> subs, int64_t peak) {
-  size_t total = 0;
-  for (const Solution& s : subs) total += s.allocations.size();
+// Pull in any improvement a sibling portfolio member published.
+void pull_bound(const SearchCtx& ctx, Partition& node) {
+  const int64_t bound = ctx.portfolio_best.load(std::memory_order_relaxed);
+  if (bound < node.best_height()) node.set_best_height(bound);
+}
 
+// Concatenate sub-part solutions; the sub-parts are disjoint by construction.
+Solution merge_solutions(const std::vector<Solution>& subs, int64_t peak) {
   Solution merged{{}, peak};
-  merged.allocations.reserve(total);
-  for (Solution& s : subs) {
-    std::move(s.allocations.begin(), s.allocations.end(),
-              std::back_inserter(merged.allocations));
+  for (const Solution& s : subs) {
+    merged.allocations.insert(merged.allocations.end(), s.allocations.begin(),
+                              s.allocations.end());
   }
   return merged;
 }
 
 void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
-               std::optional<Solution>& best, std::atomic<int64_t>* shared);
+               std::optional<Solution>& best, bool sub_part);
 
 // Ratchet a decomposition: solve every sub-part below the node's bound, then
 // re-solve the bottleneck ones under each merged height until one proves
 // infeasible. Only merged results publish; partial heights are not bounds.
 void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
                       SearchCtx& ctx, std::optional<Solution>& best,
-                      std::atomic<int64_t>* shared) {
+                      bool sub_part) {
   const size_t count = sub_parts.size();
   std::vector<Solution> sub_solutions(count);
   std::vector<int64_t> sub_heights(count, INT64_MAX);
 
   while (!ctx.stopped) {
-    pull_shared(shared, node);
+    if (!sub_part) pull_bound(ctx, node);
 
     // Re-solve only the sub-parts at or above the bound; the rest keep their
     // packing from earlier rounds.
@@ -725,7 +696,7 @@ void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
       if (sub_heights[i] >= bound) {
         sub_parts[i].set_best_height(bound);
         std::optional<Solution> sub_best;
-        solve_dfs(sub_parts[i], 0, 0, ctx, sub_best, nullptr);
+        solve_dfs(sub_parts[i], 0, 0, ctx, sub_best, true);
         if (!sub_best) return;  // no packing below the bound: merge is final
         sub_heights[i] = sub_best->peak;
         sub_solutions[i] = std::move(*sub_best);
@@ -735,20 +706,17 @@ void solve_decomposed(std::vector<Partition>& sub_parts, Partition& node,
 
     node.set_best_height(merged_height);
     best = merge_solutions(sub_solutions, merged_height);
-    lower_shared(shared, merged_height);
-    // A sub-part only has to fit the inherited bound, not reach its own
-    // optimum.
-    if (shared == nullptr) return;
+    if (sub_part) return;  // see `solve_dfs`
+    atomic_fetch_min(ctx.portfolio_best, merged_height);
   }
 }
 
 // Recursive branch-and-bound descent. `node` is mutated in place via
 // `apply_at`/`revert`; its `best_height` is the live pruning bound, lowered on
-// every improvement and never restored. `shared`, when non-null, is atomic.
+// every improvement and never restored. Only a top-level (not `sub_part`)
+// search trades bounds with the portfolio.
 void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
-               std::optional<Solution>& best, std::atomic<int64_t>* shared) {
-  // A sub-part only has to fit the inherited bound, not reach its own optimum
-  const bool first_leaf = shared == nullptr;
+               std::optional<Solution>& best, bool sub_part) {
   ++ctx.nodes;
 
   if (node.is_allocated()) {
@@ -756,26 +724,26 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
     if (h < node.best_height()) {
       best = Solution{apply_offsets(node.allocations(), node.offsets()), h};
       node.set_best_height(h);
-      lower_shared(shared, h);
+      if (!sub_part) atomic_fetch_min(ctx.portfolio_best, h);
     }
     return;
   }
   // The clock is orders of magnitude costlier than a node, so sample it every
-  // 256 nodes; the deadline loses at most microseconds of precision.
+  // 256 nodes, starting with the first; precision is lost in microseconds.
   if (ctx.nodes >= ctx.node_limit ||
-      ctx.portfolio_best->load(std::memory_order_relaxed) <=
+      ctx.portfolio_best.load(std::memory_order_relaxed) <=
           ctx.problem_lower_bound ||
-      ((ctx.nodes & 255) == 0 &&
+      ((ctx.nodes & 255) == 1 &&
        std::chrono::steady_clock::now() > ctx.deadline)) {
     ctx.stopped = true;
     return;
   }
 
-  pull_shared(shared, node);
+  if (!sub_part) pull_bound(ctx, node);
 
   if (ctx.opts.decompose) {
     if (std::optional<std::vector<Partition>> sub_parts = node.decompose()) {
-      solve_decomposed(*sub_parts, node, ctx, best, shared);
+      solve_decomposed(*sub_parts, node, ctx, best, sub_part);
       return;
     }
   }
@@ -789,7 +757,7 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
   const auto [lower_bound, max_total] = node.scan_bounds();
 
   // Skip the candidates that lex-precede the canonical (min_offset, idx)
-  // floor. `apply_at`/`revert` mutate the set, so re-seek the iterator after
+  // floor. `commit`/`revert` mutate the set, so re-seek the iterator after
   // each try; the net state is unchanged, making the saved key a valid anchor.
   auto it = ctx.opts.canonical ? candidates.lower_bound({min_offset, min_idx})
                                : candidates.begin();
@@ -823,13 +791,18 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
     }
 
     const auto& undo = node.apply_at(alloc_idx, ctx.opts.floor_inference);
-    if (node.placement_feasible(undo, alloc_offset, ctx.opts.monotonic_floor)) {
-      solve_dfs(node, alloc_offset, alloc_idx, ctx, best, shared);
+    const bool feasible =
+        node.placement_feasible(undo, alloc_offset, ctx.opts.monotonic_floor);
+    if (feasible) {
+      node.commit(undo);
+      solve_dfs(node, alloc_offset, alloc_idx, ctx, best, sub_part);
     }
-    node.revert(undo);
+    node.revert(undo, feasible);
     if (ctx.stopped) return;
 
-    if (first_leaf && best) return;
+    // A sub-part only has to fit the inherited bound, not reach its own
+    // optimum: the first packing found is final.
+    if (sub_part && best) return;
     it = candidates.upper_bound({alloc_offset, alloc_idx});
   }
 }
@@ -927,13 +900,9 @@ void run_workers(const std::function<void()>& work, int num_threads,
 // here rather than in make_deadline, which requires a positive budget.
 std::chrono::steady_clock::time_point compute_deadline(
     std::optional<double> timeout) {
-  if (!timeout) {
-    return std::chrono::steady_clock::time_point::max();
-  }
-  if (*timeout <= 0.0) {
-    return std::chrono::steady_clock::now();
-  }
-  return *make_deadline(timeout);
+  if (timeout && *timeout <= 0.0) return std::chrono::steady_clock::now();
+  return make_deadline(timeout).value_or(
+      std::chrono::steady_clock::time_point::max());
 }
 
 }  // namespace
@@ -948,17 +917,23 @@ Solution greedy_pack_portfolio(const Partition& partition,
   validate_heuristics(heuristics);
 
   const auto deadline = compute_deadline(timeout);
+  const int64_t lower_bound = partition.lower_bound();
   std::vector<std::optional<Solution>> results(heuristics.size());
   std::atomic<size_t> next{0};
+  std::atomic<bool> optimal{false};
 
   // The first heuristic is packed regardless of the deadline so that at
-  // least one result always exists.
+  // least one result always exists; a packing at the lower bound ends it.
   run_workers(
       [&]() {
         for (size_t i = next.fetch_add(1); i < heuristics.size();
              i = next.fetch_add(1)) {
-          if (i > 0 && std::chrono::steady_clock::now() > deadline) break;
+          if (i > 0 && (optimal.load(std::memory_order_relaxed) ||
+                        std::chrono::steady_clock::now() > deadline)) {
+            break;
+          }
           results[i] = partition.greedy_pack(heuristics[i]);
+          if (results[i]->peak <= lower_bound) optimal = true;
         }
       },
       num_threads, heuristics.size());
@@ -970,39 +945,49 @@ Solution greedy_pack_portfolio(const Partition& partition,
   return std::move(*best);
 }
 
-std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,
-                                       int64_t best_bound,
-                                       std::optional<int64_t> max_nodes,
-                                       SearchOptions options,
-                                       std::optional<double> timeout,
-                                       int num_threads) {
-  if (partitions.empty()) return std::nullopt;
+SearchResult try_solve_many(const std::vector<Partition>& partitions,
+                            const std::vector<int64_t>& bounds,
+                            std::optional<int64_t> max_nodes,
+                            SearchOptions options,
+                            std::optional<double> timeout, int num_threads) {
+  if (partitions.empty() || bounds.empty()) return {std::nullopt, true};
 
+  const size_t num_members = partitions.size() * bounds.size();
   const int64_t node_limit = max_nodes.value_or(INT64_MAX);
   const auto deadline = compute_deadline(timeout);
-  std::atomic<int64_t> shared_best{best_bound};
-  std::vector<std::optional<Solution>> results(partitions.size());
+  std::atomic<int64_t> shared_best{
+      *std::max_element(bounds.begin(), bounds.end())};
+  std::atomic<bool> exhausted{true};
+  std::vector<std::optional<Solution>> results(num_members);
   std::atomic<size_t> next{0};
 
+  // Member i searches partitions[i % P] below bounds[i / P].
   run_workers(
       [&]() {
-        for (size_t i = next.fetch_add(1); i < partitions.size();
+        for (size_t i = next.fetch_add(1); i < num_members;
              i = next.fetch_add(1)) {
-          Partition root = partitions[i];
-          root.set_best_height(std::min(
-              root.best_height(), shared_best.load(std::memory_order_relaxed)));
-          SearchCtx ctx{node_limit, deadline, options, &shared_best,
+          Partition root = partitions[i % partitions.size()];
+          root.set_best_height(
+              std::min(bounds[i / partitions.size()],
+                       shared_best.load(std::memory_order_relaxed)));
+          SearchCtx ctx{node_limit, deadline, options, shared_best,
                         root.lower_bound()};
-          solve_dfs(root, 0, 0, ctx, results[i], &shared_best);
+          solve_dfs(root, 0, 0, ctx, results[i], false);
+          // A stop once the portfolio meets the lower bound misses nothing
+          if (ctx.stopped && shared_best.load() > ctx.problem_lower_bound) {
+            exhausted = false;
+          }
         }
       },
-      num_threads, partitions.size());
+      num_threads, num_members);
 
-  std::optional<Solution> best;
+  SearchResult result{std::nullopt, exhausted};
   for (auto& r : results) {
-    if (r && (!best || r->peak < best->peak)) best = std::move(*r);
+    if (r && (!result.solution || r->peak < result.solution->peak)) {
+      result.solution = std::move(*r);
+    }
   }
-  return best;
+  return result;
 }
 
 }  // namespace omnimalloc

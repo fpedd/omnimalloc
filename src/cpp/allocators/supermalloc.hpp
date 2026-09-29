@@ -53,7 +53,7 @@ class Partition {
   }
 
   // Unplaced (min_offset, idx) pairs in canonical order; maintained
-  // incrementally by `apply_at`/`revert`.
+  // incrementally by `commit`/`revert`.
   [[nodiscard]] const std::set<std::pair<int64_t, int>>& candidates()
       const noexcept {
     return candidates_;
@@ -90,26 +90,23 @@ class Partition {
     std::vector<std::pair<int, int64_t>> min_offset_changes;
   };
 
-  // Post-`apply_at` bound check: only the floors it raised
-  // (`undo.floor_changes`) can newly violate the bound, since every other
-  // section was already validated by `can_allocate_at` at identical values.
+  // Post-`apply_at` bound check: only the floors raised by inference can
+  // newly violate the bound, since every other section was already validated
+  // by `can_allocate_at` at identical values.
   [[nodiscard]] bool placement_feasible(const PlacementUndo& undo,
                                         int64_t offset,
                                         bool monotonic_floor) const noexcept;
 
   // Place allocation `idx` at its `min_offset` and return the diff, so
-  // `revert` undoes it in O(touched log n) with no per-node state copy. The
-  // frame lives in a depth-indexed pool, valid until the matching `revert`.
+  // `revert` undoes it with no per-node state copy. The frame lives in a
+  // depth-indexed pool, valid until the matching `revert`. Only the flat
+  // arrays change: `commit` re-keys the candidate/top trees, and is called
+  // only for placements that pass `placement_feasible`, so a pruned probe
+  // costs no tree work. `revert` undoes the trees only when `committed`.
   [[nodiscard]] const PlacementUndo& apply_at(int idx, bool floor_inference);
-  void revert(const PlacementUndo& undo);
+  void commit(const PlacementUndo& undo);
+  void revert(const PlacementUndo& undo, bool committed);
   void set_best_height(int64_t h) noexcept { best_height_ = h; }
-  // Copy with `best_height` set to `bound`: a portfolio member that only
-  // accepts solutions strictly below `bound`.
-  [[nodiscard]] Partition with_bound(int64_t bound) const {
-    Partition copy = *this;
-    copy.best_height_ = bound;
-    return copy;
-  }
 
   // First-fit packing in `heuristic` order (empty keeps the input order):
   // each buffer takes the lowest gap among its already-placed overlaps. Cheap
@@ -144,8 +141,9 @@ class Partition {
             std::vector<int64_t> section_totals, std::vector<int64_t> offsets,
             int64_t best_height);
 
-  // Sweep-line construction over (start, end) events.
-  [[nodiscard]] static std::shared_ptr<SharedData> build_shared_data(
+  // Sweep-line construction of sections, overlaps, and spans over
+  // (start, end) events.
+  [[nodiscard]] static std::shared_ptr<SharedData> sweep(
       std::vector<Allocation> allocations);
 
   // Assemble a SharedData, deriving `sym_predecessor` from `allocations`.
@@ -155,35 +153,40 @@ class Partition {
       std::vector<std::vector<int>> overlaps,
       std::vector<std::pair<int, int>> section_spans);
 
-  // Build the sub-partition for the section band [start, end), or nullopt
-  // when the band contains no allocations. A non-empty `heuristic_` emits the
-  // sub-part's allocations pre-sorted (see `decompose`).
-  [[nodiscard]] std::optional<Partition> build_sub_partition(int start,
-                                                             int end) const;
+  // Build the sub-partition of `indices`, the allocations whose first section
+  // lies in the band [start, end). A non-empty `heuristic_` emits them
+  // pre-sorted (see `decompose`). `new_index` is scratch of size n.
+  [[nodiscard]] Partition build_sub_partition(
+      std::vector<int> indices, int start, int end,
+      std::vector<int>& new_index) const;
 
-  // Sort `indices` in place by their `heuristic` keys over the section band
-  // [start, end): spans clamp to the band, overlap counts include only
-  // `indices` members, totals read the live section_totals_.
+  // Sort `indices`, the allocations whose first section lies in the band
+  // [start, end), in place by their `heuristic` keys (empty keeps the order):
+  // spans clamp to the band, overlap counts include only `indices` members,
+  // totals read the live section_totals_.
   void order_indices(std::vector<int>& indices, const std::string& heuristic,
                      int start, int end) const;
 
   // First-fit packing in `order`; body of `greedy_pack`.
   [[nodiscard]] Solution first_fit(const std::vector<int>& order) const;
 
+  // Move unplaced allocation `j` from min_offset `from` to `to` in the trees.
+  void rekey(int j, int64_t from, int64_t to);
+
   // Derive the incremental search state (candidates, tops, cuts) from
   // `offsets_`, `min_offsets_`, and the section spans.
   void init_search_state();
 
   std::shared_ptr<const SharedData> data_;
-  std::vector<int64_t> min_offsets_;
+  std::vector<int64_t> min_offsets_;  // INT64_MAX once placed
   std::vector<int64_t> section_floors_;
   std::vector<int64_t> section_totals_;
   std::vector<int64_t> offsets_;
   int64_t best_height_;
   std::string heuristic_;  // set by `reorder`; empty means input order
 
-  // Search state maintained incrementally by `apply_at`/`revert` so the hot
-  // loop never rescans the whole problem.
+  // Search state maintained incrementally by `apply_at`/`commit`/`revert` so
+  // the hot loop never rescans the whole problem.
   std::set<std::pair<int64_t, int>> candidates_;  // unplaced (min_offset, idx)
   std::multiset<int64_t> tops_;  // unplaced min_offset + size, for min_height
   std::vector<int64_t> cuts_;    // boundary -> unplaced allocations crossing it
@@ -203,17 +206,27 @@ class Partition {
 
 // Run `partition.greedy_pack` under each heuristic across `num_threads` and
 // return the best packing, ties to the lowest index. Heuristics claimed after
-// `timeout` are skipped except the first. Throws on an empty/unknown heuristic.
+// `timeout`, or once a packing meets the lower bound, are skipped except the
+// first. Throws on an empty/unknown heuristic.
 [[nodiscard]] Solution greedy_pack_portfolio(
     const Partition& partition, const std::vector<std::string>& heuristics,
     std::optional<double> timeout, int num_threads);
 
-// Run `partitions` as an independent-search portfolio across `num_threads`,
-// sharing one atomic bound so any solution prunes the rest; `max_nodes` caps
-// each member. Returns the best solution beating `best_bound`, else nullopt.
-[[nodiscard]] std::optional<Solution> try_solve_many(
-    const std::vector<Partition>& partitions, int64_t best_bound,
-    std::optional<int64_t> max_nodes, SearchOptions options,
-    std::optional<double> timeout, int num_threads);
+// Portfolio outcome. `exhausted` means no member stopped early (node limit or
+// deadline) short of the lower bound, so the search missed nothing: a nullopt
+// `solution` proves none exists below the bounds.
+struct SearchResult {
+  std::optional<Solution> solution;
+  bool exhausted;
+};
+
+// Run every (bound, partition) pair as an independent-search portfolio member
+// across `num_threads`, bound-major, sharing one atomic bound so any solution
+// prunes the rest; `max_nodes` caps each member. Returns the best solution
+// strictly below the largest bound, if any.
+[[nodiscard]] SearchResult try_solve_many(
+    const std::vector<Partition>& partitions,
+    const std::vector<int64_t>& bounds, std::optional<int64_t> max_nodes,
+    SearchOptions options, std::optional<double> timeout, int num_threads);
 
 }  // namespace omnimalloc

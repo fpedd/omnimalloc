@@ -5,50 +5,26 @@
 from pathlib import Path
 
 import pytest
-from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC, MinimallocAllocator
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
-from omnimalloc.benchmark import plot_benchmark, run_benchmark, save_benchmark
+from omnimalloc.io import load_allocation
+from omnimalloc.validate import validate_allocation
 
-from tests.markers import needs_matplotlib
-
-ALLOCATORS = (
-    "greedy_by_size",
-    "greedy_by_all",
-    "omni",
-    SupermallocAllocator(timeout=2),
-) + ((MinimallocAllocator(timeout=2),) if HAS_MINIMALLOC else ())
-
-SIZE_VARIANTS = (64, 128, 256, 512, 1024)
-
-PINWHEEL_VARIANTS = (65, 129, 257, 513, 1025)
-
-MINIMALLOC_VARIANTS = tuple(f"{name}.1048576" for name in "ABCDEFGHIJK")
-
-
-@needs_matplotlib
-@pytest.mark.parametrize(
-    ("source", "variants"),
-    [
-        ("minimalloc", MINIMALLOC_VARIANTS),
-        ("tiling", SIZE_VARIANTS),
-        ("pinwheel", PINWHEEL_VARIANTS),
-        ("random", SIZE_VARIANTS),
-    ],
+CHALLENGING_DIR = (
+    Path(__file__).resolve().parents[2] / "external" / "minimalloc" / "challenging"
 )
-def test_benchmark(
-    source: str, variants: tuple[int | str, ...], artifacts_dir: Path
-) -> None:
-    campaign = run_benchmark(
-        allocators=ALLOCATORS,
-        sources=(source,),
-        variants=variants,
-        validate=True,
-    )
-    assert len(campaign.reports) == len(ALLOCATORS) * len(variants)
 
-    plot_file = artifacts_dir / "benchmark.pdf"
-    plot_benchmark(campaign, plot_file)
-    assert plot_file.exists()
+# Instances that must reach a proved optimum within a second on any thread
+# count; before node-budgeted rounds, 1-4 threads stalled on the first member
+OPTIMA = {"C": 1039360, "G": 1048576, "I": 1048576, "K": 1048576}
 
-    saved_path = save_benchmark(campaign, artifacts_dir / "results")
-    assert saved_path.exists()
+
+@pytest.mark.skipif(not CHALLENGING_DIR.is_dir(), reason="needs a checkout")
+@pytest.mark.parametrize("num_threads", [1, 8])
+@pytest.mark.parametrize("name", sorted(OPTIMA))
+def test_challenging_reaches_a_proved_optimum(name: str, num_threads: int) -> None:
+    pool = load_allocation(CHALLENGING_DIR / f"{name}.1048576.csv")
+    allocator = SupermallocAllocator(timeout=10.0, num_threads=num_threads)
+    result = allocator.solve(pool.allocations)
+    validate_allocation(result.allocations)
+    assert result.peak == OPTIMA[name]
+    assert result.proved_optimal
