@@ -54,15 +54,13 @@ Sample = dict[str, Any]
 def _timed(
     allocator: BaseAllocator, allocations: "tuple[Allocation, ...]"
 ) -> "tuple[float, tuple[Allocation, ...]]":
-    timer = Timer().start()
-    placed = allocator.allocate(allocations)
-    timer.stop()
+    with Timer() as timer:
+        placed = allocator.allocate(allocations)
     seconds = timer.elapsed_s
     if seconds < 1e-3:
         for _ in range(4):
-            timer = Timer().start()
-            allocator.allocate(allocations)
-            timer.stop()
+            with Timer() as timer:
+                allocator.allocate(allocations)
             seconds = min(seconds, timer.elapsed_s)
     return seconds, placed
 

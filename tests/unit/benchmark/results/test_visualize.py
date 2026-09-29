@@ -12,7 +12,7 @@ from omnimalloc.benchmark.results.visualize import (
     _canonicalize_artifact,
     _format_metadata,
     _get_allocator_color,
-    _get_sorted_reports,
+    _sorted_reports,
     plot_benchmark,
 )
 from omnimalloc.benchmark.sources.generator import RandomSource
@@ -99,21 +99,15 @@ def test_plot_benchmark_without_path_shows_figure(
 
 
 def test_sorted_reports_handles_mixed_variant_id_types() -> None:
-    mixed = {"a": (_report("r0", "small"), _report("r1", 100), _report("r2", None))}
-    assert len(_get_sorted_reports(mixed)) == 3
+    mixed = [_report("r0", "small"), _report("r1", 100), _report("r2", None)]
+    assert len(_sorted_reports(mixed)) == 3
 
 
 def test_sorted_reports_orders_numeric_variants_by_size() -> None:
-    numeric = {
-        "a": (
-            _report("r0", 30, size=30),
-            _report("r1", 10, size=10),
-            _report("r2", 20, size=20),
-        )
-    }
-    assert [r.variant_id for r in _get_sorted_reports(numeric)] == [10, 20, 30]
+    numeric = [_report(f"r{n}", n, size=n) for n in (30, 10, 20)]
+    assert [r.variant_id for r in _sorted_reports(numeric)] == [10, 20, 30]
 
 
 def test_sorted_reports_orders_categorical_variants_by_name() -> None:
-    categorical = {"a": (_report("r0", "c"), _report("r1", "a"), _report("r2", "b"))}
-    assert [r.variant_id for r in _get_sorted_reports(categorical)] == ["a", "b", "c"]
+    categorical = [_report(f"r{name}", name) for name in "cab"]
+    assert [r.variant_id for r in _sorted_reports(categorical)] == ["a", "b", "c"]
