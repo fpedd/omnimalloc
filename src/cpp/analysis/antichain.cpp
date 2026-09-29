@@ -134,8 +134,8 @@ class Dinic {
 };
 
 // Max-weight antichain over explicit lifetime rows via the min-flow
-// construction above; `max_threads` caps the dominance-edge pass so nested
-// solves stay serial. `work_budget` bounds that pass and the network it feeds.
+// construction above; `serial` keeps the dominance-edge pass of nested solves
+// on one thread. `work_budget` bounds that pass and the network it feeds.
 int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
                       const std::vector<std::span<const int64_t>>& end_rows,
                       const std::vector<int64_t>& weights, size_t d,
@@ -164,9 +164,9 @@ int64_t max_antichain(const std::vector<std::span<const int64_t>>& start_rows,
   const unsigned num_threads = serial ? 1U : parallel_threads(m);
   std::vector<std::vector<int32_t>> dominated(m);
   for_each_row_block(m, num_threads, [&](size_t r) {
-    const int64_t* end_row = ends.row(r);
+    const auto end_row = ends.row(r);
     for (size_t q = starts.prefix_lt(end_row[0]); q < k; ++q) {
-      if (dominates(end_row, starts.row(q), d)) {
+      if (happens_before(end_row, starts.row(q))) {
         dominated[r].push_back(static_cast<int32_t>(q));
       }
     }
@@ -220,20 +220,15 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
   if (allocations.empty()) {
     return 0;
   }
-  const size_t d = checked_dim(allocations);
-  // Sizes are summed into int64 sweep deltas and flow arc capacities;
-  // overflow would be UB, so refuse up front.
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  const size_t d = checked_pressure_dim(allocations);
   // Interval orders (all-scalar included) realize the antichain as the
   // scalar sweep peak: pairwise-overlapping intervals share a common point,
   // and linearization preserves the conflict relation exactly.
   if (const auto times = linearize_times(allocations, work_budget)) {
-    std::vector<int64_t> weights(allocations.size());
-    std::ranges::transform(allocations, weights.begin(), &Allocation::size);
-    return interval_peak(*times, weights);
+    return interval_peak(*times, sizes_of(allocations));
   }
 
-  // Identical lifetimes merge into one weighted node (see the file header)
+  // Identical lifetimes merge into one weighted node
   const LifetimeGroups groups = group_lifetimes(allocations);
   return max_antichain(groups.starts, groups.ends, groups.weights, d,
                        /*serial=*/false, work_budget);
@@ -246,15 +241,12 @@ std::vector<int64_t> antichain_pressure_per_allocation(
   if (n == 0) {
     return {};
   }
-  const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  const size_t d = checked_pressure_dim(allocations);
   // Interval orders: every clique through an allocation shares a time point
   // inside its own lifetime (Helly), so the pinned antichain is the window
   // peak of the linearized sweep.
   if (const auto times = linearize_times(allocations, work_budget)) {
-    std::vector<int64_t> weights(n);
-    std::ranges::transform(allocations, weights.begin(), &Allocation::size);
-    return interval_peaks(*times, weights);
+    return interval_peaks(*times, sizes_of(allocations));
   }
 
   // Identical lifetimes share one pinned antichain, so solve per group; an
@@ -275,16 +267,15 @@ std::vector<int64_t> antichain_pressure_per_allocation(
   for_each_row_block(
       g, num_threads,
       [&](size_t i) {
-        const auto begin = static_cast<size_t>(adj.offsets[i]);
-        const auto end = static_cast<size_t>(adj.offsets[i + 1]);
+        const auto row = adj.row(i);
         std::vector<std::span<const int64_t>> starts;
         std::vector<std::span<const int64_t>> ends;
         std::vector<int64_t> weights;
-        starts.reserve(end - begin);
-        ends.reserve(end - begin);
-        weights.reserve(end - begin);
-        for (size_t e = begin; e < end; ++e) {
-          const auto j = static_cast<size_t>(adj.neighbors[e]);
+        starts.reserve(row.size());
+        ends.reserve(row.size());
+        weights.reserve(row.size());
+        for (const int32_t neighbor : row) {
+          const auto j = static_cast<size_t>(neighbor);
           starts.push_back(groups.starts[j]);
           ends.push_back(groups.ends[j]);
           weights.push_back(groups.weights[j]);

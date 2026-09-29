@@ -12,19 +12,18 @@
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "common/hash.hpp"
 #include "common/parallel.hpp"
 #include "primitives/allocation.hpp"
-
-// Shared clock-row utilities for the exact vector-time analyses (linearize,
-// antichain, closure) and the conflict-graph consumers: deduplication, column
-// reduction, dominance, lifetime grouping, and the sweep peaks.
 
 namespace omnimalloc {
 
@@ -41,13 +40,21 @@ inline size_t checked_dim(const std::vector<Allocation>& allocations) {
   return dim;
 }
 
+// Shared clock dimension of an exact pressure query's instance. Sizes sum into
+// int64 sweep deltas and flow capacities, so an overflowing total is refused.
+inline size_t checked_pressure_dim(const std::vector<Allocation>& allocations) {
+  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  return checked_dim(allocations);
+}
+
 // Component spans of all starts and ends plus the shared clock dimension,
 // validated and gathered up front to keep the conflict and dominance loops
-// branch-free.
+// branch-free. The spans view the allocations or, once reduced, `backing`.
 struct ClockSpans {
   std::vector<std::span<const int64_t>> starts;
   std::vector<std::span<const int64_t>> ends;
   size_t dim = 1;
+  std::vector<int64_t> backing;
 };
 
 inline ClockSpans gather_clock_spans(
@@ -63,22 +70,14 @@ inline ClockSpans gather_clock_spans(
   return spans;
 }
 
-// Fold one clock component into a column fingerprint (boost's hash_combine).
-// Fingerprints only prune the exact comparison below, so their quality
-// bounds redundant work and never correctness.
-inline uint64_t hash_component(uint64_t seed, int64_t value) noexcept {
-  return seed ^ (static_cast<uint64_t>(value) + 0x9e3779b97f4a7c15ULL +
-                 (seed << 6) + (seed >> 2));
-}
-
-// Collapse degenerate clock columns in place, returning the reduced rows'
-// backing storage (empty when every column survives; it must outlive `spans`).
-// A constant column never decides a dominance test and a duplicate repeats one.
-[[nodiscard]] inline std::vector<int64_t> reduce_columns(ClockSpans& spans) {
+// Collapse degenerate clock columns in place, repointing the spans into
+// `spans.backing`. A constant column never decides a dominance test and a
+// duplicate repeats one. Column fingerprints only prune the exact comparison.
+inline void reduce_columns(ClockSpans& spans) {
   const size_t n = spans.starts.size();
   const size_t d = spans.dim;
   if (d == 1 || n == 0) {
-    return {};
+    return;
   }
   std::vector<uint64_t> fingerprint(d, 0);
   std::vector<char> constant(d, 1);
@@ -87,8 +86,9 @@ inline uint64_t hash_component(uint64_t seed, int64_t value) noexcept {
     const std::span<const int64_t> start = spans.starts[i];
     const std::span<const int64_t> end = spans.ends[i];
     for (size_t c = 0; c < d; ++c) {
-      fingerprint[c] =
-          hash_component(hash_component(fingerprint[c], start[c]), end[c]);
+      fingerprint[c] = hash_combine(
+          hash_combine(fingerprint[c], static_cast<uint64_t>(start[c])),
+          static_cast<uint64_t>(end[c]));
       if (start[c] != first[c] || end[c] != first[c]) {
         constant[c] = 0;
       }
@@ -118,9 +118,10 @@ inline uint64_t hash_component(uint64_t seed, int64_t value) noexcept {
   // All-constant clocks would need start == end, which validation rejects
   assert(!keep.empty());
   if (keep.size() == d) {
-    return {};
+    return;
   }
-  std::vector<int64_t> backing(2 * n * keep.size());
+  std::vector<int64_t>& backing = spans.backing;
+  backing.resize(2 * n * keep.size());
   for (size_t i = 0; i < n; ++i) {
     for (size_t c = 0; c < keep.size(); ++c) {
       backing[i * keep.size() + c] = spans.starts[i][keep[c]];
@@ -132,7 +133,14 @@ inline uint64_t hash_component(uint64_t seed, int64_t value) noexcept {
     spans.ends[i] = {backing.data() + (n + i) * keep.size(), keep.size()};
   }
   spans.dim = keep.size();
-  return backing;
+}
+
+// Gathered and column-reduced clock spans of `allocations`
+inline ClockSpans reduced_clock_spans(
+    const std::vector<Allocation>& allocations) {
+  ClockSpans spans = gather_clock_spans(allocations);
+  reduce_columns(spans);
+  return spans;
 }
 
 // Distinct clock rows in lexicographic order (so component 0 ascends), with
@@ -144,7 +152,9 @@ struct DedupedRows {
   std::vector<int32_t> group;    // input index -> row index
 
   size_t count() const noexcept { return weights.size(); }
-  const int64_t* row(size_t r) const noexcept { return rows.data() + r * dim; }
+  std::span<const int64_t> row(size_t r) const noexcept {
+    return {rows.data() + r * dim, dim};
+  }
 
   // Rows ascend lexicographically, so component 0 admits binary search:
   // number of rows with row[0] < v, and with row[0] <= v respectively.
@@ -184,11 +194,6 @@ inline DedupedRows dedupe_rows(
     ++out.weights.back();
   }
   return out;
-}
-
-inline bool dominates(const int64_t* end, const int64_t* start,
-                      size_t dim) noexcept {
-  return happens_before({end, dim}, {start, dim});
 }
 
 // Allocations grouped by identical (start, end) clock pairs: one
@@ -339,6 +344,12 @@ inline std::vector<int64_t> interval_peaks(
 struct CsrAdjacency {
   std::vector<int64_t> offsets;
   std::vector<int32_t> neighbors;
+
+  std::span<const int32_t> row(size_t i) const noexcept {
+    const auto begin = static_cast<size_t>(offsets[i]);
+    return {neighbors.data() + begin,
+            static_cast<size_t>(offsets[i + 1]) - begin};
+  }
 };
 
 // Ceiling on the neighbor entries one adjacency may materialize, 4 bytes each.
@@ -351,6 +362,12 @@ inline constexpr uint64_t kMaxAdjacencyEntries = uint64_t{1} << 31;
 // smallest start passes a's largest end, keeping the sweep output-sensitive.
 class ConflictSweep {
  public:
+  explicit ConflictSweep(const std::vector<Allocation>& allocations)
+      : ConflictSweep(reduced_clock_spans(allocations)) {}
+
+  explicit ConflictSweep(const ClockSpans& spans)
+      : ConflictSweep(spans.starts, spans.ends, spans.dim) {}
+
   ConflictSweep(const std::vector<std::span<const int64_t>>& starts,
                 const std::vector<std::span<const int64_t>>& ends, size_t dim)
       : n_(starts.size()), dim_(dim) {
@@ -399,6 +416,17 @@ class ConflictSweep {
     return pairs * dim_;
   }
 
+  // Throw when the sweep would outrun `work_budget`; `what` completes
+  // "pass None to always ...", naming what the caller was about to do.
+  void check_budget(std::optional<uint64_t> work_budget,
+                    std::string_view what) const {
+    if (work_budget && sweep_work() > *work_budget) {
+      throw std::runtime_error(
+          "Conflict sweep work exceeds work_budget; pass None to always " +
+          std::string(what));
+    }
+  }
+
   // Calls `on_pair(i, j)` once per conflicting pair, in input indices;
   // `on_pair` must be thread-safe when num_threads > 1.
   template <typename OnPair>
@@ -408,8 +436,8 @@ class ConflictSweep {
       for (size_t b = a + 1; b < n_ && min_start_[b] < cutoff; ++b) {
         // Conflict = neither happens-before; each dominance test exits on
         // its first violating component, so conflicting pairs resolve fast
-        if (!dominates(&ends_[a * dim_], &starts_[b * dim_], dim_) &&
-            !dominates(&ends_[b * dim_], &starts_[a * dim_], dim_)) {
+        if (!happens_before(end(a), start(b)) &&
+            !happens_before(end(b), start(a))) {
           on_pair(static_cast<size_t>(original_[a]),
                   static_cast<size_t>(original_[b]));
         }
@@ -485,6 +513,13 @@ class ConflictSweep {
   }
 
  private:
+  std::span<const int64_t> start(size_t row) const noexcept {
+    return {starts_.data() + row * dim_, dim_};
+  }
+  std::span<const int64_t> end(size_t row) const noexcept {
+    return {ends_.data() + row * dim_, dim_};
+  }
+
   size_t n_;
   size_t dim_;
   std::vector<int64_t> starts_;     // n x dim, row-major, min-start order

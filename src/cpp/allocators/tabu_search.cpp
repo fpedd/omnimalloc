@@ -71,7 +71,7 @@ std::vector<Allocation> tabu_search_place(
         break;
       }
       const auto proposal =
-          propose_peak_swap(peaks, order, placer.indices(), rng);
+          propose_peak_swap(peaks, order, placer.adjacency(), rng);
       if (!proposal) {
         continue;
       }

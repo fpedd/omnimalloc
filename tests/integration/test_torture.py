@@ -40,7 +40,6 @@ from omnimalloc.allocators import (
     TabuSearchAllocator,
     TelamallocAllocator,
 )
-from omnimalloc.allocators.greedy import allocate_parallel
 from omnimalloc.analysis import (
     antichain_pressure,
     conflict_graph,
@@ -140,7 +139,7 @@ allocations = tuple(allocations)
 threads = int(sys.argv[1])
 seeded = {
     "omni": OmniAllocator(),
-    "greedy_by_all": GreedyByAllAllocator(num_threads=threads),
+    "greedy_by_all": GreedyByAllAllocator(),
     "hill_climb": HillClimbAllocator(timeout=None, max_iterations=60),
     "genetic": GeneticAllocator(timeout=None, max_generations=5, population_size=20),
     "tabu_search": TabuSearchAllocator(timeout=None, max_iterations=60),
@@ -161,11 +160,6 @@ report["supermalloc_verdict"] = [
 report["supermalloc_offsets"] = [a.offset for a in solved.allocations]
 print(json.dumps(report))
 """
-
-
-class FailingVariant:
-    def allocate(self, _allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
-        raise RuntimeError("Variant failure")
 
 
 def _dense_instance(num_allocations: int, seed: int) -> tuple[Allocation, ...]:
@@ -431,37 +425,6 @@ def test_supermalloc_verdict_is_stable_across_thread_counts() -> None:
     for result in results:
         validate_allocation(result.allocations)
         assert placement_pressure(result.allocations) == result.peak
-
-
-def test_one_failing_variant_does_not_sink_the_parallel_call() -> None:
-    allocations = _small_instance(80, seed=3)
-    variants = (FailingVariant(), GreedyAllocator(), FailingVariant())
-    placed = allocate_parallel(allocations, variants, num_threads=4)
-    assert len(placed) == len(allocations)
-    assert placement_pressure(placed) == placement_pressure(
-        GreedyAllocator().allocate(allocations)
-    )
-
-
-def test_every_variant_failing_raises_runtime_error() -> None:
-    allocations = _small_instance(80, seed=3)
-    with pytest.raises(RuntimeError, match="Every allocator variant failed"):
-        allocate_parallel(allocations, (FailingVariant(),) * 3, num_threads=4)
-
-
-def test_serial_path_survives_a_failing_variant() -> None:
-    allocations = _small_instance(80, seed=3)
-    variants = (FailingVariant(), GreedyBySizeAllocator(), FailingVariant())
-    placed = allocate_parallel(allocations, variants, num_threads=1)
-    assert placement_pressure(placed) == placement_pressure(
-        GreedyBySizeAllocator().allocate(allocations)
-    )
-
-
-def test_serial_path_raises_when_every_variant_fails() -> None:
-    allocations = _small_instance(80, seed=3)
-    with pytest.raises(RuntimeError, match="Every allocator variant failed"):
-        allocate_parallel(allocations, (FailingVariant(),) * 3, num_threads=1)
 
 
 def test_greedy_by_all_still_matches_its_best_variant() -> None:

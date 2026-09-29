@@ -6,7 +6,7 @@ import random
 import threading
 from typing import Any, cast
 
-from omnimalloc._cpp import FirstFitPlacer
+from omnimalloc._cpp import FirstFitPlacer, GreedyOrder, greedy_order
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import (
     deadline_expired,
@@ -17,15 +17,7 @@ from omnimalloc.common.optional import require_optional
 from omnimalloc.common.validation import ensure_non_negative, ensure_positive
 from omnimalloc.primitives import Allocation
 
-from .greedy import (
-    GreedyAllocator,
-    order_by_area,
-    order_by_conflict,
-    order_by_conflict_size,
-    order_by_duration,
-    order_by_size,
-    order_by_start,
-)
+from .greedy import GreedyAllocator
 
 try:
     from deap import algorithms, base, creator, tools
@@ -102,18 +94,16 @@ class GeneticAllocator(GreedyAllocator):
     ) -> list[list[int]]:
         """Create seed permutations mirroring the greedy sort heuristics."""
         orders = (
-            order_by_size,
-            order_by_duration,
-            order_by_area,
-            order_by_conflict,
-            order_by_conflict_size,
-            order_by_start,
+            GreedyOrder.SIZE,
+            GreedyOrder.DURATION,
+            GreedyOrder.AREA,
+            GreedyOrder.CONFLICT,
+            GreedyOrder.CONFLICT_SIZE,
+            GreedyOrder.START,
         )
-        positions = {alloc.id: i for i, alloc in enumerate(allocations)}
-        permutations = [
-            [positions[alloc.id] for alloc in order(allocations)] for order in orders
+        return [greedy_order(allocations, order) for order in orders][
+            : self._population_size
         ]
-        return permutations[: self._population_size]
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         """Evolve permutations using a genetic algorithm to find best allocation."""
