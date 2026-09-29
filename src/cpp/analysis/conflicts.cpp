@@ -10,7 +10,6 @@
 #include <string_view>
 
 #include "common/parallel.hpp"
-#include "common/ptimer.hpp"
 
 namespace omnimalloc {
 
@@ -52,16 +51,14 @@ ConflictIndices indices_from_adjacency(size_t n, const CsrAdjacency& adj) {
 
 CsrAdjacency build_conflict_adjacency(
     const std::vector<Allocation>& allocations) {
-  PTIME("build_conflict_adjacency");
   const ConflictSweep sweep = build_conflict_sweep(allocations);
   return sweep.adjacency(parallel_threads(sweep.count()));
 }
 
 ConflictIndices compute_conflict_indices(
     const std::vector<Allocation>& allocations) {
-  auto adj = build_conflict_adjacency(allocations);
-  PTIME("indices_from_adjacency");
-  return indices_from_adjacency(allocations.size(), adj);
+  return indices_from_adjacency(allocations.size(),
+                                build_conflict_adjacency(allocations));
 }
 
 ConflictGraph::ConflictGraph(const std::vector<Allocation>& allocations,
