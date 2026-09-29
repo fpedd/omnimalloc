@@ -168,4 +168,4 @@ unused-type-ignore-comment = "ignore"
 python-version = "3.10"
 
 [tool.ty.src]
-exclude = ["tests/", "**/*.pyi", "scripts/stress/contracts.py"]
+exclude = ["tests/", "**/*.pyi"]
