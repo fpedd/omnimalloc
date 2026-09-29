@@ -355,7 +355,7 @@ def test_validate_rejects_a_misaligned_offset() -> None:
 
 def test_validate_rejects_a_non_positive_alignment() -> None:
     allocations = (Allocation(id=1, size=10, start=0, end=5, offset=0),)
-    with pytest.raises(ValueError, match="Alignment must be positive"):
+    with pytest.raises(ValueError, match="alignment must be positive"):
         validate_allocation(allocations, alignment=0)
 
 
@@ -482,3 +482,43 @@ def test_validate_loosened_checks_alignment_for_placed_pools() -> None:
     )
     with pytest.raises(ValueError, match="aligned"):
         validate_allocation(pool, require_allocated=False, alignment=8)
+
+
+@pytest.mark.parametrize(("offset", "fits"), [(90, True), (95, False), (None, True)])
+def test_validate_loosened_capacity_counts_placed_pools_only(
+    offset: int | None, fits: bool
+) -> None:
+    alloc = Allocation(id=1, size=10, start=0, end=5, offset=0)
+    unplaced = Allocation(id=2, size=500, start=0, end=5)
+    memory = Memory(
+        id="m",
+        pools=(
+            Pool(id="p", allocations=(alloc,), offset=offset),
+            Pool(id="q", allocations=(unplaced,)),
+        ),
+        size=100,
+    )
+    if fits:
+        validate_allocation(memory, require_allocated=False)
+    else:
+        with pytest.raises(ValueError, match="extent 105 exceeds memory size 100"):
+            validate_allocation(memory, require_allocated=False)
+
+
+def test_validate_empty_pool_pinned_inside_another_pool_passes() -> None:
+    alloc = Allocation(id=1, size=16, start=0, end=1, offset=0)
+    memory = Memory(
+        id="m",
+        pools=(
+            Pool(id="a", allocations=(alloc,), offset=0),
+            Pool(id="b", allocations=(), offset=8),
+        ),
+    )
+    validate_allocation(memory)
+
+
+def test_validate_memory_error_names_the_memory_once() -> None:
+    alloc = Allocation(id=1, size=10, start=0, end=5)
+    memory = Memory(id="m", pools=(Pool(id="p", allocations=(alloc,), offset=0),))
+    with pytest.raises(ValueError, match=r"^Validation of Memory 'm' failed, in pool"):
+        validate_allocation(memory)
