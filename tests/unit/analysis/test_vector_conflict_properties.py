@@ -93,28 +93,20 @@ def test_pairwise_overlap_matches_oracle(dim: int) -> None:
         assert b.conflicts_with(a) == expected
 
 
-def test_equal_end_start_boundary_is_safe() -> None:
+@pytest.mark.parametrize(
+    ("other", "conflicts"),
+    [
+        pytest.param(((5, 7), (6, 8)), False, id="end_equals_start"),
+        pytest.param(((5, 6), (6, 8)), True, id="one_earlier_component"),
+        pytest.param(((4, 8), (9, 9)), True, id="incomparable_clocks"),
+        pytest.param(((6, 7), (7, 8)), False, id="dominated_lifetime"),
+    ],
+)
+def test_a_vector_lifetime_against_one_spanning_2_3_to_5_7(
+    other: tuple[tuple[int, ...], tuple[int, ...]], conflicts: bool
+) -> None:
     a = make_allocation(0, (2, 3), (5, 7))
-    b = make_allocation(1, (5, 7), (6, 8))
-    assert not a.conflicts_with(b)
-
-
-def test_single_earlier_component_conflicts() -> None:
-    a = make_allocation(0, (2, 3), (5, 7))
-    b = make_allocation(1, (5, 6), (6, 8))
-    assert a.conflicts_with(b)
-
-
-def test_incomparable_clocks_conflict() -> None:
-    a = make_allocation(0, (2, 3), (5, 7))
-    b = make_allocation(1, (4, 8), (9, 9))
-    assert a.conflicts_with(b)
-
-
-def test_dominated_lifetime_is_safe() -> None:
-    a = make_allocation(0, (2, 3), (5, 7))
-    b = make_allocation(1, (6, 7), (7, 8))
-    assert not a.conflicts_with(b)
+    assert a.conflicts_with(make_allocation(1, *other)) is conflicts
 
 
 @pytest.mark.parametrize("hi", [3, 6, 20])
