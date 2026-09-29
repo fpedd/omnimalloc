@@ -18,8 +18,6 @@ class AllocationKind(enum.Enum):
     @property
     def is_io(self) -> bool: ...
 
-    def __hash__(self) -> int: ...
-
 class Allocation:
     def __init__(self, id: int | str, size: int, start: int | Sequence[int], end: int | Sequence[int], offset: int | None = None, kind: AllocationKind | None = None) -> None: ...
 
@@ -108,7 +106,24 @@ def closure_pressure_per_allocation(allocations: Sequence[Allocation], closure_c
 
 def placement_pressure_per_allocation(allocations: Sequence[Allocation], work_budget: int | None) -> list[int]: ...
 
-def first_fit_place(allocations: Sequence[Allocation]) -> list[Allocation]: ...
+class GreedyOrder(enum.Enum):
+    INPUT = 0
+
+    SIZE = 1
+
+    DURATION = 2
+
+    AREA = 3
+
+    CONFLICT = 4
+
+    CONFLICT_SIZE = 5
+
+    START = 6
+
+def greedy_order(allocations: Sequence[Allocation], order: GreedyOrder) -> list[int]: ...
+
+def greedy_place(allocations: Sequence[Allocation], order: GreedyOrder) -> list[Allocation]: ...
 
 class FirstFitPlacer:
     def __init__(self, allocations: Sequence[Allocation]) -> None: ...

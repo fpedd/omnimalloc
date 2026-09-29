@@ -5,6 +5,7 @@
 #include "allocation.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <ostream>
@@ -14,19 +15,9 @@
 #include <type_traits>
 #include <utility>
 
-namespace omnimalloc {
+#include "common/hash.hpp"
 
-// Generic hash combiner using the boost::hash_combine algorithm; consumed
-// only by the std::hash<Allocation> specialization below
-template <typename T, typename... Args>
-[[nodiscard]] constexpr size_t make_hash(const T& first,
-                                         const Args&... args) noexcept {
-  size_t seed = std::hash<T>{}(first);
-  if constexpr (sizeof...(args) > 0) {
-    seed ^= make_hash(args...) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-  }
-  return seed;
-}
+namespace omnimalloc {
 
 namespace {
 
@@ -77,39 +68,26 @@ void Allocation::validate() const {
     throw std::invalid_argument("size must be positive, got " +
                                 std::to_string(size_));
   }
-  if (dim() != end_vec().size()) {
+  const auto start = start_vec();
+  const auto end = end_vec();
+  if (start.size() != end.size()) {
     throw std::invalid_argument("start " + to_string(start_) + " and end " +
                                 to_string(end_) +
                                 " must share one clock dimension");
   }
-  if (dim() == 0) {
+  if (start.empty()) {
     throw std::invalid_argument("time points must have at least one component");
   }
-  if (is_scalar_time()) {
-    if (start() < 0) {
-      throw std::invalid_argument("start must be non-negative, got " +
-                                  std::to_string(start()));
-    }
-    if (end() <= start()) {
-      throw std::invalid_argument("end (" + std::to_string(end()) +
-                                  ") must be > start (" +
-                                  std::to_string(start()) + ")");
-    }
-  } else {
-    if (std::ranges::any_of(start_vec(), [](int64_t c) { return c < 0; })) {
-      throw std::invalid_argument(
-          "start must be non-negative componentwise, got " + to_string(start_));
-    }
-    if (!happens_before(start_vec(), end_vec())) {
-      throw std::invalid_argument("end " + to_string(end_) +
-                                  " must be >= start " + to_string(start_) +
-                                  " componentwise");
-    }
-    if (start_ == end_) {
-      throw std::invalid_argument("end " + to_string(end_) +
-                                  " must be > start " + to_string(start_) +
-                                  " on at least one component");
-    }
+  const bool scalar = is_scalar_time();
+  if (std::ranges::any_of(start, [](int64_t c) { return c < 0; })) {
+    throw std::invalid_argument(std::string("start must be non-negative") +
+                                (scalar ? "" : " componentwise") + ", got " +
+                                to_string(start_));
+  }
+  if (!happens_before(start, end) || start_ == end_) {
+    throw std::invalid_argument(
+        "end " + to_string(end_) + " must be > start " + to_string(start_) +
+        (scalar ? "" : " componentwise, strictly on at least one component"));
   }
   if (offset_.has_value() && offset_.value() < 0) {
     throw std::invalid_argument("offset must be non-negative, got " +
@@ -136,11 +114,6 @@ int64_t Allocation::vector_duration() const noexcept {
 }
 
 bool Allocation::conflicts_with(const Allocation& other) const {
-  // Fast path: plain interval test, no variant probing in the O(n^2) callers
-  if (is_scalar_time() && other.is_scalar_time()) {
-    return std::get<int64_t>(start_) < std::get<int64_t>(other.end_) &&
-           std::get<int64_t>(other.start_) < std::get<int64_t>(end_);
-  }
   if (dim() != other.dim()) {
     throw std::invalid_argument(
         "allocations must share one clock dimension, got " +
@@ -166,8 +139,7 @@ Allocation Allocation::with_offset(std::optional<int64_t> new_offset) const {
 
 std::ostream& operator<<(std::ostream& os, const Allocation& a) {
   os << "Allocation(id=";
-  // Quote textual ids: unquoted, id=1 and id="1" print alike though they are
-  // distinct allocations, and the repr stops round-tripping through eval.
+  // Quote textual ids: unquoted, id=1 and id="1" would print alike
   std::visit(
       [&os](const auto& value) {
         if constexpr (std::is_same_v<std::decay_t<decltype(value)>,
@@ -195,19 +167,20 @@ namespace std {
 
 size_t hash<omnimalloc::Allocation>::operator()(
     const omnimalloc::Allocation& a) const noexcept {
-  const auto hash_time = [](std::span<const int64_t> components) {
-    size_t seed = components.size();
-    for (int64_t component : components) {
-      seed = omnimalloc::make_hash(seed, component);
-    }
-    return seed;
+  uint64_t seed = hash<omnimalloc::IdType>{}(a.id());
+  const auto mix = [&seed](auto value) {
+    seed = omnimalloc::hash_combine(seed, static_cast<uint64_t>(value));
   };
-  const size_t id_hash = omnimalloc::IdTypeHash{}(a.id());
-  const int64_t offset_val = a.offset().value_or(-1);
-  const int kind_val =
-      a.kind().has_value() ? static_cast<int>(a.kind().value()) : -1;
-  return omnimalloc::make_hash(id_hash, a.size(), hash_time(a.start_vec()),
-                               hash_time(a.end_vec()), offset_val, kind_val);
+  mix(a.size());
+  for (const int64_t component : a.start_vec()) {
+    mix(component);
+  }
+  for (const int64_t component : a.end_vec()) {
+    mix(component);
+  }
+  mix(a.offset().value_or(-1));
+  mix(a.kind().has_value() ? static_cast<int>(*a.kind()) : -1);
+  return static_cast<size_t>(seed);
 }
 
 }  // namespace std

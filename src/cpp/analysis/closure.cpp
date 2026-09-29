@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <unordered_set>
@@ -29,17 +28,18 @@ namespace {
 std::optional<std::vector<int64_t>> build_cut_arena(
     const LifetimeGroups& groups, size_t d, std::optional<size_t> closure_cap) {
   std::vector<int64_t> arena;
-  const auto row = [&](size_t idx) { return arena.data() + idx * d; };
+  const auto row = [&](size_t idx) {
+    return std::span<const int64_t>{arena.data() + idx * d, d};
+  };
   const auto hash_row = [&](size_t idx) {
-    uint64_t hash = 0xcbf29ce484222325ULL;  // FNV-1a over the components
-    const int64_t* r = row(idx);
-    for (size_t t = 0; t < d; ++t) {
-      hash = (hash ^ static_cast<uint64_t>(r[t])) * 0x100000001b3ULL;
+    uint64_t hash = 0;
+    for (const int64_t component : row(idx)) {
+      hash = hash_combine(hash, static_cast<uint64_t>(component));
     }
     return static_cast<size_t>(hash);
   };
   const auto eq_row = [&](size_t a, size_t b) {
-    return std::equal(row(a), row(a) + d, row(b));
+    return std::ranges::equal(row(a), row(b));
   };
   std::unordered_set<size_t, decltype(hash_row), decltype(eq_row)> cuts(
       0, hash_row, eq_row);
@@ -92,11 +92,11 @@ std::vector<int64_t> live_weights(const std::vector<int64_t>& arena,
   const size_t num_cuts = arena.size() / d;
   std::vector<int64_t> live(num_cuts);
   for_each_row_block(num_cuts, parallel_threads(num_cuts), [&](size_t c) {
-    const int64_t* cut = arena.data() + c * d;
+    const std::span<const int64_t> cut{arena.data() + c * d, d};
     int64_t weight = 0;
     for (size_t i = 0; i < groups.count(); ++i) {
-      const bool born = dominates(groups.starts[i].data(), cut, d);
-      const bool dead = dominates(groups.ends[i].data(), cut, d);
+      const bool born = happens_before(groups.starts[i], cut);
+      const bool dead = happens_before(groups.ends[i], cut);
       weight += (born && !dead) ? groups.weights[i] : 0;
     }
     live[c] = weight;
@@ -132,8 +132,7 @@ int64_t closure_pressure(const std::vector<Allocation>& allocations,
   if (allocations.empty()) {
     return 0;
   }
-  const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  const size_t d = checked_pressure_dim(allocations);
   const LifetimeGroups groups = group_lifetimes(allocations);
 
   // Scalar cuts are plain time points; the sweep is the same quantity and
@@ -154,8 +153,7 @@ std::vector<int64_t> closure_pressure_per_allocation(
   if (n == 0) {
     return {};
   }
-  const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  const size_t d = checked_pressure_dim(allocations);
   const LifetimeGroups groups = group_lifetimes(allocations);
   const size_t g = groups.count();
 
@@ -171,12 +169,11 @@ std::vector<int64_t> closure_pressure_per_allocation(
     const size_t num_cuts = arena.size() / d;
     per_group.resize(g);
     for_each_row_block(g, parallel_threads(g), [&](size_t i) {
-      const int64_t* start = groups.starts[i].data();
-      const int64_t* end = groups.ends[i].data();
       int64_t best = 0;
       for (size_t c = 0; c < num_cuts; ++c) {
-        const int64_t* cut = arena.data() + c * d;
-        if (dominates(start, cut, d) && !dominates(end, cut, d)) {
+        const std::span<const int64_t> cut{arena.data() + c * d, d};
+        if (happens_before(groups.starts[i], cut) &&
+            !happens_before(groups.ends[i], cut)) {
           best = std::max(best, live[c]);
         }
       }

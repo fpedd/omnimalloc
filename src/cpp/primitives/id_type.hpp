@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <variant>
 
@@ -13,17 +12,5 @@ namespace omnimalloc {
 
 // Must match IdType in src/python/omnimalloc/primitives/allocation.py
 using IdType = std::variant<int64_t, std::string>;
-
-struct IdTypeHash {
-  size_t operator()(const IdType& id) const noexcept {
-    return std::visit(
-               [](const auto& value) {
-                 using T = std::decay_t<decltype(value)>;
-                 return std::hash<T>{}(value);
-               },
-               id) ^
-           id.index();
-  }
-};
 
 }  // namespace omnimalloc

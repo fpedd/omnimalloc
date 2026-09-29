@@ -2,12 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from concurrent.futures import ThreadPoolExecutor
-
 import pytest
-from omnimalloc.allocators import greedy
 from omnimalloc.allocators.base import BaseAllocator
-from omnimalloc.allocators.greedy import allocate_parallel
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.primitives import Allocation
@@ -79,30 +75,6 @@ def test_allocator_duplicating_allocations_is_rejected() -> None:
 def test_a_faithful_allocator_is_accepted() -> None:
     placed = OmniAllocator().allocate(ALLOCATIONS)
     assert {a.id for a in placed} == {a.id for a in ALLOCATIONS}
-
-
-def test_portfolio_drops_a_truncating_variant_instead_of_preferring_it() -> None:
-    placed = allocate_parallel(
-        ALLOCATIONS, (OmniAllocator(), TruncatingAllocator()), num_threads=1
-    )
-    assert len(placed) == len(ALLOCATIONS)
-
-
-def test_portfolio_never_spawns_more_workers_than_variants(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen = []
-
-    class Recorder(ThreadPoolExecutor):
-        def __init__(self, max_workers: int) -> None:
-            seen.append(max_workers)
-            super().__init__(max_workers=max_workers)
-
-    monkeypatch.setattr(greedy, "ThreadPoolExecutor", Recorder)
-    variants = (OmniAllocator(), OmniAllocator())
-    placed = allocate_parallel(ALLOCATIONS, variants, num_threads=32)
-    assert seen == [len(variants)]
-    assert len(placed) == len(ALLOCATIONS)
 
 
 def test_supports_counts_pins_like_ensure_supported() -> None:

@@ -14,7 +14,7 @@ namespace omnimalloc {
 
 // Generalized greedy-portfolio placement: linearizes vector time to surrogate
 // scalars when the order allows (`linearize_budget`), else places on the vector
-// conflict graph. Seven orders race, plus three from any linearization.
+// conflict graph. Seven orders race, plus up to three from a linearization.
 [[nodiscard]] std::vector<Allocation> omni_place(
     const std::vector<Allocation>& allocations,
     std::optional<uint64_t> linearize_budget);

@@ -45,8 +45,6 @@ class Allocation {
   // start()/end() throw on vector time
   [[nodiscard]] int64_t start() const { return scalar(start_); }
   [[nodiscard]] int64_t end() const { return scalar(end_); }
-  [[nodiscard]] const TimePoint& start_time() const noexcept { return start_; }
-  [[nodiscard]] const TimePoint& end_time() const noexcept { return end_; }
   [[nodiscard]] std::span<const int64_t> start_vec() const noexcept {
     return components(start_);
   }
@@ -77,9 +75,10 @@ class Allocation {
     return vector_duration();
   }
   [[nodiscard]] int64_t area() const noexcept {
-    // Saturate instead of overflowing (UB) at int64 extremes
+    // Saturate instead of overflowing (UB) at int64 extremes; validation
+    // makes every duration positive
     const int64_t d = duration();
-    if (d > 0 && size_ > std::numeric_limits<int64_t>::max() / d) {
+    if (size_ > std::numeric_limits<int64_t>::max() / d) {
       return std::numeric_limits<int64_t>::max();
     }
     return d * size_;
@@ -163,6 +162,14 @@ inline void require_scalar_time(const std::vector<Allocation>& allocations,
                                 " requires scalar (interval) lifetimes, got " +
                                 std::to_string(max_dim) + "-dim vector clocks");
   }
+}
+
+// Sizes aligned with `allocations`
+[[nodiscard]] inline std::vector<int64_t> sizes_of(
+    const std::vector<Allocation>& allocations) {
+  std::vector<int64_t> sizes(allocations.size());
+  std::ranges::transform(allocations, sizes.begin(), &Allocation::size);
+  return sizes;
 }
 
 // Placed allocations from an index-aligned offset vector

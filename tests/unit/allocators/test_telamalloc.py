@@ -148,3 +148,9 @@ def test_telamalloc_rejects_int64_overflow_inputs() -> None:
     )
     with pytest.raises(ValueError, match="int64"):
         TelamallocAllocator().allocate(huge)
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_telamalloc_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        TelamallocAllocator(seed=seed)

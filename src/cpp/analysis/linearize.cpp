@@ -8,6 +8,7 @@
 #include <atomic>
 #include <numeric>
 #include <random>
+#include <span>
 
 #include "clock.hpp"
 #include "common/parallel.hpp"
@@ -23,12 +24,11 @@ namespace {
 // Weighted |{ends e : e <= start componentwise}|. The rows ascend on
 // component 0, so only the prefix with e[0] <= start[0] can qualify.
 int64_t dominated_weight(const DedupedRows& ends,
-                         const int64_t* start) noexcept {
-  const size_t d = ends.dim;
+                         std::span<const int64_t> start) noexcept {
   const size_t lo = ends.prefix_leq(start[0]);
   int64_t count = 0;
   for (size_t j = 0; j < lo; ++j) {
-    count += dominates(ends.row(j), start, d) ? ends.weights[j] : 0;
+    count += happens_before(ends.row(j), start) ? ends.weights[j] : 0;
   }
   return count;
 }
@@ -36,13 +36,12 @@ int64_t dominated_weight(const DedupedRows& ends,
 // A predecessor of `yes` that is not a predecessor of `no`, probed among the
 // `window` end rows just below the component-0 boundary: rows ascend there, so
 // near-boundary ends are the likeliest to split two predecessor sets apart.
-bool split_witness(const DedupedRows& ends, const int64_t* yes,
-                   const int64_t* no, size_t window) noexcept {
-  const size_t d = ends.dim;
+bool split_witness(const DedupedRows& ends, std::span<const int64_t> yes,
+                   std::span<const int64_t> no, size_t window) noexcept {
   const size_t lo = ends.prefix_leq(yes[0]);
   const size_t begin = lo > window ? lo - window : 0;
   for (size_t j = lo; j-- > begin;) {
-    if (dominates(ends.row(j), yes, d) && !dominates(ends.row(j), no, d)) {
+    if (happens_before(ends.row(j), yes) && !happens_before(ends.row(j), no)) {
       return true;
     }
   }
@@ -61,21 +60,20 @@ bool find_incomparability_witness(const DedupedRows& starts,
   std::uniform_int_distribution<size_t> pick_start(0, starts.count() - 1);
   std::uniform_int_distribution<size_t> pick_end(0, ends.count() - 1);
   constexpr int kSamples = 256;
-  const size_t d = starts.dim;
   for (int i = 0; i < kSamples; ++i) {
-    const int64_t* s1 = starts.row(pick_start(rng));
-    const int64_t* s2 = starts.row(pick_start(rng));
-    const int64_t* e1 = ends.row(pick_end(rng));
-    const int64_t* e2 = ends.row(pick_end(rng));
-    if (dominates(e1, s1, d) && !dominates(e1, s2, d) && dominates(e2, s2, d) &&
-        !dominates(e2, s1, d)) {
+    const auto s1 = starts.row(pick_start(rng));
+    const auto s2 = starts.row(pick_start(rng));
+    const auto e1 = ends.row(pick_end(rng));
+    const auto e2 = ends.row(pick_end(rng));
+    if (happens_before(e1, s1) && !happens_before(e1, s2) &&
+        happens_before(e2, s2) && !happens_before(e2, s1)) {
       return true;
     }
   }
   constexpr size_t kWindow = 16;
   for (size_t p = 0; p + 1 < starts.count(); ++p) {
-    const int64_t* s1 = starts.row(p);
-    const int64_t* s2 = starts.row(p + 1);
+    const auto s1 = starts.row(p);
+    const auto s2 = starts.row(p + 1);
     if (split_witness(ends, s1, s2, kWindow) &&
         split_witness(ends, s2, s1, kWindow)) {
       return true;
@@ -96,13 +94,11 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   }
 
   ClockSpans spans = gather_clock_spans(allocations);
-  // The reduction scans at least 2 * n * d clock components, so it only runs
-  // when the budget covers that pass; in particular `work_budget=0` (the
-  // contract for disabling linearization) refuses vector input untouched.
-  std::vector<int64_t> backing;
+  // The reduction scans 2 * n * d clock components, so it runs only when the
+  // budget covers that pass
   if (!work_budget ||
       2 * static_cast<uint64_t>(n) * spans.dim <= *work_budget) {
-    backing = reduce_columns(spans);
+    reduce_columns(spans);
   }
   const size_t d = spans.dim;
   if (d == 1) {
@@ -148,8 +144,8 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   // parallel chain test allocates nothing per pair
   std::vector<int64_t> meets((k - 1) * d);
   for (size_t pos = 0; pos + 1 < k; ++pos) {
-    const int64_t* a = starts.row(static_cast<size_t>(by_count[pos]));
-    const int64_t* b = starts.row(static_cast<size_t>(by_count[pos + 1]));
+    const auto a = starts.row(static_cast<size_t>(by_count[pos]));
+    const auto b = starts.row(static_cast<size_t>(by_count[pos + 1]));
     for (size_t t = 0; t < d; ++t) {
       meets[pos * d + t] = std::min(a[t], b[t]);
     }
@@ -159,7 +155,7 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
     if (!is_chain.load(std::memory_order_relaxed)) {
       return;
     }
-    if (dominated_weight(ends, meets.data() + pos * d) !=
+    if (dominated_weight(ends, {meets.data() + pos * d, d}) !=
         counts[static_cast<size_t>(by_count[pos])]) {
       is_chain.store(false, std::memory_order_relaxed);
     }
@@ -192,14 +188,14 @@ std::optional<std::vector<std::pair<int64_t, int64_t>>> linearize_times(
   const auto num_ranks = static_cast<int64_t>(unique_counts.size());
   std::vector<int64_t> end_rank(m);
   for_each_row_block(m, parallel_threads(m), [&](size_t ej) {
-    const int64_t* e = ends.row(ej);
+    const auto e = ends.row(ej);
     int64_t lo = 0;
     int64_t hi = num_ranks;
     while (lo < hi) {
       const int64_t mid = lo + (hi - lo) / 2;
-      const int64_t* s = starts.row(
+      const auto s = starts.row(
           static_cast<size_t>(representative[static_cast<size_t>(mid)]));
-      if (dominates(e, s, d)) {
+      if (happens_before(e, s)) {
         hi = mid;
       } else {
         lo = mid + 1;

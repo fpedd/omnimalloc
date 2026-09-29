@@ -114,3 +114,9 @@ def test_genetic_preserves_global_random_state() -> None:
     random.seed(7)
     _fast_allocator().allocate(_allocs(10))
     assert [random.random() for _ in range(3)] == expected
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_genetic_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        GeneticAllocator(seed=seed)

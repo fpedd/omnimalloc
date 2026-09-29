@@ -71,3 +71,19 @@ def test_random_peak_within_problem_bounds() -> None:
         <= placement_pressure(result)
         <= sum(a.size for a in allocs)
     )
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_random_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        RandomAllocator(seed=seed)
+
+
+def test_random_rejects_invalid_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout must be positive or None"):
+        RandomAllocator(timeout=0)
+
+
+def test_random_timeout_bounds_the_trials() -> None:
+    allocator = RandomAllocator(num_trials=10**9, timeout=0.05)
+    validate_allocation(allocator.allocate(_allocs(20)))

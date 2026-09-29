@@ -17,6 +17,7 @@ namespace omnimalloc {
 std::vector<Allocation> simulated_annealing_place(
     const std::vector<Allocation>& allocations,
     const SimulatedAnnealingConfig& config) {
+  const Deadline deadline = make_deadline(config.timeout);
   const FirstFitPlacer placer(allocations);
   std::vector<size_t> order = initial_order(allocations);
   if (allocations.size() < 2) {
@@ -32,8 +33,6 @@ std::vector<Allocation> simulated_annealing_place(
   std::uniform_real_distribution<double> unit(0.0, 1.0);
   double temperature = config.initial_temperature;
 
-  const auto deadline = make_deadline(config.timeout);
-
   for (int iteration = 0; iteration < config.max_iterations; ++iteration) {
     if (deadline_expired(deadline)) {
       break;
@@ -43,7 +42,7 @@ std::vector<Allocation> simulated_annealing_place(
         peak_positions(current_placed, current_peak);
 
     const auto proposal =
-        propose_peak_swap(peaks, order, placer.indices(), rng);
+        propose_peak_swap(peaks, order, placer.adjacency(), rng);
     if (!proposal) {
       temperature *= config.cooling_rate;
       continue;
