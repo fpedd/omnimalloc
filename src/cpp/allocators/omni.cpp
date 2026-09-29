@@ -8,6 +8,7 @@
 
 #include "analysis/linearize.hpp"
 #include "first_fit.hpp"
+#include "common/ptimer.hpp"
 
 namespace omnimalloc {
 
@@ -16,6 +17,7 @@ std::vector<Allocation> omni_place(const std::vector<Allocation>& allocations,
   if (allocations.empty()) {
     return {};
   }
+  PTIME("omni_place total");
   check_total_size(allocations);
 
   // Surrogate allocations with scalar rank times: the conflict relation is
@@ -33,6 +35,7 @@ std::vector<Allocation> omni_place(const std::vector<Allocation>& allocations,
   const CsrAdjacency adj = build_conflict_adjacency(problem);
   const PortfolioPlacement placement = place_portfolio(
       allocations, adj, surrogates.has_value() ? &*surrogates : nullptr);
+  PTIME("apply_offsets");
   return apply_offsets(allocations, placement.offsets);
 }
 

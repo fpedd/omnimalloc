@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "common/parallel.hpp"
+#include "common/ptimer.hpp"
 
 namespace omnimalloc {
 
@@ -266,7 +267,11 @@ PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
       allocations, pins.begin(), [](const Allocation& alloc) {
         return alloc.offset().value_or(-1);  // -1 marks a free allocation
       });
+  PTIME("place_portfolio total");
+  std::optional<PTimer> t_ord(std::in_place, "greedy_orders");
   const auto orders = greedy_orders(allocations, surrogate, adj, sizes);
+  t_ord.reset();
+  std::optional<PTimer> t_pl(std::in_place, "place_order x N (parallel)");
 
   // Placements are independent given the shared adjacency; threads only pay
   // off once the placements dwarf startup cost. One order per scheduled unit,
@@ -284,6 +289,7 @@ PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
       },
       1);
 
+  t_pl.reset();
   // Strictly ordered reduction: ties break by the fixed order sequence, so
   // the winner never depends on how the placements were scheduled
   PortfolioPlacement best;
@@ -339,8 +345,12 @@ std::vector<Allocation> first_fit_place_indexed(
 
 std::vector<Allocation> first_fit_place(
     const std::vector<Allocation>& allocations) {
-  return first_fit_place_indexed(allocations,
-                                 compute_conflict_indices(allocations));
+  PTIME("first_fit_place total");
+  std::optional<PTimer> t1(std::in_place, "compute_conflict_indices");
+  auto idx = compute_conflict_indices(allocations);
+  t1.reset();
+  PTIME("place_indexed");
+  return first_fit_place_indexed(allocations, idx);
 }
 
 FirstFitPlacer::FirstFitPlacer(std::vector<Allocation> allocations)

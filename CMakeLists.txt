@@ -40,6 +40,7 @@ nanobind_add_module(
   _cpp
   NB_STATIC
   NOMINSIZE
+  NOSTRIP
   NB_SUPPRESS_WARNINGS
   src/cpp/allocators/best_fit.cpp
   src/cpp/allocators/first_fit.cpp
@@ -82,7 +83,7 @@ if(MSVC)
 else()
   target_compile_options(
     _cpp
-    PRIVATE -Wall
+    PRIVATE -g -Wall
             -Wextra
             -Wpedantic
             -Wconversion

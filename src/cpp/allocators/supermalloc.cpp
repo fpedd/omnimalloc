@@ -20,6 +20,7 @@
 
 #include "allocators/first_fit.hpp"
 #include "common/deadline.hpp"
+#include "common/ptimer.hpp"
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -126,6 +127,7 @@ std::shared_ptr<Partition::SharedData> Partition::make_shared_data(
 
 std::shared_ptr<Partition::SharedData> Partition::build_shared_data(
     std::vector<Allocation> allocations) {
+  PTIME("build_shared_data");
   const int n = static_cast<int>(allocations.size());
 
   // Tuple ordering puts EXIT (0) before ENTER (1) at equal timestamps.
@@ -214,6 +216,7 @@ void Partition::init_search_state() {
 
 Partition Partition::from_allocations(std::vector<Allocation> allocations) {
   // The section grid needs a linear timeline; reject vector clocks here.
+  PTIME("from_allocations total");
   require_scalar_time(allocations, "Partition");
   // Every offset, top, and floor + total the search computes is bounded by
   // twice the total size, so rejecting sums above INT64_MAX / 2 rules out
@@ -503,6 +506,7 @@ Solution Partition::greedy_pack(const std::string& heuristic) const {
 }
 
 Partition Partition::reorder(const std::string& heuristic) const {
+  PTIME("reorder");
   const int n = static_cast<int>(data_->allocations.size());
   std::vector<int> order(static_cast<size_t>(n));
   std::iota(order.begin(), order.end(), 0);
@@ -654,6 +658,7 @@ std::optional<std::vector<Partition>> Partition::decompose() const {
 }
 
 namespace {
+std::atomic<long> g_apply{0}, g_feasible{0}, g_cand{0}, g_candrej{0}, g_decomp{0}, g_leaf{0};
 
 // Lock-free minimum: lower `shared` to `h` if it is smaller.
 void lower_shared(std::atomic<int64_t>* shared, int64_t h) {
@@ -775,6 +780,7 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
 
   if (ctx.opts.decompose) {
     if (std::optional<std::vector<Partition>> sub_parts = node.decompose()) {
+      g_decomp.fetch_add(1, std::memory_order_relaxed);
       solve_decomposed(*sub_parts, node, ctx, best, shared);
       return;
     }
@@ -816,14 +822,18 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
     // buffer's top, so it is dominated too.
     if (ctx.opts.dominance && alloc_offset >= min_height) break;
 
+    g_cand.fetch_add(1, std::memory_order_relaxed);
     if (!node.can_allocate_at(alloc_idx, ctx.opts.monotonic_floor, lower_bound,
                               max_total)) {
+      g_candrej.fetch_add(1, std::memory_order_relaxed);
       ++it;
       continue;
     }
 
+    g_apply.fetch_add(1, std::memory_order_relaxed);
     const auto& undo = node.apply_at(alloc_idx, ctx.opts.floor_inference);
     if (node.placement_feasible(undo, alloc_offset, ctx.opts.monotonic_floor)) {
+      g_feasible.fetch_add(1, std::memory_order_relaxed);
       solve_dfs(node, alloc_offset, alloc_idx, ctx, best, shared);
     }
     node.revert(undo);
@@ -945,6 +955,7 @@ Solution greedy_pack_portfolio(const Partition& partition,
     throw std::invalid_argument(
         "greedy_pack_portfolio requires at least one heuristic");
   }
+  PTIME("greedy_pack_portfolio");
   validate_heuristics(heuristics);
 
   const auto deadline = compute_deadline(timeout);
@@ -976,6 +987,7 @@ std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,
                                        SearchOptions options,
                                        std::optional<double> timeout,
                                        int num_threads) {
+  PTIME("try_solve_many");
   if (partitions.empty()) return std::nullopt;
 
   const int64_t node_limit = max_nodes.value_or(INT64_MAX);
@@ -1001,6 +1013,10 @@ std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,
   std::optional<Solution> best;
   for (auto& r : results) {
     if (r && (!best || r->peak < best->peak)) best = std::move(*r);
+  }
+  if (std::getenv("OM_TIMING")) {
+    std::fprintf(stderr, "    [cpp] cand=%ld canrej=%ld apply=%ld feasible=%ld decomp=%ld\n", g_cand.load(), g_candrej.load(), g_apply.load(), g_feasible.load(), g_decomp.load());
+    g_cand = g_candrej = g_apply = g_feasible = g_decomp = 0;
   }
   return best;
 }
