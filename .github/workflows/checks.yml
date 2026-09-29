@@ -78,7 +78,7 @@ jobs:
       # Gate coverage only where every optional path runs: Hub rate limits and
       # the Linux-only minimalloc install starve the other legs of statements
       - run: >
-          uv run pytest -v -n auto
+          uv run pytest -v -n auto --dist worksteal
           ${{ matrix.os == 'ubuntu-latest'
           && matrix.python-version == env.DEFAULT_PYTHON
           && '--cov=omnimalloc --cov-fail-under=90 --cov-report=term-missing'
