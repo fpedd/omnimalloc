@@ -137,8 +137,11 @@ std::shared_ptr<Partition::SharedData> Partition::build_shared_data(
     events.emplace_back(allocations[i].start(), kEnterEvent, i);
     events.emplace_back(allocations[i].end(), kExitEvent, i);
   }
-  std::sort(events.begin(), events.end());
 
+  std::optional<PTimer> tsort(std::in_place, "  events sort");
+  std::sort(events.begin(), events.end());
+  tsort.reset();
+  PTIME("  sweep");
   std::vector<std::vector<int>> sections;
   std::vector<std::vector<int>> overlaps(static_cast<size_t>(n));
   std::vector<std::pair<int, int>> section_spans(static_cast<size_t>(n));
@@ -491,6 +494,7 @@ void Partition::order_indices(std::vector<int>& indices,
 }
 
 Solution Partition::first_fit(const std::vector<int>& order) const {
+  std::optional<PTimer> t0(std::in_place, "  first_fit loop");
   const int n = static_cast<int>(data_->allocations.size());
   std::vector<int64_t> offsets(static_cast<size_t>(n), -1);
   int64_t height = 0;
@@ -509,13 +513,18 @@ Solution Partition::first_fit(const std::vector<int>& order) const {
     offsets[i] = offset;
     height = std::max(height, offset + size);
   }
+  t0.reset();
+  PTIME("  first_fit apply_offsets");
   return Solution{apply_offsets(data_->allocations, offsets), height};
 }
 
 Solution Partition::greedy_pack(const std::string& heuristic) const {
   std::vector<int> order(data_->allocations.size());
   std::iota(order.begin(), order.end(), 0);
-  order_indices(order, heuristic, 0, static_cast<int>(data_->sections.size()));
+  {
+    PTIME("  greedy order_indices");
+    order_indices(order, heuristic, 0, static_cast<int>(data_->sections.size()));
+  }
   return first_fit(order);
 }
 
