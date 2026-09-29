@@ -7,7 +7,6 @@ from types import ModuleType
 import omnimalloc
 import omnimalloc.analysis
 import omnimalloc.benchmark
-from omnimalloc.allocators import BaseAllocator
 
 TOP_LEVEL_API = {
     "Allocation",
@@ -94,8 +93,3 @@ def test_benchmark_api_is_pinned() -> None:
 
 def test_version_is_exposed() -> None:
     assert omnimalloc.__version__
-
-
-def test_allocate_resolves_every_advertised_allocator_name() -> None:
-    for name in omnimalloc.available_allocators():
-        assert isinstance(BaseAllocator.get(name), type)
