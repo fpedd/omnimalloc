@@ -4,54 +4,30 @@
 
 from pathlib import Path
 
-from omnimalloc.allocators.minimalloc import HAS_MINIMALLOC
-from omnimalloc.benchmark import (
-    VariantSpec,
-    plot_benchmark,
-    run_benchmark,
-    save_benchmark,
-)
+from omnimalloc.benchmark import run_benchmark, save_benchmark
 
 
 def main() -> None:
-    example_dir = Path("05_example_output")
-
-    # Define allocators, sources, and variants to benchmark
+    # Allocators whose optional library is missing are skipped, not fatal
     allocators = (
         "greedy_by_size",
         "greedy_by_all",
         "omni",
         "best_fit",
         "telamalloc",
-    )
-    # minimalloc is an optional dependency that only builds on some platforms
-    if HAS_MINIMALLOC:
-        allocators += ("minimalloc",)
-    sources = (
-        "random",
         "minimalloc",
-        "huggingface",
     )
-    # Counts for the parameterizable source, "first 5" for the fixed ones
-    variants: dict[str, VariantSpec] = {
-        "random": (10, 50, 100, 250, 500),
-        "minimalloc": 5,
-        "huggingface": 5,
-    }
 
-    # Run benchmark campaign
     campaign = run_benchmark(
         allocators=allocators,
-        sources=sources,
-        variants=variants,
-        validate=True,
+        sources=("random", "minimalloc", "huggingface"),
+        # Counts for the parameterizable source, "first 5" for the Minimalloc
+        # one; the Hugging Face source downloads a single model by default
+        variants={"random": (10, 50, 100, 250, 500), "minimalloc": 5},
     )
 
-    # Visualize
-    plot_benchmark(campaign, example_dir / "benchmark_results.pdf")
-
-    # Save results (contains overview and individual allocation plots)
-    save_benchmark(campaign, example_dir / "benchmark_results")
+    # Writes the overview plot, a results CSV, and one plot per iteration
+    save_benchmark(campaign, Path("05_example_output") / "benchmark_results")
 
 
 if __name__ == "__main__":
