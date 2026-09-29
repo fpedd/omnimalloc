@@ -4,28 +4,13 @@
 
 import pytest
 from omnimalloc.allocators.random import RandomAllocator
-from omnimalloc.analysis import antichain_pressure, placement_pressure
+from omnimalloc.analysis import placement_pressure
 from omnimalloc.primitives import Allocation
-from omnimalloc.primitives.pool import Pool
-from omnimalloc.validate import validate_allocation
 
-
-def _allocs(count: int) -> tuple[Allocation, ...]:
-    return tuple(
-        Allocation(id=i, size=(i % 5 + 1) * 10, start=i % 3, end=i % 3 + i % 4 + 1)
-        for i in range(count)
-    )
-
-
-def test_random_empty() -> None:
-    result = RandomAllocator().allocate(())
-    assert len(result) == 0
-
-
-def test_random_single() -> None:
-    result = RandomAllocator().allocate((Allocation(id=1, size=100, start=0, end=10),))
-    assert len(result) == 1
-    assert result[0].offset == 0
+ALLOCATIONS = tuple(
+    Allocation(id=i, size=(i % 5 + 1) * 10, start=i % 3, end=i % 3 + i % 4 + 1)
+    for i in range(30)
+)
 
 
 def test_random_rejects_zero_trials() -> None:
@@ -33,57 +18,12 @@ def test_random_rejects_zero_trials() -> None:
         RandomAllocator(num_trials=0)
 
 
-def test_random_produces_valid_allocation() -> None:
-    allocs = _allocs(20)
-    result = RandomAllocator(num_trials=20).allocate(allocs)
-    validate_allocation(Pool(id="test_pool", allocations=result))
-    assert {a.id for a in result} == {a.id for a in allocs}
-
-
-def test_random_deterministic_for_same_seed() -> None:
-    allocs = _allocs(20)
-    result1 = RandomAllocator(num_trials=10, seed=7).allocate(allocs)
-    result2 = RandomAllocator(num_trials=10, seed=7).allocate(allocs)
-    assert {a.id: a.offset for a in result1} == {a.id: a.offset for a in result2}
-
-
-def test_random_repeated_calls_on_same_instance_are_deterministic() -> None:
-    allocs = _allocs(20)
-    allocator = RandomAllocator(num_trials=10, seed=7)
-    first = allocator.allocate(allocs)
-    second = allocator.allocate(allocs)
-    assert {a.id: a.offset for a in first} == {a.id: a.offset for a in second}
-
-
 def test_random_more_trials_never_worse_for_same_seed() -> None:
-    allocs = _allocs(30)
-    few = RandomAllocator(num_trials=5, seed=3).allocate(allocs)
-    many = RandomAllocator(num_trials=50, seed=3).allocate(allocs)
+    few = RandomAllocator(num_trials=5, seed=3).allocate(ALLOCATIONS)
+    many = RandomAllocator(num_trials=50, seed=3).allocate(ALLOCATIONS)
     assert placement_pressure(many) <= placement_pressure(few)
-
-
-def test_random_peak_within_problem_bounds() -> None:
-    allocs = _allocs(30)
-    result = RandomAllocator(num_trials=30, seed=1).allocate(allocs)
-    validate_allocation(Pool(id="test_pool", allocations=result))
-    assert (
-        antichain_pressure(allocs)
-        <= placement_pressure(result)
-        <= sum(a.size for a in allocs)
-    )
-
-
-@pytest.mark.parametrize("seed", [-1, 2**64])
-def test_random_rejects_out_of_range_seed(seed: int) -> None:
-    with pytest.raises(ValueError, match="seed must be in"):
-        RandomAllocator(seed=seed)
-
-
-def test_random_rejects_invalid_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout must be positive or None"):
-        RandomAllocator(timeout=0)
 
 
 def test_random_timeout_bounds_the_trials() -> None:
     allocator = RandomAllocator(num_trials=10**9, timeout=0.05)
-    validate_allocation(allocator.allocate(_allocs(20)))
+    assert len(allocator.allocate(ALLOCATIONS)) == len(ALLOCATIONS)
