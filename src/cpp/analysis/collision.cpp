@@ -36,7 +36,7 @@ ConflictSweep address_sweep(const std::vector<Allocation>& allocations) {
   top_rows.reserve(n);
   for (size_t i = 0; i < n; ++i) {
     offsets[i] = *allocations[i].offset();
-    tops[i] = offsets[i] + allocations[i].size();
+    tops[i] = *allocations[i].height();
   }
   for (size_t i = 0; i < n; ++i) {
     offset_rows.emplace_back(&offsets[i], 1);
@@ -59,12 +59,9 @@ std::optional<std::pair<size_t, size_t>> find_collision(
           "Collision search requires placed allocations");
     }
   }
-  ClockSpans spans = gather_clock_spans(allocations);
-  const std::vector<int64_t> backing = reduce_columns(spans);
-
   // Packed as low * n + high, which orders pairs lexicographically, so taking
   // the minimum makes the reported pair independent of how the sweep was
-  // scheduled. n fits int32 indices, so the product stays inside int64.
+  // scheduled. n fits int32 indices, so the product cannot overflow.
   const auto no_collision = std::numeric_limits<uint64_t>::max();
   std::atomic<uint64_t> best{no_collision};
   const auto report = [&](size_t i, size_t j) {
@@ -73,13 +70,15 @@ std::optional<std::pair<size_t, size_t>> find_collision(
   };
 
   const ConflictSweep space = address_sweep(allocations);
-  const ConflictSweep time(spans.starts, spans.ends, spans.dim);
+  const ConflictSweep time(allocations);
   // sweep_work() counts component comparisons; a scanned address pair costs
   // one dominance test, so scale to the same unit before choosing
-  if (space.sweep_work() * spans.dim <= time.sweep_work()) {
+  if (space.sweep_work() * time.dim() <= time.sweep_work()) {
     space.for_each_pair(parallel_threads(n), [&](size_t i, size_t j) {
-      if (!happens_before(spans.ends[i], spans.starts[j]) &&
-          !happens_before(spans.ends[j], spans.starts[i])) {
+      const Allocation& a = allocations[i];
+      const Allocation& b = allocations[j];
+      if (!happens_before(a.end_vec(), b.start_vec()) &&
+          !happens_before(b.end_vec(), a.start_vec())) {
         report(i, j);
       }
     });

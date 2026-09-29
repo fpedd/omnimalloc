@@ -7,8 +7,14 @@ import random
 import pytest
 from omnimalloc.allocators import (
     BaseAllocator,
-    GreedyByAllAllocator,
+    GreedyAllocator,
+    GreedyByAreaAllocator,
+    GreedyByConflictAllocator,
+    GreedyByConflictSizeAllocator,
     GreedyByContentionAllocator,
+    GreedyByDurationAllocator,
+    GreedyBySizeAllocator,
+    GreedyByStartAllocator,
     NaiveAllocator,
     OmniAllocator,
 )
@@ -63,8 +69,20 @@ def _two_plus_two() -> tuple[Allocation, ...]:
     )
 
 
+GREEDY_ORDERS = (
+    GreedyAllocator,
+    GreedyBySizeAllocator,
+    GreedyByDurationAllocator,
+    GreedyByAreaAllocator,
+    GreedyByConflictAllocator,
+    GreedyByConflictSizeAllocator,
+    GreedyByStartAllocator,
+    GreedyByContentionAllocator,
+)
+
+
 def _best_greedy_peak(allocations: tuple[Allocation, ...]) -> int:
-    return placement_pressure(GreedyByAllAllocator(num_threads=1).allocate(allocations))
+    return min(placement_pressure(cls().allocate(allocations)) for cls in GREEDY_ORDERS)
 
 
 def test_omni_is_registered_and_supports_vector_time() -> None:

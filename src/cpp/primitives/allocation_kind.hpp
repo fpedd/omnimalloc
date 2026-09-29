@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <ostream>
 #include <string_view>
 
 namespace omnimalloc {
@@ -31,17 +29,4 @@ enum class AllocationKind { WORKSPACE, CONSTANT, INPUT, OUTPUT };
   return "unknown";
 }
 
-inline std::ostream& operator<<(std::ostream& os, AllocationKind kind) {
-  return os << to_string(kind);
-}
-
 }  // namespace omnimalloc
-
-namespace std {
-template <>
-struct hash<omnimalloc::AllocationKind> {
-  size_t operator()(omnimalloc::AllocationKind kind) const noexcept {
-    return hash<int>{}(static_cast<int>(kind));
-  }
-};
-}  // namespace std

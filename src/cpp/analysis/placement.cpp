@@ -114,21 +114,15 @@ std::vector<int64_t> placement_pressure_per_allocation(
       throw std::invalid_argument(
           "Per-allocation placement pressure requires placed allocations");
     }
-    heights[i] = *allocations[i].offset() + allocations[i].size();
+    heights[i] = *allocations[i].height();
   }
   // Linearization preserves the conflict relation exactly, so neighborhood
   // tops transfer verbatim to the surrogate timeline.
   if (const auto times = linearize_times(allocations, work_budget)) {
     return scalar_peaks(*times, heights);
   }
-  ClockSpans spans = gather_clock_spans(allocations);
-  const std::vector<int64_t> backing = reduce_columns(spans);
-  const ConflictSweep sweep(spans.starts, spans.ends, spans.dim);
-  if (work_budget && sweep.sweep_work() > *work_budget) {
-    throw std::runtime_error(
-        "Conflict sweep work exceeds work_budget; pass None to always "
-        "compute the placement pressure");
-  }
+  const ConflictSweep sweep(allocations);
+  sweep.check_budget(work_budget, "compute the placement pressure");
   return vector_peaks(sweep, heights);
 }
 

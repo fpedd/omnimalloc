@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "analysis/conflicts.hpp"
 #include "analysis/linearize.hpp"
 #include "first_fit.hpp"
 
@@ -31,9 +32,10 @@ std::vector<Allocation> omni_place(const std::vector<Allocation>& allocations,
       surrogates.has_value() ? *surrogates : allocations;
 
   const CsrAdjacency adj = build_conflict_adjacency(problem);
-  const PortfolioPlacement placement = place_portfolio(
-      allocations, adj, surrogates.has_value() ? &*surrogates : nullptr);
-  return apply_offsets(allocations, placement.offsets);
+  return apply_offsets(
+      allocations,
+      place_portfolio(allocations, adj,
+                      surrogates.has_value() ? &*surrogates : nullptr));
 }
 
 }  // namespace omnimalloc

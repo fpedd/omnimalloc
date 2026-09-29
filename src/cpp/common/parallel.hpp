@@ -105,15 +105,20 @@ void for_each_row_block(size_t n, unsigned num_threads, RowBody&& row_body,
   }
   std::atomic<size_t> next{0};
   const auto worker = [&] {
-    while (true) {
-      const size_t begin = next.fetch_add(1) * block;
-      if (begin >= n) {
-        return;
+    try {
+      while (true) {
+        const size_t begin = next.fetch_add(1) * block;
+        if (begin >= n) {
+          return;
+        }
+        const size_t end = std::min(n, begin + block);
+        for (size_t row = begin; row < end; ++row) {
+          row_body(row);
+        }
       }
-      const size_t end = std::min(n, begin + block);
-      for (size_t row = begin; row < end; ++row) {
-        row_body(row);
-      }
+    } catch (...) {
+      next.store(n / block + 1);  // past the last block: the others stop
+      throw;
     }
   };
   std::vector<std::future<void>> futures;

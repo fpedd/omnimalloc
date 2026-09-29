@@ -43,7 +43,7 @@ std::vector<Allocation> simulated_annealing_place(
         peak_positions(current_placed, current_peak);
 
     const auto proposal =
-        propose_peak_swap(peaks, order, placer.indices(), rng);
+        propose_peak_swap(peaks, order, placer.adjacency(), rng);
     if (!proposal) {
       temperature *= config.cooling_rate;
       continue;
