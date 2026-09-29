@@ -336,6 +336,8 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   undo.min_offset_changes.clear();
 
   offsets_[idx] = offset;
+  // Placed entries read as +inf, so the floor scan below needs no placed test
+  min_offsets_[idx] = INT64_MAX;
 
   for (int s = first; s < last; ++s) {
     undo.floor_changes.emplace_back(s, section_floors_[s]);
@@ -375,7 +377,6 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
     int64_t s_min = INT64_MAX;
     bool floor_pinned = false;
     for (int b : data_->sections[s]) {
-      if (offsets_[b] >= 0) continue;
       const int64_t off = min_offsets_[b];
       if (off <= floor_s) {
         floor_pinned = true;
@@ -434,6 +435,7 @@ void Partition::revert(const PlacementUndo& undo, bool committed) {
   for (int b = first; b < last - 1; ++b) {
     if (cuts_[b]++ == 0) --num_zero_cuts_;
   }
+  min_offsets_[undo.idx] = offsets_[undo.idx];
   offsets_[undo.idx] = -1;
   if (committed) {
     candidates_.emplace(min_offsets_[undo.idx], undo.idx);
