@@ -4,6 +4,7 @@
 
 import inspect
 from abc import abstractmethod
+from functools import cached_property
 from typing import ClassVar
 
 from omnimalloc.common.registry import Registered
@@ -68,22 +69,16 @@ class BaseSource(Registered):
         """Whether this source can generate arbitrary allocation counts."""
         return True
 
-    def get_known_optimum(self, variant_id: IdType | None = None) -> int | None:
-        """Provably achievable peak size for a variant, or None if unknown.
+    def get_known_optimum(self) -> int | None:
+        """Provably achievable peak size of every variant, or None if unknown.
 
         Sources that reverse-construct their instances from a packing know
         the optimum and override this; everyone else leaves it unknown.
         """
+        return None
 
-    def get_available_variants(
-        self,
-        count: int | None = None,  # noqa: ARG002
-    ) -> tuple[str, ...] | None:
-        """Variant names offered by a fixed source; None from parameterizable ones.
-
-        `count` is how many the caller needs; a source materializing variants
-        lazily may provision at least that many.
-        """
+    def get_available_variants(self) -> tuple[str, ...] | None:
+        """Variant names offered by a fixed source; None from parameterizable ones."""
         return None
 
     def get_variant(self, variant_id: IdType) -> Pool:
@@ -135,6 +130,7 @@ class BaseSource(Registered):
                 num_pools=self.num_pools,
                 skip=(skip + i) * self.num_pools,
             )
+            # A fixed source runs out of pools; a generated one never does
             if not pools:
                 raise ValueError(f"source {self.name()} returned no pools")
             memories.append(
@@ -151,16 +147,16 @@ class BaseSource(Registered):
     ) -> tuple[System, ...]:
         num_systems = self.num_systems if num_systems is None else num_systems
         ensure_positive(num_systems, "num_systems")
-        systems = []
-        for i in range(num_systems):
-            memories = self.get_memories(
-                num_memories=self.num_memories,
-                skip=(skip + i) * self.num_memories,
+        return tuple(
+            System(
+                id=f"{self.name()}_system_{i}",
+                memories=self.get_memories(
+                    num_memories=self.num_memories,
+                    skip=(skip + i) * self.num_memories,
+                ),
             )
-            if not memories:
-                raise ValueError(f"source {self.name()} returned no memories")
-            systems.append(System(id=f"{self.name()}_system_{i}", memories=memories))
-        return tuple(systems)
+            for i in range(num_systems)
+        )
 
     def get_allocation(self) -> Allocation:
         allocations = self.get_allocations(num_allocations=1)
@@ -175,9 +171,64 @@ class BaseSource(Registered):
         return pools[0]
 
     def get_memory(self) -> Memory:
-        memories = self.get_memories(num_memories=1)
-        return memories[0]
+        return self.get_memories(num_memories=1)[0]
 
     def get_system(self) -> System:
-        systems = self.get_systems(num_systems=1)
-        return systems[0]
+        return self.get_systems(num_systems=1)[0]
+
+
+class FixedSource(BaseSource):
+    """A fixed collection of pools, one variant per pool, loaded on first use."""
+
+    @abstractmethod
+    def _load_pools(self) -> tuple[Pool, ...]: ...
+
+    @cached_property
+    def pools(self) -> tuple[Pool, ...]:
+        return self._load_pools()
+
+    def is_parameterizable(self) -> bool:
+        return False
+
+    def get_available_variants(self) -> tuple[str, ...]:
+        return tuple(str(pool.id) for pool in self.pools)
+
+    def get_variant(self, variant_id: IdType) -> Pool:
+        """The pool at an index, or the pool with that id."""
+        if isinstance(variant_id, int) and 0 <= variant_id < len(self.pools):
+            return self.pools[variant_id]
+        for pool in self.pools:
+            if pool.id == variant_id:
+                return pool
+        raise ValueError(f"Variant {variant_id!r} not found in {self.label()}")
+
+    def get_allocations(
+        self, num_allocations: int | None = None, skip: int = 0
+    ) -> tuple[Allocation, ...]:
+        allocations = tuple(a for pool in self.pools for a in pool.allocations)
+        end = None if num_allocations is None else skip + num_allocations
+        return allocations[skip:end]
+
+    def get_pools(
+        self, num_pools: int | None = None, skip: int = 0
+    ) -> tuple[Pool, ...]:
+        ensure_positive(num_pools, "num_pools", allow_none=True)
+        end = None if num_pools is None else skip + num_pools
+        return self.pools[skip:end]
+
+
+def prefix_ids(pool: Pool) -> Pool:
+    """Qualify allocation ids with the pool id, keeping them unique across pools."""
+    return pool.with_allocations(
+        tuple(
+            Allocation(
+                id=f"{pool.id}_{alloc.id}",
+                size=alloc.size,
+                start=alloc.start,
+                end=alloc.end,
+                offset=alloc.offset,
+                kind=alloc.kind,
+            )
+            for alloc in pool.allocations
+        )
+    )

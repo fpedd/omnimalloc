@@ -122,15 +122,13 @@ def _sample_runners(
 
 
 def _timed(runner: "Runner") -> "tuple[float, Value]":
-    timer = Timer().start()
-    value = runner()
-    timer.stop()
+    with Timer() as timer:
+        value = runner()
     seconds = timer.elapsed_s
     if seconds < 1e-3:
         for _ in range(4):
-            timer = Timer().start()
-            runner()
-            timer.stop()
+            with Timer() as timer:
+                runner()
             seconds = min(seconds, timer.elapsed_s)
     return seconds, value
 

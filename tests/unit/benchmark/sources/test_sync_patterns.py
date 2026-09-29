@@ -193,3 +193,11 @@ def test_every_step_barrier_linearizes_while_a_sparser_one_does_not() -> None:
     ).get_allocations()
     assert try_linearize(tight, work_budget=None) is not None
     assert try_linearize(loose, work_budget=None) is None
+
+
+def test_subset_pattern_couples_threads_at_three_threads() -> None:
+    def signatures(pattern: str) -> list[tuple[object, object, int]]:
+        source = SyncPatternSource(num_allocations=32, num_threads=3, pattern=pattern)
+        return _signatures(source.get_allocations())
+
+    assert signatures("subset") != signatures("independent")

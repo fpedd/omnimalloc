@@ -2,26 +2,50 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-
 import pytest
 from omnimalloc import allocate
-from omnimalloc.allocators import GreedyAllocator, NaiveAllocator
+from omnimalloc.allocators import BaseAllocator, GreedyAllocator, NaiveAllocator
 from omnimalloc.benchmark.results import BenchmarkReport, BenchmarkResult
-from omnimalloc.benchmark.sources.generator import RandomSource
-from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
+from omnimalloc.benchmark.sources import BaseSource, RandomSource, SyncPatternSource
 
 
-def test_benchmark_report_creation() -> None:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = allocate(source.get_pool(), allocator)
-    result = BenchmarkResult(
-        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
+def _result(
+    result_id: int = 0,
+    duration: float = 1.0,
+    allocator: BaseAllocator | None = None,
+    source: BaseSource | None = None,
+) -> BenchmarkResult:
+    allocator = allocator or GreedyAllocator()
+    source = source or RandomSource(num_allocations=10, seed=42)
+    return BenchmarkResult(
+        id=result_id,
+        allocator=allocator,
+        source=source,
+        entity=allocate(source.get_pool(), allocator),
+        duration=duration,
     )
 
-    report = BenchmarkReport(id=0, results=(result,))
-    assert report.num_results == 1
+
+def _report(*durations: float, **overrides: object) -> BenchmarkReport:
+    results = tuple(_result(i, d) for i, d in enumerate(durations))
+    return BenchmarkReport(id=0, results=results, **overrides)  # type: ignore[arg-type]
+
+
+def test_benchmark_report_statistics() -> None:
+    report = _report(1.0, 2.0, 3.0)
+
+    assert report.num_results == 3
     assert report.num_allocations == 10
+    assert report.mean_seconds == report.median_seconds == 2.0
+    assert report.min_seconds == 1.0
+    assert report.max_seconds == 3.0
+    assert report.stdev_seconds == pytest.approx(1.0)
+    assert 0.0 <= report.mean_allocation_efficiency <= 1.0
+    assert report.mean_peak_size >= report.lower_bound > 0
+
+
+def test_benchmark_report_stdev_is_none_for_single_iteration() -> None:
+    assert _report(1.0).stdev_seconds is None
 
 
 def test_benchmark_report_empty_results_raises_error() -> None:
@@ -30,151 +54,32 @@ def test_benchmark_report_empty_results_raises_error() -> None:
 
 
 def test_benchmark_report_duplicate_ids_raises_error() -> None:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = allocate(source.get_pool(), allocator)
-
-    result1 = BenchmarkResult(
-        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
-    )
-    result2 = BenchmarkResult(
-        id=0, allocator=allocator, source=source, entity=pool, duration=0.6
-    )
-
     with pytest.raises(ValueError, match="result ids must be unique"):
-        BenchmarkReport(id=0, results=(result1, result2))
-
-
-def test_benchmark_report_statistics() -> None:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = allocate(source.get_pool(), allocator)
-
-    results = tuple(
-        BenchmarkResult(
-            id=i, allocator=allocator, source=source, entity=pool, duration=float(i)
-        )
-        for i in range(3)
-    )
-
-    report = BenchmarkReport(id=0, results=results)
-    assert report.mean_seconds > 0
-    assert report.median_seconds > 0
-    assert 0.0 <= report.mean_allocation_efficiency <= 1.0
+        BenchmarkReport(id=0, results=(_result(0), _result(0)))
 
 
 def test_benchmark_report_allocator_mismatch_raises_error() -> None:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator1 = GreedyAllocator()
-    allocator2 = NaiveAllocator()
-
-    pool1 = allocate(source.get_pool(), allocator1)
-    pool2 = allocate(source.get_pool(), allocator2)
-
-    result1 = BenchmarkResult(
-        id=0, allocator=allocator1, source=source, entity=pool1, duration=0.5
-    )
-    result2 = BenchmarkResult(
-        id=1, allocator=allocator2, source=source, entity=pool2, duration=0.6
-    )
-
+    results = (_result(0), _result(1, allocator=NaiveAllocator()))
     with pytest.raises(ValueError, match="Allocator mismatch"):
-        BenchmarkReport(id=0, results=(result1, result2), allocator=allocator1)
+        BenchmarkReport(id=0, results=results, allocator=GreedyAllocator())
 
 
-def test_benchmark_report_with_results() -> None:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = allocate(source.get_pool(), allocator)
+def test_benchmark_report_optimum_ratio() -> None:
+    report = _report(1.0)
+    half = int(report.mean_peak_size) // 2
 
-    result1 = BenchmarkResult(
-        id=0, allocator=allocator, source=source, entity=pool, duration=0.5
-    )
-    result2 = BenchmarkResult(
-        id=1, allocator=allocator, source=source, entity=pool, duration=0.6
-    )
-
-    report1 = BenchmarkReport(id=0, results=(result1,))
-    report2 = report1.with_results((result2,))
-
-    assert len(report1.results) == 1
-    assert len(report2.results) == 2
+    assert report.optimum_ratio is None
+    assert _report(1.0, known_optimum=half).optimum_ratio == pytest.approx(2.0, 0.01)
 
 
-def _report(durations: tuple[float, ...], **overrides: object) -> BenchmarkReport:
-    source = RandomSource(num_allocations=10, seed=42)
-    allocator = GreedyAllocator()
-    pool = allocate(source.get_pool(), allocator)
-    results = tuple(
-        BenchmarkResult(
-            id=i, allocator=allocator, source=source, entity=pool, duration=d
-        )
-        for i, d in enumerate(durations)
-    )
-    return BenchmarkReport(id=0, results=results, **overrides)  # type: ignore[arg-type]
-
-
-def test_benchmark_report_dispersion_statistics() -> None:
-    report = _report((1.0, 2.0, 3.0))
-
-    assert report.min_seconds == 1.0
-    assert report.max_seconds == 3.0
-    assert report.stdev_seconds == pytest.approx(1.0)
-
-
-def test_benchmark_report_stdev_is_none_for_single_iteration() -> None:
-    report = _report((1.0,))
-
-    assert report.stdev_seconds is None
-    assert report.min_seconds == report.max_seconds == 1.0
-
-
-def test_benchmark_report_peak_size_and_lower_bound() -> None:
-    report = _report((1.0,))
-
-    assert report.lower_bound > 0
-    assert report.mean_peak_size >= report.lower_bound
-
-
-def test_benchmark_report_optimum_ratio_absent_without_known_optimum() -> None:
-    assert _report((1.0,)).known_optimum is None
-    assert _report((1.0,)).optimum_ratio is None
-
-
-def test_benchmark_report_optimum_ratio_compares_peak_to_optimum() -> None:
-    report = _report((1.0,))
-    with_optimum = BenchmarkReport(
-        id=0, results=report.results, known_optimum=int(report.mean_peak_size) // 2
-    )
-
-    assert with_optimum.optimum_ratio == pytest.approx(2.0, rel=0.01)
-
-
-def test_benchmark_report_with_results_keeps_known_optimum() -> None:
-    report = _report((1.0,), known_optimum=1024)
-    extended = report.with_results(
-        (
-            BenchmarkResult(
-                id=99,
-                allocator=report.results[0].allocator,
-                source=report.results[0].source,
-                entity=report.results[0].entity,
-                duration=2.0,
-            ),
-        )
-    )
-
-    assert extended.known_optimum == 1024
-    assert extended.stdev_seconds is not None
+@pytest.mark.parametrize(("variant_id", "label"), [(None, "10"), (7, "7"), ("m", "m")])
+def test_benchmark_report_variant_label(variant_id: object, label: str) -> None:
+    assert _report(1.0, variant_id=variant_id).variant_label == label
 
 
 def test_benchmark_report_source_name_uses_instance_label() -> None:
     source = SyncPatternSource(num_allocations=16, num_threads=8)
-    pool = allocate(source.get_pool(), GreedyAllocator())
-    result = BenchmarkResult(
-        id=0, allocator=GreedyAllocator(), source=source, entity=pool, duration=0.5
-    )
-    report = BenchmarkReport(id=0, results=(result,), source=source)
+    report = BenchmarkReport(id=0, results=(_result(source=source),), source=source)
 
     assert report.source_name == source.label()
     assert "num_threads=8" in report.source_name

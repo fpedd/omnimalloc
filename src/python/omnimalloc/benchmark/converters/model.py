@@ -6,14 +6,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Final
 
-from omnimalloc.primitives import (
-    Allocation,
-    AllocationKind,
-    IdType,
-    Memory,
-    Pool,
-    System,
-)
+from omnimalloc.primitives import Allocation, AllocationKind, IdType
 
 # Bits, not bytes: the sub-byte types are packed several to a byte, which is
 # what the tensors actually occupy and what numpy's itemsize gets wrong.
@@ -61,10 +54,6 @@ class Buffer:
             raise ValueError(f"unknown dtype {self.dtype!r}")
 
     @property
-    def ndim(self) -> int:
-        return len(self.shape)
-
-    @property
     def size(self) -> int:
         return math.ceil(ITEMBITS[self.dtype] * math.prod(self.shape) / 8)
 
@@ -74,7 +63,6 @@ class Op:
     id: IdType
     inputs: set[Buffer] = field(default_factory=set)
     outputs: set[Buffer] = field(default_factory=set)
-    op_type: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, (int, str)):
@@ -101,10 +89,8 @@ class Model:
 
 def _compute_buffer_lifetimes(
     model: Model,
-    const_inf_lifetime: bool,
-    io_inf_lifetime: bool,
 ) -> tuple[dict[Buffer, int], dict[Buffer, int]]:
-    """Compute first and last usage indices for each buffer."""
+    """First and last op index using each buffer; constants and IO span the model."""
     buffer_to_first_index: dict[Buffer, int] = {}
     buffer_to_last_index: dict[Buffer, int] = {}
 
@@ -114,26 +100,23 @@ def _compute_buffer_lifetimes(
                 buffer_to_first_index[buffer] = idx
             buffer_to_last_index[buffer] = idx
 
-    # Apply infinite lifetime constraints (at least one step for op-less models)
+    # At least one step for op-less models
     max_index = max(len(model.ops) - 1, 0)
     for buffer in model.buffers.values():
-        if (buffer.kind == AllocationKind.CONSTANT and const_inf_lifetime) or (
-            buffer.kind.is_io and io_inf_lifetime
-        ):
+        if buffer.kind == AllocationKind.CONSTANT or buffer.kind.is_io:
             buffer_to_first_index[buffer] = 0
             buffer_to_last_index[buffer] = max_index
 
     return buffer_to_first_index, buffer_to_last_index
 
 
-def _create_allocations(
+def model_to_allocations(
     model: Model,
-    include_const: bool,
-    include_io: bool,
-    buffer_to_first_index: dict[Buffer, int],
-    buffer_to_last_index: dict[Buffer, int],
+    include_const: bool = False,
+    include_io: bool = False,
 ) -> list[Allocation]:
-    """Create allocations from buffers and their lifetimes."""
+    """Extract Allocations from Model buffers."""
+    buffer_to_first_index, buffer_to_last_index = _compute_buffer_lifetimes(model)
     return [
         Allocation(
             id=buffer.id,
@@ -150,54 +133,3 @@ def _create_allocations(
             and buffer in buffer_to_first_index
         )
     ]
-
-
-def model_to_allocations(
-    model: Model,
-    include_const: bool = False,
-    include_io: bool = False,
-    const_inf_lifetime: bool = True,
-    io_inf_lifetime: bool = True,
-) -> list[Allocation]:
-    """Extract Allocations from Model buffers."""
-    buffer_to_first_index, buffer_to_last_index = _compute_buffer_lifetimes(
-        model, const_inf_lifetime, io_inf_lifetime
-    )
-    allocations = _create_allocations(
-        model, include_const, include_io, buffer_to_first_index, buffer_to_last_index
-    )
-    return allocations
-
-
-def model_to_pools(
-    model: Model,
-    include_const: bool = True,
-    include_io: bool = True,
-    const_inf_lifetime: bool = True,
-    io_inf_lifetime: bool = True,
-) -> tuple[Pool, ...]:
-    """Extract Pools grouped by buffer kind."""
-    buffer_to_first_index, buffer_to_last_index = _compute_buffer_lifetimes(
-        model, const_inf_lifetime, io_inf_lifetime
-    )
-    allocations = _create_allocations(
-        model, include_const, include_io, buffer_to_first_index, buffer_to_last_index
-    )
-
-    # Group allocations by kind
-    allocations_by_kind: dict[AllocationKind, list[Allocation]] = {}
-    for alloc in allocations:
-        kind = alloc.kind if alloc.kind is not None else AllocationKind.WORKSPACE
-        allocations_by_kind.setdefault(kind, []).append(alloc)
-
-    return tuple(
-        Pool(id=str(kind), allocations=tuple(allocs))
-        for kind, allocs in allocations_by_kind.items()
-    )
-
-
-def model_to_system(model: Model) -> System:
-    """Convert an model to a system with a single memory and pools."""
-    pools = model_to_pools(model)
-    memory = Memory(id=0, pools=pools)
-    return System(id=model.id, memories=(memory,))

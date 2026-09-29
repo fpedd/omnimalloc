@@ -97,46 +97,29 @@ def test_random_source_allocation_kinds_with_weights() -> None:
     assert workspace_count > 60
 
 
-def test_random_source_validation_count() -> None:
-    with pytest.raises(ValueError, match="num_allocations must be positive"):
-        RandomSource(num_allocations=0)
-
-
-def test_random_source_validation_size_min() -> None:
-    with pytest.raises(ValueError, match="size_min must be positive"):
-        RandomSource(size_min=0)
-
-
-def test_random_source_validation_size_max() -> None:
-    with pytest.raises(ValueError, match="size_max must be >= size_min"):
-        RandomSource(size_min=100, size_max=50)
-
-
-def test_random_source_validation_time_min() -> None:
-    with pytest.raises(ValueError, match="time_min must be non-negative"):
-        RandomSource(time_min=-1)
-
-
-def test_random_source_validation_time_max() -> None:
-    with pytest.raises(ValueError, match="time_max must be > time_min"):
-        RandomSource(time_min=100, time_max=100)
-
-
-def test_random_source_validation_duration_min() -> None:
-    with pytest.raises(ValueError, match="duration_min must be positive"):
-        RandomSource(duration_min=0)
-
-
-def test_random_source_validation_duration_max() -> None:
-    with pytest.raises(ValueError, match="duration_max must be >= duration_min"):
-        RandomSource(duration_min=10, duration_max=5)
-
-
-def test_random_source_validation_kind_weights() -> None:
-    with pytest.raises(
-        ValueError, match="kinds and kind_weights must have same length"
-    ):
-        RandomSource(kinds=(AllocationKind.WORKSPACE,), kind_weights=(0.5, 0.5))
+@pytest.mark.parametrize(
+    ("source_cls", "kwargs", "message"),
+    [
+        (RandomSource, {"num_allocations": 0}, "num_allocations must be positive"),
+        (RandomSource, {"size_min": 0}, "size_min must be positive"),
+        (RandomSource, {"size_min": 100, "size_max": 50}, "size_max must be >="),
+        (RandomSource, {"time_min": -1}, "time_min must be non-negative"),
+        (RandomSource, {"time_min": 100, "time_max": 100}, "time_max must be >"),
+        (RandomSource, {"duration_min": 0}, "duration_min must be positive"),
+        (RandomSource, {"duration_min": 10, "duration_max": 5}, "duration_max must"),
+        (
+            RandomSource,
+            {"kinds": (AllocationKind.WORKSPACE,), "kind_weights": (0.5, 0.5)},
+            "same length",
+        ),
+        (PowerOf2Source, {"time_max": 10}, "duration_max must be <= time_max"),
+    ],
+)
+def test_source_rejects_invalid_parameters(
+    source_cls: type[BaseSource], kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        source_cls(**kwargs)
 
 
 def test_uniform_source_fixed_size_and_duration() -> None:

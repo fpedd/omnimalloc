@@ -4,7 +4,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from omnimalloc.common.optional import require_optional
 
@@ -14,24 +14,16 @@ from .result import BenchmarkResult
 
 try:
     import matplotlib.pyplot as plt
-    from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
     from matplotlib.lines import Line2D
 
     HAS_MATPLOTLIB = True
 except ImportError:
-    from types import SimpleNamespace
-
     HAS_MATPLOTLIB = False
-    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        subplots=None,
-        savefig=None,
-        show=None,
-        close=None,
-    )
-    Line2D = None  # ty: ignore[invalid-assignment]
-    Axes = None  # ty: ignore[invalid-assignment]
-    Figure = None  # ty: ignore[invalid-assignment]
+    plt = Line2D = cast("Any", None)
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 logger = logging.getLogger(__name__)
 
@@ -50,30 +42,17 @@ def _format_metadata(metadata: dict[str, Any] | None) -> str:
     )
 
 
-def _is_categorical(data: dict[str, dict[str, tuple[BenchmarkReport, ...]]]) -> bool:
-    return any(
-        data[name][alloc_name][0].is_categorical
-        for name in data
-        for alloc_name in data[name]
-    )
-
-
-def _get_sorted_reports(
-    allocator_data: dict[str, tuple[BenchmarkReport, ...]],
-) -> list[BenchmarkReport]:
-    reports = [r for rs in allocator_data.values() for r in rs]
+def _sorted_reports(reports: list[BenchmarkReport]) -> list[BenchmarkReport]:
     # One key type for the whole group: mixing a categorical variant_id with a
     # numeric fallback compares str against int and raises mid-sort
     if any(r.is_categorical for r in reports):
-        reports.sort(key=lambda r: str(r.variant_id))
-    else:
-        reports.sort(key=lambda r: r.num_allocations)
-    return reports
+        return sorted(reports, key=lambda r: str(r.variant_id))
+    return sorted(reports, key=lambda r: r.num_allocations)
 
 
 def _draw_graphs(
-    ax: Axes,
-    ax2: Axes,
+    ax: "Axes",
+    ax2: "Axes",
     name: str,
     color: str,
     is_categorical: bool,
@@ -160,35 +139,31 @@ def _draw_graphs(
 
 
 def _draw_subplot(
-    ax: Axes,
+    ax: "Axes",
     source_name: str,
-    source_data: dict[str, dict[str, tuple[BenchmarkReport, ...]]],
+    reports: list[BenchmarkReport],
     allocator_names: tuple[str, ...],
 ) -> None:
     ax2 = ax.twinx()
+    is_categorical = any(r.is_categorical for r in reports)
 
-    is_categorical = _is_categorical(source_data)
-
-    for allocator_name, allocator_data in source_data.items():
-        # Color by campaign-wide allocator index so colors match the legend
-        # even when a source lacks some allocators.
-        color = _get_allocator_color(allocator_names.index(allocator_name))
-        reports = _get_sorted_reports(allocator_data)
-
-        _draw_graphs(ax, ax2, allocator_name, color, is_categorical, reports)
+    # Color by campaign-wide allocator index so colors match the legend
+    # even when a source lacks some allocators.
+    for index, allocator_name in enumerate(allocator_names):
+        series = [r for r in reports if r.allocator_name == allocator_name]
+        if series:
+            color = _get_allocator_color(index)
+            _draw_graphs(
+                ax, ax2, allocator_name, color, is_categorical, _sorted_reports(series)
+            )
 
     if is_categorical:
         ax.set_xlabel("Model / Variant", fontsize=10)
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
     else:
         ax.set_xlabel("Number of Allocations", fontsize=10)
-        num_allocations = [
-            r.num_allocations
-            for allocator_data in source_data.values()
-            for reports in allocator_data.values()
-            for r in reports
-        ]
-        if num_allocations and max(num_allocations) / min(num_allocations) > 10:
+        num_allocations = [r.num_allocations for r in reports]
+        if max(num_allocations) / min(num_allocations) > 10:
             ax.set_xscale("log")
 
     ax.set_ylabel("Time (s)", fontsize=10, color="black")
@@ -202,7 +177,7 @@ def _draw_subplot(
     ax.set_title(f"Source: {source_name}", fontsize=12, fontweight="bold", pad=10)
 
 
-def _add_footer(campaign: BenchmarkCampaign, fig: Figure) -> None:
+def _add_footer(campaign: BenchmarkCampaign, fig: "Figure") -> None:
     metadata_text = _format_metadata(campaign.metadata)
     txt = fig.text(
         0.5,
@@ -217,7 +192,7 @@ def _add_footer(campaign: BenchmarkCampaign, fig: Figure) -> None:
     txt._get_wrap_line_width = lambda: fig.bbox.width * 0.90  # ty: ignore[unresolved-attribute]  # noqa: SLF001
 
 
-def _add_legend(fig: Figure, allocator_names: tuple[str, ...]) -> None:
+def _add_legend(fig: "Figure", allocator_names: tuple[str, ...]) -> None:
     handles = [
         Line2D(
             [],
@@ -241,7 +216,7 @@ def _add_legend(fig: Figure, allocator_names: tuple[str, ...]) -> None:
     )
 
 
-def _create_figure(num_sources: int) -> tuple[Figure, list[Axes]]:
+def _create_figure(num_sources: int) -> "tuple[Figure, list[Axes]]":
     fig, axs = plt.subplots(
         nrows=num_sources,
         ncols=1,
@@ -256,19 +231,11 @@ def _visualize_campaign(
 ) -> None:
     source_names = campaign.source_names
     allocator_names = campaign.allocator_names
-    reports_by_source = campaign.reports_by_source_allocator_variant
-
-    if not source_names:
-        raise ValueError("Campaign has no sources to visualize")
-    if not allocator_names:
-        raise ValueError("Campaign has no allocators to visualize")
-    if not reports_by_source:
-        raise ValueError("Campaign has no reports to visualize")
-
     fig, axs = _create_figure(len(source_names))
 
     for ax, source_name in zip(axs, source_names, strict=True):
-        _draw_subplot(ax, source_name, reports_by_source[source_name], allocator_names)
+        reports = [r for r in campaign.reports if r.source_name == source_name]
+        _draw_subplot(ax, source_name, reports, allocator_names)
 
     fig.tight_layout(rect=(0.01, 0.05, 0.99, 0.92))  # l, b, r, t
 

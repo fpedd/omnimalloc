@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Generic, TypeVar
 
-from omnimalloc.primitives import Allocation, IdType, Pool, TimePoint
+from omnimalloc.common.validation import ensure_positive
+from omnimalloc.primitives import Allocation, Pool, TimePoint
 
 from .base import BaseSource
 
@@ -54,10 +55,8 @@ class TilingBase(BaseSource):
         seed: int | None,
     ) -> None:
         super().__init__(num_allocations=num_allocations)
-        if size_min <= 0:
-            raise ValueError("size_min must be positive")
-        if duration_min <= 0:
-            raise ValueError("duration_min must be positive")
+        ensure_positive(size_min, "size_min")
+        ensure_positive(duration_min, "duration_min")
         self.capacity = capacity
         self.makespan = makespan
         self.size_min = size_min
@@ -140,13 +139,6 @@ class TilingBase(BaseSource):
         allocations = self._tile_allocations(num_allocations, skip, with_offsets=True)
         return Pool(id=f"{self.name()}_ground_truth", allocations=allocations)
 
-    def get_known_optimum(self, variant_id: IdType | None = None) -> int | None:
-        """Peak of the construction packing, which is optimal by tiling.
-
-        Unknown without a fixed seed: the ground truth is then a different
-        random packing than the one that was benchmarked.
-        """
-        if self.seed is None:
-            return None
-        num = variant_id if isinstance(variant_id, int) else None
-        return self.get_ground_truth_pool(num).size
+    def get_known_optimum(self) -> int:
+        """The capacity: the leaves tile it exactly, whatever the seed."""
+        return self.capacity

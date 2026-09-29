@@ -116,13 +116,7 @@ def test_concurrent_tiling_rejects_nonpositive_threads() -> None:
 
 
 def test_concurrent_tiling_rejects_fewer_allocations_than_threads() -> None:
-    with pytest.raises(ValueError, match="num_threads"):
-        ConcurrentTilingSource(
-            num_allocations=2, num_threads=4, capacity=4096, size_min=1
-        )
-    source = ConcurrentTilingSource(
-        num_allocations=8, num_threads=4, capacity=4096, size_min=1
-    )
+    source = ConcurrentTilingSource(num_threads=4, capacity=4096, size_min=1)
     with pytest.raises(ValueError, match="num_threads"):
         source.get_allocations(num_allocations=2)
 
@@ -159,7 +153,5 @@ def test_concurrent_tiling_label_carries_thread_count() -> None:
 
 def test_concurrent_tiling_known_optimum_is_the_capacity() -> None:
     capacity = 1024 * 1024
-    source = ConcurrentTilingSource(
-        num_allocations=32, num_threads=4, capacity=capacity
-    )
-    assert source.get_known_optimum(32) == capacity
+    source = ConcurrentTilingSource(num_threads=4, capacity=capacity)
+    assert source.get_known_optimum() == capacity

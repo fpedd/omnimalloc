@@ -18,11 +18,7 @@ class TilingSource(TilingBase):
     """
 
     _label_fields: ClassVar[tuple[str, ...]] = (
-        "capacity",
-        "makespan",
-        "size_min",
-        "duration_min",
-        "seed",
+        *TilingBase._label_fields,  # noqa: SLF001
         "mem_cut_prob",
     )
 

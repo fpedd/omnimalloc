@@ -9,10 +9,10 @@ The benchmark takes minutes; ``--dump`` then ``--data`` iterates on rendering.
 
 import argparse
 import json
-import random
 import shutil
 import subprocess
 import sys
+from bisect import bisect_left
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
     from omnimalloc.primitives import Pool
 
-SEED = 0
 MINIMALLOC_URL = "git+https://github.com/google/minimalloc.git"
 SCALING_SIZES = (10, 32, 100, 316, 1000, 3162, 10000)
 SCALING_SIZES_SLOW = SCALING_SIZES[:-1]  # minimalloc cannot solve 10k in budget
@@ -231,7 +230,6 @@ def _hard_suite() -> "dict[str, Pool]":
 
 def collect_data() -> dict[str, Any]:
     _ensure_minimalloc()
-    random.seed(SEED)
     suite = _hard_suite()
     hard = [k for k in suite if k != "random"]
 
@@ -602,7 +600,7 @@ def render_allocation(data: dict[str, Any], theme: Theme, preview: Path | None) 
     )
     ordered_sizes = sorted(r[3] for r in rects)
     for start, duration, offset, height in rects:
-        quantile = ordered_sizes.index(height) / max(len(ordered_sizes) - 1, 1)
+        quantile = bisect_left(ordered_sizes, height) / max(len(ordered_sizes) - 1, 1)
         ax.add_patch(
             Rectangle(
                 (start, offset),

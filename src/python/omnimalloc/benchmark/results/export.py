@@ -5,10 +5,11 @@
 import csv
 import json
 import logging
+import re
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Final, Literal, Protocol
+from typing import Any, Final, Literal
 
 from ..utils import tqdm  # noqa: TID252
 from .campaign import BenchmarkCampaign
@@ -37,15 +38,9 @@ RESULTS_CSV_COLUMNS: Final[tuple[str, ...]] = (
 )
 
 
-class ProgressBar(Protocol):
-    """Update-only view of a tqdm(-like) progress bar."""
-
-    def update(self, n: int = 1) -> None: ...
-
-
-def _prepare_base_dir(output_path: Path, output_format: str, overwrite: bool) -> Path:
+def _prepare_base_dir(output_path: Path, output_format: str) -> Path:
     if output_format == "dir":
-        output_path.mkdir(parents=True, exist_ok=overwrite)
+        output_path.mkdir(parents=True)
         return output_path
     base_dir = Path(tempfile.mkdtemp(prefix="omnimalloc_dump_")) / output_path.stem
     base_dir.mkdir()
@@ -87,8 +82,6 @@ def _write_results_csv(base_dir: Path, campaign: BenchmarkCampaign) -> None:
 
 
 def _create_zip_archive(base_dir: Path, final_path: Path) -> Path:
-    if final_path.exists():
-        final_path.unlink()
     return Path(
         shutil.make_archive(
             str(final_path.with_suffix("")),
@@ -99,99 +92,25 @@ def _create_zip_archive(base_dir: Path, final_path: Path) -> Path:
     )
 
 
-def _write_iterations(
-    report_dir: Path,
-    report: BenchmarkReport,
-    pbar: ProgressBar,
-) -> None:
-    iterations_dir = report_dir / "iterations"
-    iterations_dir.mkdir(exist_ok=True)
-
-    for i, result in enumerate(report.results):
-        iteration_file = iterations_dir / f"iteration_{i}.pdf"
-        result.visualize(iteration_file)
-        pbar.update(1)
+def _dir_name(label: str) -> str:
+    """A label as one path component, safe on every OS; labels may carry paths."""
+    return re.sub(r'[<>:"/\\|?*]', "_", label)
 
 
-def _write_allocator_reports(
-    source_dir: Path,
-    allocator_name: str,
-    variant_dict: dict[str, tuple[BenchmarkReport, ...]],
-    visualize_iterations: bool,
-    pbar: ProgressBar,
-) -> None:
-    allocator_dir = source_dir / allocator_name
-    allocator_dir.mkdir(parents=True, exist_ok=True)
-
-    for variant_label in sorted(variant_dict.keys()):
-        reports = variant_dict[variant_label]
-        variant_dir = allocator_dir / variant_label
-        variant_dir.mkdir(parents=True, exist_ok=True)
-
-        for report_idx, report in enumerate(reports):
-            report_dir = (
-                variant_dir / f"report_{report_idx}"
-                if len(reports) > 1
-                else variant_dir
-            )
-            report_dir.mkdir(parents=True, exist_ok=True)
-
-            if visualize_iterations:
-                _write_iterations(report_dir, report, pbar)
-            else:
-                pbar.update(1)
-
-
-def _write_source_reports(
-    base_dir: Path,
-    source_name: str,
-    allocator_dict: dict[str, dict[str, tuple[BenchmarkReport, ...]]],
-    visualize_iterations: bool,
-    pbar: ProgressBar,
-) -> None:
-    source_dir = base_dir / "sources" / source_name / "allocators"
-    source_dir.mkdir(parents=True, exist_ok=True)
-
-    for allocator_name in sorted(allocator_dict.keys()):
-        _write_allocator_reports(
-            source_dir,
-            allocator_name,
-            allocator_dict[allocator_name],
-            visualize_iterations,
-            pbar,
+def _write_iterations(base_dir: Path, campaign: BenchmarkCampaign) -> None:
+    """Plot every iteration under sources/<source>/allocators/<allocator>/<variant>."""
+    for report in tqdm(campaign.reports, desc="Saving iterations", leave=False):
+        iterations_dir = (
+            base_dir
+            / "sources"
+            / _dir_name(report.source_name)
+            / "allocators"
+            / _dir_name(report.allocator_name)
+            / _dir_name(report.variant_label)
+            / "iterations"
         )
-
-
-def _write_nested_reports(
-    base_dir: Path, campaign: BenchmarkCampaign, visualize_iterations: bool
-) -> None:
-    reports_by_source = campaign.reports_by_source_allocator_variant
-
-    total_iterations = (
-        sum(report.num_results for report in campaign.reports)
-        if visualize_iterations
-        else len(campaign.reports)
-    )
-
-    unit = "iteration" if visualize_iterations else "report"
-
-    with tqdm(
-        total=total_iterations,
-        desc="Saving campaign",
-        unit=unit,
-        leave=False,
-    ) as pbar:
-        for source_name in sorted(reports_by_source.keys()):
-            _write_source_reports(
-                base_dir,
-                source_name,
-                reports_by_source[source_name],
-                visualize_iterations,
-                pbar,
-            )
-
-
-# TODO(fpedd): Optionally timestamp the campaign name so saves cannot collide
+        for i, result in enumerate(report.results):
+            result.visualize(iterations_dir / f"iteration_{i}.pdf")
 
 
 def save_benchmark(
@@ -201,13 +120,13 @@ def save_benchmark(
     visualize_iterations: bool = True,
     overwrite: bool = True,
 ) -> Path:
-    """Save a campaign, defaulting to `artifacts/campaign_<id>` under the cwd."""
+    """Save a campaign, defaulting to `artifacts/<id>` under the cwd."""
 
     if not isinstance(campaign, BenchmarkCampaign):
         raise TypeError(f"Expected a BenchmarkCampaign, got {type(campaign)!r}")
 
     if output_path is None:
-        output_path = Path.cwd() / "artifacts" / f"campaign_{campaign.id}"
+        output_path = Path.cwd() / "artifacts" / str(campaign.id)
 
     output_path = Path(output_path)
 
@@ -226,13 +145,14 @@ def save_benchmark(
         else:
             final_path.unlink()
 
-    base_dir = _prepare_base_dir(output_path, output_format, overwrite)
+    base_dir = _prepare_base_dir(output_path, output_format)
 
     try:
         _write_metadata(base_dir, campaign)
         _write_results_csv(base_dir, campaign)
         plot_benchmark(campaign, base_dir / "campaign_overview.pdf")
-        _write_nested_reports(base_dir, campaign, visualize_iterations)
+        if visualize_iterations:
+            _write_iterations(base_dir, campaign)
 
         if output_format == "zip":
             final_path = _create_zip_archive(base_dir, final_path)

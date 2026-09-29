@@ -119,15 +119,9 @@ def test_tiling_ground_truth_requires_seed() -> None:
         TilingSource(seed=None).get_ground_truth_pool()
 
 
-def test_tiling_known_optimum_is_the_capacity() -> None:
-    capacity = 1024 * 1024
-    source = TilingSource(num_allocations=64, capacity=capacity)
-    assert source.get_known_optimum() == capacity
-    assert source.get_known_optimum(128) == capacity
-
-
-def test_tiling_known_optimum_unknown_without_seed() -> None:
-    assert TilingSource(num_allocations=64, seed=None).get_known_optimum() is None
+@pytest.mark.parametrize("seed", [0, None])
+def test_tiling_known_optimum_is_the_capacity(seed: int | None) -> None:
+    assert TilingSource(capacity=4096, seed=seed).get_known_optimum() == 4096
 
 
 def test_tiling_variant_sweep_builds_ladder() -> None:

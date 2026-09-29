@@ -63,12 +63,8 @@ class BenchmarkReport:
 
     @property
     def variant_label(self) -> str:
-        """Human-readable label for this variant."""
-        if self.variant_id is None:
-            return f"{self.num_allocations}"
-        if isinstance(self.variant_id, str):
-            return self.variant_id
-        return f"{self.variant_id}"
+        """The variant id, or the allocation count for a report without one."""
+        return str(self.num_allocations if self.variant_id is None else self.variant_id)
 
     @property
     def is_categorical(self) -> bool:
@@ -78,10 +74,6 @@ class BenchmarkReport:
     @property
     def num_allocations(self) -> int:
         return self.results[0].num_allocations
-
-    @property
-    def total_num_allocations(self) -> int:
-        return sum(r.num_allocations for r in self.results)
 
     @property
     def num_results(self) -> int:
@@ -135,13 +127,3 @@ class BenchmarkReport:
         if not self.known_optimum:
             return None
         return self.mean_peak_size / self.known_optimum
-
-    def with_results(self, results: tuple[BenchmarkResult, ...]) -> "BenchmarkReport":
-        return BenchmarkReport(
-            id=self.id,
-            allocator=self.allocator,
-            source=self.source,
-            variant_id=self.variant_id,
-            known_optimum=self.known_optimum,
-            results=self.results + results,
-        )

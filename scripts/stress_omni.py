@@ -52,9 +52,8 @@ def _timed_allocate(
     seconds = []
     placed: tuple[Allocation, ...] = ()
     for _ in range(repeats):
-        timer = Timer().start()
-        placed = OmniAllocator().allocate(allocations)
-        timer.stop()
+        with Timer() as timer:
+            placed = OmniAllocator().allocate(allocations)
         seconds.append(timer.elapsed_s)
     return min(seconds), placed
 
@@ -111,10 +110,8 @@ def caller_sweep(args: argparse.Namespace) -> dict[int, float]:
 
     throughput: dict[int, float] = {}
     for callers in args.callers:
-        with ThreadPoolExecutor(max_workers=callers) as executor:
-            timer = Timer().start()
+        with ThreadPoolExecutor(max_workers=callers) as executor, Timer() as timer:
             offsets = list(executor.map(run_once, range(args.calls)))
-            timer.stop()
         if any(result != expected for result in offsets):
             raise AssertionError(f"non-deterministic placement with {callers} callers")
         throughput[callers] = args.calls / timer.elapsed_s
