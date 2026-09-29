@@ -100,8 +100,11 @@ class Partition {
   // Place allocation `idx` at its `min_offset` and return the diff, so
   // `revert` undoes it in O(touched log n) with no per-node state copy. The
   // frame lives in a depth-indexed pool, valid until the matching `revert`.
+  // `apply_at` updates the flat arrays only; `commit` then re-keys the ordered
+  // candidate/top views for a placement that passed `placement_feasible`.
   [[nodiscard]] const PlacementUndo& apply_at(int idx, bool floor_inference);
-  void revert(const PlacementUndo& undo);
+  void commit(const PlacementUndo& undo);
+  void revert(const PlacementUndo& undo, bool committed);
   void set_best_height(int64_t h) noexcept { best_height_ = h; }
   // Copy with `best_height` set to `bound`: a portfolio member that only
   // accepts solutions strictly below `bound`.

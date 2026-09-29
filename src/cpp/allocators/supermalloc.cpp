@@ -336,8 +336,6 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   undo.min_offset_changes.clear();
 
   offsets_[idx] = offset;
-  candidates_.erase({offset, idx});
-  tops_.erase(tops_.find(top));
 
   for (int s = first; s < last; ++s) {
     undo.floor_changes.emplace_back(s, section_floors_[s]);
@@ -357,13 +355,6 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
     if (top <= old_min) continue;
     undo.min_offset_changes.emplace_back(j, old_min);
     min_offsets_[j] = top;
-    auto candidate = candidates_.extract({old_min, j});
-    candidate.value() = {top, j};
-    candidates_.insert(std::move(candidate));
-    const int64_t j_size = data_->alloc_sizes[j];
-    auto top_node = tops_.extract(tops_.find(old_min + j_size));
-    top_node.value() = top + j_size;
-    tops_.insert(std::move(top_node));
     if (!floor_inference) continue;
     const auto [jf, jl] = data_->section_spans[j];
     for (int s = jf; s < jl; ++s) {
@@ -402,20 +393,39 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
   return undo;
 }
 
-void Partition::revert(const PlacementUndo& undo) {
+void Partition::commit(const PlacementUndo& undo) {
+  // Re-key the ordered views only for placements that survive the bound check;
+  // an infeasible probe touches the flat arrays alone.
+  const int idx = undo.idx;
+  candidates_.erase({offsets_[idx], idx});
+  tops_.erase(tops_.find(offsets_[idx] + data_->alloc_sizes[idx]));
+  for (const auto& [j, old_min] : undo.min_offset_changes) {
+    const int64_t j_size = data_->alloc_sizes[j];
+    auto candidate = candidates_.extract({old_min, j});
+    candidate.value() = {min_offsets_[j], j};
+    candidates_.insert(std::move(candidate));
+    auto top_node = tops_.extract(tops_.find(old_min + j_size));
+    top_node.value() = min_offsets_[j] + j_size;
+    tops_.insert(std::move(top_node));
+  }
+}
+
+void Partition::revert(const PlacementUndo& undo, bool committed) {
   const auto [first, last] = data_->section_spans[undo.idx];
   const int64_t alloc_size = data_->alloc_sizes[undo.idx];
   for (const auto& [s, old_floor] : undo.floor_changes) {
     section_floors_[s] = old_floor;
   }
   for (const auto& [j, old_min] : undo.min_offset_changes) {
-    const int64_t j_size = data_->alloc_sizes[j];
-    auto candidate = candidates_.extract({min_offsets_[j], j});
-    candidate.value() = {old_min, j};
-    candidates_.insert(std::move(candidate));
-    auto top_node = tops_.extract(tops_.find(min_offsets_[j] + j_size));
-    top_node.value() = old_min + j_size;
-    tops_.insert(std::move(top_node));
+    if (committed) {
+      const int64_t j_size = data_->alloc_sizes[j];
+      auto candidate = candidates_.extract({min_offsets_[j], j});
+      candidate.value() = {old_min, j};
+      candidates_.insert(std::move(candidate));
+      auto top_node = tops_.extract(tops_.find(min_offsets_[j] + j_size));
+      top_node.value() = old_min + j_size;
+      tops_.insert(std::move(top_node));
+    }
     min_offsets_[j] = old_min;
   }
   for (int s = first; s < last; ++s) {
@@ -425,8 +435,10 @@ void Partition::revert(const PlacementUndo& undo) {
     if (cuts_[b]++ == 0) --num_zero_cuts_;
   }
   offsets_[undo.idx] = -1;
-  candidates_.emplace(min_offsets_[undo.idx], undo.idx);
-  tops_.insert(min_offsets_[undo.idx] + alloc_size);
+  if (committed) {
+    candidates_.emplace(min_offsets_[undo.idx], undo.idx);
+    tops_.insert(min_offsets_[undo.idx] + alloc_size);
+  }
   --undo_depth_;
 }
 
@@ -832,11 +844,14 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
 
     g_apply.fetch_add(1, std::memory_order_relaxed);
     const auto& undo = node.apply_at(alloc_idx, ctx.opts.floor_inference);
-    if (node.placement_feasible(undo, alloc_offset, ctx.opts.monotonic_floor)) {
+    const bool feasible =
+        node.placement_feasible(undo, alloc_offset, ctx.opts.monotonic_floor);
+    if (feasible) {
       g_feasible.fetch_add(1, std::memory_order_relaxed);
+      node.commit(undo);
       solve_dfs(node, alloc_offset, alloc_idx, ctx, best, shared);
     }
-    node.revert(undo);
+    node.revert(undo, feasible);
     if (ctx.stopped) return;
 
     if (first_leaf && best) return;
