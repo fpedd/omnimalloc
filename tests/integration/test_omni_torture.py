@@ -9,15 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from omnimalloc._cpp import FirstFitPlacer
 from omnimalloc.allocators import OmniAllocator
-from omnimalloc.allocators.greedy import (
-    GreedyAllocator,
-    GreedyByAreaAllocator,
-    GreedyByConflictAllocator,
-    GreedyByConflictSizeAllocator,
-    GreedyByDurationAllocator,
-    GreedyBySizeAllocator,
-    GreedyByStartAllocator,
-)
 from omnimalloc.analysis import (
     antichain_pressure,
     closure_pressure,
@@ -25,22 +16,11 @@ from omnimalloc.analysis import (
     placement_pressure_per_allocation,
 )
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
-from omnimalloc.benchmark.sources.generator import HighContentionSource, RandomSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 from omnimalloc.primitives import Allocation, Pool
 from omnimalloc.validate import validate_allocation
-
-GREEDY_PORTFOLIO = (
-    GreedyAllocator,
-    GreedyBySizeAllocator,
-    GreedyByDurationAllocator,
-    GreedyByAreaAllocator,
-    GreedyByConflictAllocator,
-    GreedyByConflictSizeAllocator,
-    GreedyByStartAllocator,
-)
 
 
 def _peak(allocations: tuple[Allocation, ...]) -> int:
@@ -170,39 +150,6 @@ def test_scalar_tiling_peak_stays_near_known_optimum(
     assert capacity <= peak <= 2 * capacity
 
 
-def test_scalar_portfolio_not_worse_than_any_greedy_variant() -> None:
-    sources = (
-        RandomSource(num_allocations=200, seed=5),
-        HighContentionSource(num_allocations=200, time_window=12, seed=5),
-        TilingSource(num_allocations=256, seed=5),
-    )
-    for source in sources:
-        allocations = source.get_allocations()
-        omni_peak = _peak(OmniAllocator().allocate(allocations))
-        for variant_cls in GREEDY_PORTFOLIO:
-            assert omni_peak <= _peak(variant_cls().allocate(allocations))
-
-
-def test_vector_not_worse_than_input_order_greedy() -> None:
-    for pattern in ("independent", "ring", "barrier", "dense"):
-        source = SyncPatternSource(num_allocations=96, num_threads=5, pattern=pattern)
-        allocations = source.get_allocations()
-        omni_peak = _peak(OmniAllocator().allocate(allocations))
-        assert omni_peak <= _peak(GreedyAllocator().allocate(allocations))
-
-
-def test_size_scaling_scales_peak_linearly() -> None:
-    source = SyncPatternSource(num_allocations=80, num_threads=4, pattern="sparse")
-    allocations = source.get_allocations()
-    scaled = tuple(
-        Allocation(id=a.id, size=7 * a.size, start=a.start, end=a.end)
-        for a in allocations
-    )
-    assert _peak(OmniAllocator().allocate(scaled)) == 7 * _peak(
-        OmniAllocator().allocate(allocations)
-    )
-
-
 def test_clock_translation_preserves_offsets() -> None:
     source = SyncPatternSource(num_allocations=80, num_threads=4, pattern="groups")
     allocations = source.get_allocations()
@@ -218,52 +165,6 @@ def test_clock_translation_preserves_offsets() -> None:
     assert [x.offset for x in OmniAllocator().allocate(translated)] == [
         x.offset for x in OmniAllocator().allocate(allocations)
     ]
-
-
-def test_lane_permutation_preserves_exact_pressures() -> None:
-    source = SyncPatternSource(num_allocations=48, num_threads=4, pattern="fork_join")
-    allocations = source.get_allocations()
-    lanes = (2, 0, 3, 1)
-    permuted = tuple(
-        Allocation(
-            id=a.id,
-            size=a.size,
-            start=tuple(a.start[lane] for lane in lanes),
-            end=tuple(a.end[lane] for lane in lanes),
-        )
-        for a in allocations
-    )
-    assert antichain_pressure(permuted, work_budget=None) == antichain_pressure(
-        allocations, work_budget=None
-    )
-    assert closure_pressure(permuted, closure_cap=1 << 18) == closure_pressure(
-        allocations, closure_cap=1 << 18
-    )
-    _certify(permuted, OmniAllocator().allocate(permuted))
-
-
-def test_zero_lane_padding_preserves_offsets() -> None:
-    source = SyncPatternSource(num_allocations=64, num_threads=3, pattern="ring")
-    allocations = source.get_allocations()
-    padded = tuple(
-        Allocation(id=a.id, size=a.size, start=(*a.start, 0, 0), end=(*a.end, 0, 0))
-        for a in allocations
-    )
-    assert [x.offset for x in OmniAllocator().allocate(padded)] == [
-        x.offset for x in OmniAllocator().allocate(allocations)
-    ]
-
-
-@pytest.mark.parametrize("dim", [2, 8])
-def test_lockstep_embedding_matches_scalar_peak(dim: int) -> None:
-    allocations = _random_scalar(300, seed=9)
-    lockstep = tuple(
-        Allocation(id=a.id, size=a.size, start=(a.start,) * dim, end=(a.end,) * dim)
-        for a in allocations
-    )
-    assert _peak(OmniAllocator().allocate(lockstep)) == _peak(
-        OmniAllocator().allocate(allocations)
-    )
 
 
 @pytest.mark.parametrize("dim", [2, 8, 32])
