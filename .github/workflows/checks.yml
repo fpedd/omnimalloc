@@ -47,6 +47,9 @@ jobs:
       - run: uv run python examples/02_plotting.py
       - run: uv run python examples/03_allocators.py
       - run: uv run python examples/04_sources.py
+      - run: >
+          uv run jupyter nbconvert --execute --to notebook
+          --output-dir executed_notebooks notebooks/*.ipynb
 
   test:
     runs-on: ${{ matrix.os }}
@@ -78,7 +81,7 @@ jobs:
       # Gate coverage only where every optional path runs: Hub rate limits and
       # the Linux-only minimalloc install starve the other legs of statements
       - run: >
-          uv run pytest -v -n auto
+          uv run pytest -v -n auto --dist worksteal
           ${{ matrix.os == 'ubuntu-latest'
           && matrix.python-version == env.DEFAULT_PYTHON
           && '--cov=omnimalloc --cov-fail-under=90 --cov-report=term-missing'
