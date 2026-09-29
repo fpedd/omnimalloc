@@ -8,254 +8,128 @@ import pytest
 from omnimalloc.io import load_allocation, save_allocation
 from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, System
 
+PROBLEM = (
+    Allocation(id="a", size=4, start=0, end=3),
+    Allocation(id="b", size=8, start=2, end=9),
+)
+SOLVED = (PROBLEM[0].with_offset(0), PROBLEM[1].with_offset(4))
+PARTIAL = (PROBLEM[0].with_offset(0), PROBLEM[1])
+VECTOR = (
+    Allocation(id="a", size=4, start=(3, 0), end=(5, 2)),
+    Allocation(id="b", size=8, start=(0, 1), end=(2, 4)),
+)
+TYPED = (
+    Allocation(id=7, size=10, start=0, end=5, offset=0, kind=AllocationKind.CONSTANT),
+    Allocation(id="named", size=4, start=2, end=8, offset=16),
+)
 
-def make_pool(pool_id: str = "p0") -> Pool:
-    allocations = (
-        Allocation(id="a", size=4, start=0, end=3),
-        Allocation(id="b", size=8, start=2, end=9),
-    )
+
+def _pool(pool_id: object, allocations: tuple[Allocation, ...] = PROBLEM) -> Pool:
     return Pool(id=pool_id, allocations=allocations)
 
 
-def make_allocated_pool(pool_id: str = "p0") -> Pool:
-    allocations = (
-        Allocation(id="a", size=4, start=0, end=3, offset=0),
-        Allocation(id="b", size=8, start=2, end=9, offset=4),
-    )
-    return Pool(id=pool_id, allocations=allocations)
-
-
-def test_save_pool_writes_exactly_path(tmp_path: Path) -> None:
-    file_path = tmp_path / "problem.csv"
-    written = save_allocation(make_pool(), file_path)
-    assert written == (file_path,)
-    assert file_path.read_text() == "id,lower,upper,size\na,0,3,4\nb,2,9,8\n"
-
-
-def test_save_raw_allocations_writes_one_pool(tmp_path: Path) -> None:
-    file_path = tmp_path / "problem.csv"
-    written = save_allocation(list(make_pool().allocations), file_path)
-    assert written == (file_path,)
-    assert file_path.read_text() == "id,lower,upper,size\na,0,3,4\nb,2,9,8\n"
-
-
-def test_save_raw_allocations_rejects_non_allocation_elements(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(TypeError, match="Expected Allocation"):
-        save_allocation((1, 2), tmp_path / "problem.csv")
-
-
-def test_save_creates_missing_parent_directories(tmp_path: Path) -> None:
-    file_path = tmp_path / "nested" / "dir" / "problem.csv"
-    written = save_allocation(make_pool(), file_path)
-    assert written == (file_path,)
-
-
-def test_save_memory_writes_one_file_per_pool(tmp_path: Path) -> None:
-    memory = Memory(id="mem", pools=(make_pool("p0"), make_pool("p1")))
-    written = save_allocation(memory, tmp_path / "problem.csv")
-    assert written == (tmp_path / "problem_p0.csv", tmp_path / "problem_p1.csv")
-
-
-def test_save_system_qualifies_names_with_memory_id(tmp_path: Path) -> None:
-    system = System(
-        id="sys",
-        memories=(
-            Memory(id="m0", pools=(make_pool("p0"),)),
-            Memory(id="m1", pools=(make_pool("p0"),)),
+@pytest.mark.parametrize(
+    ("entity", "text"),
+    [
+        pytest.param(_pool("p"), "id,lower,upper,size\na,0,3,4\nb,2,9,8\n", id="pool"),
+        pytest.param(
+            list(PROBLEM), "id,lower,upper,size\na,0,3,4\nb,2,9,8\n", id="raw"
         ),
-    )
-    written = save_allocation(system, tmp_path / "problem.csv")
-    assert written == (
-        tmp_path / "problem_m0_p0.csv",
-        tmp_path / "problem_m1_p0.csv",
-    )
-
-
-def test_save_allocated_pool_emits_offset_column(tmp_path: Path) -> None:
-    (file_path,) = save_allocation(make_allocated_pool(), tmp_path / "solved.csv")
-    assert file_path.read_text() == "id,lower,upper,size,offset\na,0,3,4,0\nb,2,9,8,4\n"
-
-
-def test_save_unallocated_pool_omits_offset_column(tmp_path: Path) -> None:
-    (file_path,) = save_allocation(make_pool(), tmp_path / "problem.csv")
-    assert "offset" not in file_path.read_text()
-
-
-def test_load_pool_from_csv(tmp_path: Path) -> None:
-    file_path = tmp_path / "problem.csv"
-    file_path.write_text("id,lower,upper,size\na,0,3,4\nb,2,9,8\n")
-    pool = load_allocation(file_path)
-    assert pool.id == "problem"
-    assert [(a.id, a.start, a.end, a.size) for a in pool.allocations] == [
-        ("a", 0, 3, 4),
-        ("b", 2, 9, 8),
-    ]
-    assert all(a.offset is None for a in pool.allocations)
-
-
-def test_load_keeps_kind_none(tmp_path: Path) -> None:
-    file_path = tmp_path / "problem.csv"
-    file_path.write_text("id,lower,upper,size\na,0,3,4\n")
-    pool = load_allocation(file_path)
-    assert pool.allocations[0].kind is None
-
-
-def test_save_partially_allocated_pool_round_trips_placement(
-    tmp_path: Path,
-) -> None:
-    pool = Pool(
-        id="partial",
-        allocations=(
-            Allocation(id="a", size=4, start=0, end=3, offset=0),
-            Allocation(id="b", size=8, start=2, end=9),
+        pytest.param(
+            SOLVED, "id,lower,upper,size,offset\na,0,3,4,0\nb,2,9,8,4\n", id="solved"
         ),
-    )
-    (file_path,) = save_allocation(pool, tmp_path / "partial.csv")
-    assert file_path.read_text() == "id,lower,upper,size,offset\na,0,3,4,0\nb,2,9,8,\n"
-    loaded = load_allocation(file_path)
-    assert loaded.allocations[0].offset == 0
-    assert loaded.allocations[1].offset is None
-
-
-def test_load_pool_with_offset_column(tmp_path: Path) -> None:
-    file_path = tmp_path / "solved.csv"
-    file_path.write_text("id,lower,upper,size,offset\na,0,3,4,16\nb,2,9,8,\n")
-    pool = load_allocation(file_path)
-    assert pool.allocations[0].offset == 16
-    assert pool.allocations[1].offset is None
-
-
-def test_save_load_round_trip_preserves_problem(tmp_path: Path) -> None:
-    pool = make_pool("round_trip")
-    (file_path,) = save_allocation(pool, tmp_path / "problem.csv")
-    loaded = load_allocation(file_path)
-    assert loaded.id == "problem"
-    original = [(str(a.id), a.start, a.end, a.size) for a in pool.allocations]
-    restored = [(str(a.id), a.start, a.end, a.size) for a in loaded.allocations]
-    assert restored == original
-
-
-def test_save_load_round_trip_preserves_placement(tmp_path: Path) -> None:
-    pool = make_allocated_pool()
-    (file_path,) = save_allocation(pool, tmp_path / "solved.csv")
-    loaded = load_allocation(file_path)
-    original = [(str(a.id), a.offset) for a in pool.allocations]
-    restored = [(str(a.id), a.offset) for a in loaded.allocations]
-    assert restored == original
-
-
-def test_save_system_round_trip(tmp_path: Path) -> None:
-    system = System(
-        id="sys",
-        memories=(
-            Memory(id="m0", pools=(make_pool("p0"), make_pool("p1"))),
-            Memory(id="m1", pools=(make_pool("p0"),)),
+        pytest.param(
+            PARTIAL, "id,lower,upper,size,offset\na,0,3,4,0\nb,2,9,8,\n", id="partial"
         ),
-    )
-    written = save_allocation(system, tmp_path / "problem.csv")
-    assert len(written) == 3
-    for file_path in written:
-        loaded = load_allocation(file_path)
-        assert len(loaded.allocations) == 2
-
-
-def test_save_memory_rejects_pool_ids_colliding_after_str(tmp_path: Path) -> None:
-    memory = Memory(id="mem", pools=(make_pool(1), make_pool("1")))
-    with pytest.raises(ValueError, match="unique"):
-        save_allocation(memory, tmp_path / "problem.csv")
-
-
-def test_save_pool_rejects_allocation_ids_colliding_after_str(tmp_path: Path) -> None:
-    allocations = (
-        Allocation(id=1, size=4, start=0, end=1),
-        Allocation(id="1", size=4, start=0, end=1),
-    )
-    with pytest.raises(ValueError, match="unique after string conversion"):
-        save_allocation(allocations, tmp_path / "pool.csv")
-
-
-def test_save_vector_time_joins_components_with_colons(tmp_path: Path) -> None:
-    pool = Pool(
-        id="p0",
-        allocations=(Allocation(id="a", size=4, start=(3, 0), end=(5, 2)),),
-    )
-    (file_path,) = save_allocation(pool, tmp_path / "problem.csv")
-    assert file_path.read_text() == "id,lower,upper,size\na,3:0,5:2,4\n"
-
-
-def test_save_load_round_trip_preserves_vector_time(tmp_path: Path) -> None:
-    pool = Pool(
-        id="p0",
-        allocations=(
-            Allocation(id="a", size=4, start=(3, 0), end=(5, 2)),
-            Allocation(id="b", size=8, start=(0, 1), end=(2, 4)),
+        pytest.param(
+            VECTOR[:1], "id,lower,upper,size\na,3:0,5:2,4\n", id="vector_time"
         ),
-    )
-    (file_path,) = save_allocation(pool, tmp_path / "problem.csv")
-    loaded = load_allocation(file_path)
-    original = [(str(a.id), a.start, a.end, a.size) for a in pool.allocations]
-    restored = [(str(a.id), a.start, a.end, a.size) for a in loaded.allocations]
-    assert restored == original
+    ],
+)
+def test_save_writes_minimalloc_csv(entity: object, text: str, tmp_path: Path) -> None:
+    path = tmp_path / "problem.csv"
+    assert save_allocation(entity, path) == (path,)
+    assert path.read_text() == text
 
 
-def test_save_scalar_files_stay_minimalloc_format(tmp_path: Path) -> None:
-    (file_path,) = save_allocation(make_pool(), tmp_path / "problem.csv")
-    assert ":" not in file_path.read_text()
-
-
-def test_round_trip_preserves_integer_ids_and_kinds(tmp_path: Path) -> None:
-    allocations = (
-        Allocation(
-            id=7, size=10, start=0, end=5, offset=0, kind=AllocationKind.CONSTANT
-        ),
-        Allocation(id="named", size=4, start=2, end=8, offset=16),
-    )
-    path = tmp_path / "pool.csv"
-    save_allocation(allocations, path)
-    assert load_allocation(path).allocations == allocations
-
-
-def test_round_trip_keeps_digit_like_string_ids_as_integers(tmp_path: Path) -> None:
-    path = tmp_path / "pool.csv"
-    save_allocation((Allocation(id="12", size=4, start=0, end=1),), path)
-    assert load_allocation(path).allocations[0].id == 12
-
-
-def test_files_without_kinds_stay_minimalloc_shaped(tmp_path: Path) -> None:
-    path = tmp_path / "pool.csv"
-    save_allocation((Allocation(id=1, size=4, start=0, end=1),), path)
-    assert path.read_text().splitlines()[0] == "id,lower,upper,size"
-
-
-def test_round_trip_keeps_noncanonical_digit_ids_as_strings(tmp_path: Path) -> None:
-    path = tmp_path / "pool.csv"
-    save_allocation(
-        (
-            Allocation(id="7", size=4, start=0, end=1),
-            Allocation(id="007", size=4, start=2, end=3),
-        ),
-        path,
-    )
-    assert [a.id for a in load_allocation(path).allocations] == [7, "007"]
-
-
-def test_round_trip_restores_pinned_pool_base(tmp_path: Path) -> None:
-    pool = Pool(
-        id="pool",
-        allocations=(Allocation(id="a", size=4, start=0, end=3, offset=0),),
-        offset=4096,
-    )
-    path = tmp_path / "pool.csv"
-    save_allocation(pool, path)
+@pytest.mark.parametrize(
+    "pool",
+    [
+        pytest.param(_pool("p"), id="problem"),
+        pytest.param(_pool("p", SOLVED), id="solved"),
+        pytest.param(_pool("p", PARTIAL), id="partial"),
+        pytest.param(_pool("p", VECTOR), id="vector_time"),
+        pytest.param(_pool("p", TYPED), id="integer_ids_and_kinds"),
+        pytest.param(Pool(id="p", allocations=SOLVED[:1], offset=4096), id="pool_base"),
+    ],
+)
+def test_load_restores_what_save_wrote(pool: Pool, tmp_path: Path) -> None:
+    (path,) = save_allocation(pool, tmp_path / "problem.csv")
     loaded = load_allocation(path)
-    assert loaded.offset == 4096
+    assert loaded.id == "problem"
     assert loaded.allocations == pool.allocations
+    assert loaded.offset == pool.offset
 
 
-def test_unpinned_pool_writes_no_base_line(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("ids", "loaded"),
+    [(["12"], [12]), (["7", "007"], [7, "007"])],
+)
+def test_load_reads_canonical_digit_ids_as_integers(
+    ids: list[str], loaded: list[object], tmp_path: Path
+) -> None:
     path = tmp_path / "pool.csv"
-    save_allocation(make_allocated_pool(), path)
-    assert path.read_text().splitlines()[0] == "id,lower,upper,size,offset"
-    assert load_allocation(path).offset is None
+    save_allocation([Allocation(id=i, size=4, start=0, end=1) for i in ids], path)
+    assert [a.id for a in load_allocation(path).allocations] == loaded
+
+
+@pytest.mark.parametrize(
+    ("entity", "name", "written"),
+    [
+        (_pool("p"), "nested/dir/problem.csv", ["nested/dir/problem.csv"]),
+        (
+            Memory(id="mem", pools=(_pool("p0"), _pool("p1"))),
+            "problem.csv",
+            ["problem_p0.csv", "problem_p1.csv"],
+        ),
+        (
+            System(
+                id="sys",
+                memories=(
+                    Memory(id="m0", pools=(_pool("p0"),)),
+                    Memory(id="m1", pools=(_pool("p0"),)),
+                ),
+            ),
+            "problem.csv",
+            ["problem_m0_p0.csv", "problem_m1_p0.csv"],
+        ),
+    ],
+)
+def test_save_writes_one_file_per_pool(
+    entity: object, name: str, written: list[str], tmp_path: Path
+) -> None:
+    paths = save_allocation(entity, tmp_path / name)
+    assert paths == tuple(tmp_path / path for path in written)
+    assert all(load_allocation(path).allocations == PROBLEM for path in paths)
+
+
+@pytest.mark.parametrize(
+    ("entity", "error", "match"),
+    [
+        ((1, 2), TypeError, "Expected Allocation"),
+        (Memory(id="mem", pools=(_pool(1), _pool("1"))), ValueError, "unique"),
+        (
+            (
+                Allocation(id=1, size=4, start=0, end=1),
+                Allocation(id="1", size=4, start=0, end=1),
+            ),
+            ValueError,
+            "unique after string conversion",
+        ),
+    ],
+)
+def test_save_rejects(
+    entity: object, error: type[Exception], match: str, tmp_path: Path
+) -> None:
+    with pytest.raises(error, match=match):
+        save_allocation(entity, tmp_path / "problem.csv")

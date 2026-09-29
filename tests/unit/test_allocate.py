@@ -4,257 +4,68 @@
 
 import pytest
 from omnimalloc import allocate
-from omnimalloc.allocators.greedy import GreedyAllocator, GreedyBySizeAllocator
 from omnimalloc.allocators.naive import NaiveAllocator
 from omnimalloc.primitives import Allocation, AllocationKind, Memory, Pool, System
 
-
-def test_allocate_pool_with_naive_allocator() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=5)
-    alloc2 = Allocation(id=2, size=150, start=5, end=10)
-    pool = Pool(id=1, allocations=(alloc1, alloc2))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.is_allocated
-    assert all(a.offset is not None for a in allocated_pool.allocations)
-    assert allocated_pool.allocations[0].offset == 0
-    assert allocated_pool.allocations[1].offset == 100
+FIRST = Allocation(id="a", size=100, start=0, end=5, kind=AllocationKind.WORKSPACE)
+SECOND = Allocation(id="b", size=150, start=5, end=10, kind=AllocationKind.CONSTANT)
+THIRD = Allocation(id="c", size=50, start=0, end=5)
+POOL = Pool(id="p", allocations=(FIRST, SECOND))
 
 
-def test_allocate_memory_with_multiple_pools() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=10)
-    alloc2 = Allocation(id=2, size=150, start=0, end=10)
-    pool1 = Pool(id=1, allocations=(alloc1,))
-    pool2 = Pool(id=2, allocations=(alloc2,))
-    memory = Memory(id=1, pools=(pool1, pool2))
-
-    allocator = NaiveAllocator()
-    allocated_memory = allocate(memory, allocator)
-
-    assert allocated_memory.is_allocated
-    assert all(p.is_allocated for p in allocated_memory.pools)
-
-
-def test_allocate_system_with_multiple_memories() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=5)
-    alloc2 = Allocation(id=2, size=150, start=0, end=5)
-    pool1 = Pool(id=1, allocations=(alloc1,))
-    pool2 = Pool(id=2, allocations=(alloc2,))
-    memory1 = Memory(id=1, pools=(pool1,))
-    memory2 = Memory(id=2, pools=(pool2,))
-    system = System(id=1, memories=(memory1, memory2))
-
-    allocator = NaiveAllocator()
-    allocated_system = allocate(system, allocator)
-
-    assert allocated_system.is_allocated
-    assert all(m.is_allocated for m in allocated_system.memories)
+@pytest.mark.parametrize(
+    "entity",
+    [
+        POOL,
+        Pool(id="empty", allocations=()),
+        Memory(id="m", pools=(POOL, Pool(id="q", allocations=(THIRD,)))),
+        System(id="s", memories=(Memory(id="m", pools=(POOL,)),)),
+    ],
+)
+def test_allocate_returns_the_entity_placed(entity: Pool | Memory | System) -> None:
+    placed = allocate(entity, "naive", validate=True)
+    assert type(placed) is type(entity)
+    assert placed.is_allocated
 
 
-def test_allocate_with_validation_success() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=5)
-    alloc2 = Allocation(id=2, size=150, start=5, end=10)
-    pool = Pool(id=1, allocations=(alloc1, alloc2))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator, validate=True)
-
-    assert allocated_pool.is_allocated
+@pytest.mark.parametrize("allocations", [(FIRST, SECOND), [FIRST, SECOND], ()])
+def test_allocate_returns_raw_allocations_as_a_placed_tuple(
+    allocations: list[Allocation] | tuple[Allocation, ...],
+) -> None:
+    placed = allocate(allocations, "naive", validate=True)
+    assert type(placed) is tuple
+    assert all(a.is_allocated for a in placed)
 
 
-def test_allocate_preserves_pool_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    pool = Pool(id=1, allocations=(alloc,), offset=50)
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.offset == 50
+def test_allocate_keeps_everything_but_the_offsets() -> None:
+    placed = allocate(Pool(id="p", allocations=(FIRST, SECOND), offset=50), "naive")
+    assert placed.offset == 50
+    assert placed.allocations == (FIRST.with_offset(0), SECOND.with_offset(100))
+    assert placed.size == 250
 
 
-def test_allocate_with_allocation_kinds() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=5, kind=AllocationKind.WORKSPACE)
-    alloc2 = Allocation(id=2, size=150, start=5, end=10, kind=AllocationKind.CONSTANT)
-    alloc3 = Allocation(id=3, size=75, start=10, end=15, kind=AllocationKind.INPUT)
-    pool = Pool(id=1, allocations=(alloc1, alloc2, alloc3))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.allocations[0].kind == AllocationKind.WORKSPACE
-    assert allocated_pool.allocations[1].kind == AllocationKind.CONSTANT
-    assert allocated_pool.allocations[2].kind == AllocationKind.INPUT
-
-
-def test_allocate_with_string_ids() -> None:
-    alloc1 = Allocation(id="buf_a", size=100, start=0, end=5)
-    alloc2 = Allocation(id="buf_b", size=150, start=5, end=10)
-    pool = Pool(id="main_pool", allocations=(alloc1, alloc2))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.is_allocated
-    assert allocated_pool.id == "main_pool"
-    assert allocated_pool.allocations[0].id == "buf_a"
-    assert allocated_pool.allocations[1].id == "buf_b"
-
-
-def test_allocate_complex_hierarchy() -> None:
-    allocations_pool1 = [
-        Allocation(id=i, size=50 + i * 10, start=i * 2, end=(i + 1) * 2)
-        for i in range(5)
-    ]
-    allocations_pool2 = [
-        Allocation(id=i + 5, size=100, start=i * 3, end=(i + 1) * 3) for i in range(3)
-    ]
-
-    pool1 = Pool(id=1, allocations=tuple(allocations_pool1))
-    pool2 = Pool(id=2, allocations=tuple(allocations_pool2))
-
-    memory1 = Memory(id=1, pools=(pool1, pool2), size=2048)
-
-    allocations_pool3 = [
-        Allocation(id=i + 10, size=75, start=i * 5, end=(i + 1) * 5) for i in range(4)
-    ]
-    pool3 = Pool(id=3, allocations=tuple(allocations_pool3))
-    memory2 = Memory(id=2, pools=(pool3,), size=1024)
-
-    system = System(id=1, memories=(memory1, memory2))
-
-    allocator = GreedyAllocator()
-    allocated_system = allocate(system, allocator)
-
-    assert allocated_system.is_allocated
-    for memory in allocated_system.memories:
-        assert memory.is_allocated
-        for pool in memory.pools:
-            assert pool.is_allocated
-            for alloc in pool.allocations:
-                assert alloc.is_allocated
-
-
-def test_allocate_empty_pool() -> None:
-    pool = Pool(id=1, allocations=())
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    assert allocated_pool.is_allocated
-    assert len(allocated_pool.allocations) == 0
-
-
-def test_allocate_preserves_original_properties() -> None:
-    alloc = Allocation(id="test", size=100, start=5, end=15, kind=AllocationKind.OUTPUT)
-    pool = Pool(id="pool", allocations=(alloc,), offset=50)
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    allocated_alloc = allocated_pool.allocations[0]
-    assert allocated_alloc.id == "test"
-    assert allocated_alloc.size == 100
-    assert allocated_alloc.start == 5
-    assert allocated_alloc.end == 15
-    assert allocated_alloc.kind == AllocationKind.OUTPUT
-    assert allocated_alloc.offset is not None
-
-
-def test_allocate_returns_same_type() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    pool = Pool(id=1, allocations=(alloc,))
-    memory = Memory(id=1, pools=(pool,))
-    system = System(id=1, memories=(memory,))
-
-    allocator = NaiveAllocator()
-
-    assert isinstance(allocate(pool, allocator), Pool)
-    assert isinstance(allocate(memory, allocator), Memory)
-    assert isinstance(allocate(system, allocator), System)
-
-
-def test_allocate_pool_calculates_correct_size() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=5)
-    alloc2 = Allocation(id=2, size=150, start=5, end=10)
-    pool = Pool(id=1, allocations=(alloc1, alloc2))
-
-    allocator = NaiveAllocator()
-    allocated_pool = allocate(pool, allocator)
-
-    # Naive places sequentially: 0-100, 100-250
-    assert allocated_pool.size == 250
-
-
-def test_allocate_memory_calculates_extent() -> None:
-    alloc1 = Allocation(id=1, size=100, start=0, end=10)
-    alloc2 = Allocation(id=2, size=150, start=0, end=10)
-    pool1 = Pool(id=1, allocations=(alloc1,))
-    pool2 = Pool(id=2, allocations=(alloc2,))
-    memory = Memory(id=1, pools=(pool1, pool2), size=1000)
-
-    allocator = NaiveAllocator()
-    allocated_memory = allocate(memory, allocator)
-
-    assert allocated_memory.extent == 250
-
-
-def test_allocate_raw_allocations_returns_tuple() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=5),
-        Allocation(id=2, size=150, start=5, end=10),
+def test_allocate_stacks_the_pools_of_a_memory() -> None:
+    memory = Memory(
+        id="m",
+        pools=(Pool(id=1, allocations=(FIRST,)), Pool(id=2, allocations=(SECOND,))),
+        size=1000,
     )
-    allocated = allocate(allocations, NaiveAllocator(), validate=True)
-    assert isinstance(allocated, tuple)
-    assert all(a.offset is not None for a in allocated)
-    assert {a.id for a in allocated} == {1, 2}
+    assert allocate(memory, NaiveAllocator()).extent == 250
 
 
-def test_allocate_raw_allocations_accepts_list_and_registry_name() -> None:
-    allocations = [
-        Allocation(id="a", size=100, start=0, end=5),
-        Allocation(id="b", size=150, start=0, end=5),
-    ]
-    allocated = allocate(allocations, "naive")
-    assert isinstance(allocated, tuple)
-    assert all(a.is_allocated for a in allocated)
+def test_allocate_leaves_its_input_alone() -> None:
+    allocate((FIRST,), "naive")
+    assert FIRST.offset is None
 
 
-def test_allocate_raw_allocations_does_not_mutate_input() -> None:
-    allocations = (Allocation(id=1, size=100, start=0, end=5),)
-    allocate(allocations, NaiveAllocator())
-    assert allocations[0].offset is None
-
-
-def test_allocate_raw_allocations_duplicate_ids_raise() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=5),
-        Allocation(id=1, size=150, start=5, end=10),
-    )
-    with pytest.raises(ValueError, match="allocation ids must be unique"):
-        allocate(allocations, NaiveAllocator())
-
-
-def test_allocate_raw_allocations_empty() -> None:
-    assert allocate((), NaiveAllocator()) == ()
-
-
-def test_allocate_raw_allocations_rejects_non_allocation_elements() -> None:
-    with pytest.raises(TypeError, match="Expected Allocation"):
-        allocate((1, 2, 3), NaiveAllocator())
-
-
-def test_allocate_rejects_unsupported_entity() -> None:
-    with pytest.raises(TypeError, match="Unsupported entity type"):
-        allocate("naive")
-
-
-def test_allocate_raw_allocations_preserves_input_order() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=10 * (i + 1), start=0, end=5) for i in range(10)
-    )
-    allocated = allocate(allocations, GreedyBySizeAllocator(), validate=True)
-    assert tuple(a.id for a in allocated) == tuple(a.id for a in allocations)
-    assert all(a.offset is not None for a in allocated)
-    assert tuple(a.size for a in allocated) == tuple(a.size for a in allocations)
+@pytest.mark.parametrize(
+    ("entity", "error", "match"),
+    [
+        ((FIRST, FIRST), ValueError, "allocation ids must be unique"),
+        ((1, 2, 3), TypeError, "Expected Allocation"),
+        ("naive", TypeError, "Unsupported entity type"),
+    ],
+)
+def test_allocate_rejects(entity: object, error: type[Exception], match: str) -> None:
+    with pytest.raises(error, match=match):
+        allocate(entity, NaiveAllocator())

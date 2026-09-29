@@ -43,7 +43,6 @@ all = [
   "deap>=1.4.0",
   "huggingface-hub>=0.35.0",
   "matplotlib>=3.10.0",
-  "numpy>=1.25.0",
   "onnx>=1.19.0",
   "tqdm>=4.66.0",
 ]
@@ -86,7 +85,7 @@ test-command = "pytest {project}/tests/unit -x --no-header -q"
 
 [tool.cibuildwheel.linux]
 archs = ["auto"]
-before-all = "yum install -y cmake || apk add cmake"
+before-all = "yum install -y cmake"
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
@@ -102,8 +101,6 @@ exclude = ["*.ipynb", "*.pyi"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  "B019",    # cache decorator
-  "B027",    # non-abstract methods in abc
   "COM812",  # trailing comma (formatter)
   "CPY001",  # copyright notice
   "D100",    # module docstring
@@ -113,12 +110,9 @@ ignore = [
   "D104",    # package docstring
   "D105",    # magic method docstring
   "D107",    # init docstring
-  "D202",    # blank lines in docstring
   "D203",    # incompatible with D211
   "D213",    # incompatible with D212
   "D401",    # imperative mood
-  "D413",    # blank line after last section
-  "DTZ005",  # datetime.now()
   "EM101",   # string literals in exceptions
   "EM102",   # f-strings in exceptions
   "FBT001",  # boolean positional args
@@ -126,23 +120,14 @@ ignore = [
   "FIX002",  # TODOs
   "G004",    # f-strings in logging
   "INP001",  # allow scripts without init
-  "N801",    # class names not CamelCase
   "PERF203", # try-except inside loop
-  "PGH003",  # generic type: ignore
-  "PIE790",  # ellipsis in functions
   "PLC0415", # import outside top-level
   "PLR0913", # too many arguments
   "PLR0917", # too many positional arguments
   "PLR2004", # magic value comparison
-  "PLW2901", # reassign for loop vars
-  "PYI019",  # custom TypeVar
-  "PYI034",  # return Self in dunders
-  "RET504",  # unnecessary variable before return
   "S101",    # assert
   "S311",    # pseudo-random generators
   "S603",    # allow untrusted subprocess
-  "SIM102",  # nested if
-  "SIM110",  # for loop replaceable with any()
   "T201",    # print()
   "TD003",   # missing issue link
   "TRY003",  # long exception messages
@@ -158,8 +143,6 @@ log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)s] %(message)s (%(filename)s:%(lineno)d)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
-[tool.ty]
-
 [tool.ty.rules]
 # Ignores guarding optional imports are needed without the dep, unused with it
 unused-type-ignore-comment = "ignore"
@@ -168,4 +151,4 @@ unused-type-ignore-comment = "ignore"
 python-version = "3.10"
 
 [tool.ty.src]
-exclude = ["tests/", "**/*.pyi", "scripts/stress/contracts.py"]
+exclude = ["tests/", "**/*.pyi"]

@@ -26,9 +26,7 @@ from omnimalloc.benchmark.sources.sync_patterns import SyncPatternSource
 from omnimalloc.io import save_allocation
 from omnimalloc.primitives import Allocation, Pool
 
-from tests.markers import needs_matplotlib
-
-pytestmark = needs_matplotlib
+pytest.importorskip("matplotlib")
 
 
 @pytest.fixture

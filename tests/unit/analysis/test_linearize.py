@@ -8,6 +8,7 @@ import pytest
 from omnimalloc import analysis
 from omnimalloc.allocators.supermalloc import SupermallocAllocator
 from omnimalloc.analysis import conflicts, try_linearize
+from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
 from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 from omnimalloc.validate import validate_allocation
@@ -16,6 +17,113 @@ from omnimalloc.validate import validate_allocation
 def _overlap_map(allocations: tuple[Allocation, ...]) -> dict[object, set[object]]:
     conflict_map = conflicts(allocations, None)
     return {a.id: set(conflict_map[a.id]) for a in allocations}
+
+
+def _a(i: object, start: object, end: object) -> Allocation:
+    return Allocation(id=i, size=8, start=start, end=end)
+
+
+TWO_PLUS_TWO = (
+    _a("a", (0, 0), (1, 0)),
+    _a("b", (1, 0), (2, 0)),
+    _a("c", (0, 0), (0, 1)),
+    _a("d", (0, 1), (0, 2)),
+)
+SKEWED = tuple(_a(i, (i, 2 * i), (i + 1, 2 * i + 2)) for i in range(4))
+DEGENERATE = tuple(_a(i, (i, i, 0), (i + 1, i + 1, 0)) for i in range(4))
+
+
+@pytest.mark.parametrize(
+    ("allocations", "work_budget"),
+    [
+        pytest.param(
+            tuple(_a(i, (i, i), (i + 1, i + 1)) for i in range(4)),
+            DEFAULT_WORK_BUDGET,
+            id="ordered_chain",
+        ),
+        pytest.param(
+            (_a(1, (0, 5), (1, 6)), _a(2, (2, 0), (3, 1))),
+            DEFAULT_WORK_BUDGET,
+            id="concurrent_pair",
+        ),
+        pytest.param(SKEWED, None, id="unbounded_budget"),
+        pytest.param(DEGENERATE, 2 * 4 * 3, id="budget_covering_the_reduction"),
+        pytest.param(
+            tuple(_a(i, (i,) * 4, (i + 2,) * 4) for i in range(4)),
+            DEFAULT_WORK_BUDGET,
+            id="all_duplicate_columns",
+        ),
+        pytest.param(
+            (
+                _a(1, (0, 0), (2, 1)),
+                _a(2, (0, 0), (2, 1)),
+                _a(3, (2, 1), (3, 2)),
+                _a(4, (2, 1), (3, 2)),
+            ),
+            DEFAULT_WORK_BUDGET,
+            id="duplicate_clock_values",
+        ),
+    ],
+)
+def test_linearization_keeps_the_conflicts(
+    allocations: tuple[Allocation, ...], work_budget: int | None
+) -> None:
+    linearized = try_linearize(allocations, work_budget=work_budget)
+    assert linearized is not None
+    assert all(a.dim == 1 for a in linearized)
+    assert _overlap_map(linearized) == _overlap_map(allocations)
+
+
+@pytest.mark.parametrize(
+    "allocations",
+    [
+        pytest.param(TWO_PLUS_TWO, id="two_plus_two"),
+        pytest.param(
+            tuple(
+                _a(
+                    a.id,
+                    (a.start[0], a.start[0], 3, a.start[1]),
+                    (a.end[0], a.end[0], 3, a.end[1]),
+                )
+                for a in TWO_PLUS_TWO
+            ),
+            id="two_plus_two_under_reducible_columns",
+        ),
+        pytest.param(
+            (
+                _a(0, (0, 0), (1, 0)),
+                _a(1, (0, 0), (0, 1)),
+                _a(2, (2, 0), (3, 0)),
+                _a(3, (0, 2), (0, 3)),
+            ),
+            id="non_interval_order",
+        ),
+    ],
+)
+def test_a_non_interval_order_does_not_linearize(
+    allocations: tuple[Allocation, ...],
+) -> None:
+    assert try_linearize(allocations) is None
+    assert try_linearize(allocations, work_budget=None) is None
+
+
+@pytest.mark.parametrize(
+    ("allocations", "work_budget", "error", "match"),
+    [
+        (SKEWED, 1, RuntimeError, "exceeds work_budget"),
+        (DEGENERATE, 0, RuntimeError, "exceeds work_budget"),
+        ((), -1, ValueError, "work_budget must be non-negative"),
+        ((_a(1, 0, 4), _a(2, (0, 1), (2, 2))), None, ValueError, "dimension"),
+    ],
+)
+def test_linearize_rejects(
+    allocations: tuple[Allocation, ...],
+    work_budget: int | None,
+    error: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(error, match=match):
+        try_linearize(allocations, work_budget=work_budget)
 
 
 def test_scalar_input_returned_unchanged() -> None:
@@ -28,82 +136,6 @@ def test_scalar_input_returned_unchanged() -> None:
 
 def test_empty_input_returned_unchanged() -> None:
     assert try_linearize(()) == ()
-
-
-def test_ordered_chain_linearizes() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=8, start=(i, i), end=(i + 1, i + 1)) for i in range(4)
-    )
-    linearized = try_linearize(allocations)
-    assert linearized is not None
-    assert all(a.dim == 1 for a in linearized)
-    assert _overlap_map(linearized) == _overlap_map(allocations)
-
-
-def test_concurrent_pair_linearizes_to_overlap() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=(0, 5), end=(1, 6)),
-        Allocation(id=2, size=100, start=(2, 0), end=(3, 1)),
-    )
-    linearized = try_linearize(allocations)
-    assert linearized is not None
-    assert linearized[0].conflicts_with(linearized[1])
-
-
-def test_two_plus_two_returns_none() -> None:
-    allocations = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=8, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=8, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=8, start=(0, 1), end=(0, 2)),
-    )
-    assert try_linearize(allocations) is None
-
-
-def test_tiny_work_budget_raises_instead_of_reporting_no_linearization() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 1, 2 * i + 2))
-        for i in range(4)
-    )
-    with pytest.raises(RuntimeError, match="exceeds work_budget"):
-        try_linearize(allocations, work_budget=1)
-
-
-def test_unbounded_work_budget_decides() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 1, 2 * i + 2))
-        for i in range(4)
-    )
-    assert try_linearize(allocations, work_budget=None) is not None
-
-
-def test_degenerate_columns_decide_once_budget_covers_the_reduction() -> None:
-    lockstep = tuple(
-        Allocation(id=i, size=8, start=(i, i, 0), end=(i + 1, i + 1, 0))
-        for i in range(4)
-    )
-    linearized = try_linearize(lockstep, work_budget=2 * 4 * 3)
-    assert linearized is not None
-    assert _overlap_map(linearized) == _overlap_map(lockstep)
-
-
-def test_zero_budget_refuses_even_degenerate_columns() -> None:
-    lockstep = tuple(
-        Allocation(id=i, size=8, start=(i, i, 0), end=(i + 1, i + 1, 0))
-        for i in range(4)
-    )
-    with pytest.raises(RuntimeError, match="exceeds work_budget"):
-        try_linearize(lockstep, work_budget=0)
-
-
-def test_all_duplicate_columns_linearize_and_preserve_overlaps() -> None:
-    quad = tuple(
-        Allocation(id=i, size=8, start=(i,) * 4, end=(i + 2,) * 4) for i in range(4)
-    )
-    linearized = try_linearize(quad)
-    assert linearized is not None
-    assert all(a.dim == 1 for a in linearized)
-    assert _overlap_map(linearized) == _overlap_map(quad)
 
 
 def test_single_varying_column_behaves_like_the_scalar_instance() -> None:
@@ -138,30 +170,6 @@ def test_partial_column_reduction_matches_the_unpadded_instance() -> None:
     ]
 
 
-def test_partial_column_reduction_keeps_two_plus_two_refused() -> None:
-    padded = (
-        Allocation(id="a", size=8, start=(0, 0, 3, 0), end=(1, 1, 3, 0)),
-        Allocation(id="b", size=8, start=(1, 1, 3, 0), end=(2, 2, 3, 0)),
-        Allocation(id="c", size=8, start=(0, 0, 3, 0), end=(0, 0, 3, 1)),
-        Allocation(id="d", size=8, start=(0, 0, 3, 1), end=(0, 0, 3, 2)),
-    )
-    assert try_linearize(padded, work_budget=None) is None
-
-
-def test_negative_work_budget_rejected() -> None:
-    with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        try_linearize((), work_budget=-1)
-
-
-def test_mixed_dimensions_rejected() -> None:
-    mixed = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=(0, 1), end=(2, 2)),
-    )
-    with pytest.raises(ValueError, match="dimension"):
-        try_linearize(mixed)
-
-
 def test_linearize_preserves_metadata() -> None:
     allocations = (
         Allocation(id="x", size=64, start=(0, 0), end=(2, 1), offset=128),
@@ -173,40 +181,6 @@ def test_linearize_preserves_metadata() -> None:
         ("x", 64, 128),
         ("y", 32, None),
     ]
-
-
-def test_linearize_preserves_conflicts_on_random_interval_orders() -> None:
-    rng = random.Random(3)
-    for _ in range(20):
-        allocs = []
-        for i in range(rng.randint(2, 20)):
-            size = rng.randint(1, 64)
-            start = rng.randint(0, 12)
-            allocs.append(
-                Allocation(id=i, size=size, start=start, end=start + rng.randint(1, 6))
-            )
-        scalar = tuple(allocs)
-        lockstep = tuple(
-            Allocation(
-                id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end)
-            )
-            for a in scalar
-        )
-        linearized = try_linearize(lockstep)
-        assert linearized is not None
-        assert _overlap_map(linearized) == _overlap_map(scalar)
-
-
-def test_linearize_handles_duplicate_clock_values() -> None:
-    allocations = (
-        Allocation(id=1, size=8, start=(0, 0), end=(2, 1)),
-        Allocation(id=2, size=16, start=(0, 0), end=(2, 1)),
-        Allocation(id=3, size=32, start=(2, 1), end=(3, 2)),
-        Allocation(id=4, size=64, start=(2, 1), end=(3, 2)),
-    )
-    linearized = try_linearize(allocations)
-    assert linearized is not None
-    assert _overlap_map(linearized) == _overlap_map(allocations)
 
 
 def test_linearize_merges_distinct_starts_with_equal_predecessors() -> None:
@@ -269,17 +243,6 @@ def test_linearize_unlocks_supermalloc() -> None:
     assert linearized is not None
     placed = SupermallocAllocator().allocate(linearized)
     validate_allocation(Pool(id="p", allocations=placed))
-
-
-def test_non_interval_order_returns_none_under_any_budget() -> None:
-    obstruction = (
-        Allocation(id=0, size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id=1, size=8, start=(0, 0), end=(0, 1)),
-        Allocation(id=2, size=8, start=(2, 0), end=(3, 0)),
-        Allocation(id=3, size=8, start=(0, 2), end=(0, 3)),
-    )
-    assert try_linearize(obstruction, work_budget=None) is None
-    assert try_linearize(obstruction) is None
 
 
 def test_linearize_module_hidden_from_analysis_namespace() -> None:

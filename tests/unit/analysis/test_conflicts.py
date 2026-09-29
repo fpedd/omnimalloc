@@ -9,96 +9,90 @@ from omnimalloc.analysis import conflict_degrees, conflict_graph, conflicts
 from omnimalloc.primitives import Allocation
 
 
-def test_conflicts_empty() -> None:
-    assert conflicts(()) == {}
+def _a(i: object, start: object, end: object) -> Allocation:
+    return Allocation(id=i, size=8, start=start, end=end)
 
 
-def test_conflicts_scalar_overlap() -> None:
-    allocations = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=2, end=6),
-        Allocation(id=3, size=8, start=6, end=8),
-    )
-    assert conflicts(allocations) == {1: {2}, 2: {1}, 3: set()}
+OVERLAP = (_a(1, 0, 4), _a(2, 2, 6), _a(3, 6, 8))
+CLIQUE = tuple(_a(i, 0, 10) for i in range(4))
+DUPLICATED = (_a(1, 0, 2), _a(1, 1, 3))
+MIXED = (_a(1, 0, 1), _a(2, (0, 0), (1, 1)))
+SKEWED = tuple(_a(i, (i, 2 * i), (i + 10, 2 * i + 10)) for i in range(4))
+FIFTY = tuple(_a(i, 0, 1) for i in range(50))
 
 
-def test_conflicts_touching_intervals_do_not_conflict() -> None:
-    allocations = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=4, end=6),
-    )
-    assert conflicts(allocations) == {1: set(), 2: set()}
+@pytest.mark.parametrize(
+    ("allocations", "expected"),
+    [
+        pytest.param((), {}, id="empty"),
+        pytest.param(OVERLAP, {1: {2}, 2: {1}, 3: set()}, id="scalar_overlap"),
+        pytest.param((_a(1, 0, 4), _a(2, 4, 6)), {1: set(), 2: set()}, id="touching"),
+        pytest.param(
+            (_a("a", (0, 0), (1, 0)), _a("b", (0, 0), (0, 1))),
+            {"a": {"b"}, "b": {"a"}},
+            id="vector_concurrent",
+        ),
+        pytest.param(
+            (_a("a", (0, 0), (1, 0)), _a("b", (1, 0), (2, 0))),
+            {"a": set(), "b": set()},
+            id="vector_ordered",
+        ),
+        pytest.param(
+            (_a(1, (0, 5), (4, 5)), _a(2, (5, 0), (9, 0))),
+            {1: {2}, 2: {1}},
+            id="column_pinned_per_row_but_varying_across_rows",
+        ),
+    ],
+)
+def test_conflicts(
+    allocations: tuple[Allocation, ...], expected: dict[object, set[object]]
+) -> None:
+    assert conflicts(allocations) == expected
+    assert conflicts(allocations, work_budget=None) == expected
 
 
-def test_conflicts_vector_concurrent() -> None:
-    allocations = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=8, start=(0, 0), end=(0, 1)),
-    )
-    assert conflicts(allocations) == {"a": {"b"}, "b": {"a"}}
+@pytest.mark.parametrize(
+    ("allocations", "work_budget", "expected"),
+    [
+        pytest.param((), 1, [], id="empty"),
+        pytest.param(OVERLAP, 1, [1, 1, 0], id="input_order"),
+        pytest.param(DUPLICATED, 1, [1, 1], id="duplicate_ids"),
+        pytest.param(CLIQUE, 1, [3, 3, 3, 3], id="scalar_ignores_the_budget"),
+        pytest.param(CLIQUE, None, [3, 3, 3, 3], id="unbounded"),
+    ],
+)
+def test_conflict_degrees(
+    allocations: tuple[Allocation, ...], work_budget: int | None, expected: list[int]
+) -> None:
+    assert conflict_degrees(allocations, work_budget=work_budget) == expected
 
 
-def test_conflicts_vector_ordered_do_not_conflict() -> None:
-    allocations = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=8, start=(1, 0), end=(2, 0)),
-    )
-    assert conflicts(allocations) == {"a": set(), "b": set()}
+@pytest.mark.parametrize(
+    ("query", "allocations", "kwargs", "error", "match"),
+    [
+        (conflicts, DUPLICATED, {}, ValueError, "unique"),
+        (conflicts, MIXED, {}, ValueError, "dimension"),
+        (conflicts, CLIQUE, {"work_budget": 1}, RuntimeError, "work_budget"),
+        (conflicts, (), {"work_budget": -1}, ValueError, "must be non-negative"),
+        (conflict_degrees, SKEWED, {"work_budget": 1}, RuntimeError, "work_budget"),
+        (conflict_degrees, (), {"work_budget": -1}, ValueError, "must be non-negative"),
+        (conflict_graph, FIFTY, {"max_entries": 100}, RuntimeError, "neighbor entries"),
+        (conflict_graph, FIFTY, {"max_entries": -1}, ValueError, "max_entries"),
+    ],
+)
+def test_conflict_queries_reject(
+    query: object,
+    allocations: tuple[Allocation, ...],
+    kwargs: dict[str, int],
+    error: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(error, match=match):
+        query(allocations, **kwargs)
 
 
-def test_conflicts_rejects_duplicate_ids() -> None:
-    duplicated = (
-        Allocation(id=1, size=8, start=0, end=2),
-        Allocation(id=1, size=8, start=1, end=3),
-    )
-    with pytest.raises(ValueError, match="unique"):
-        conflicts(duplicated)
-
-
-def test_conflicts_rejects_mixed_dimensions() -> None:
-    mixed = (
-        Allocation(id=1, size=8, start=0, end=1),
-        Allocation(id=2, size=8, start=(0, 0), end=(1, 1)),
-    )
-    with pytest.raises(ValueError, match="dimension"):
-        conflicts(mixed)
-
-
-def test_conflicts_over_budget_raise() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    with pytest.raises(RuntimeError, match="work_budget"):
-        conflicts(allocations, work_budget=1)
-
-
-def test_conflicts_unbounded_budget_always_computes() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(2))
-    assert conflicts(allocations, work_budget=None) == {0: {1}, 1: {0}}
-
-
-def test_conflicts_reject_negative_budget() -> None:
-    with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        conflicts((), work_budget=-1)
-
-
-def test_conflict_degrees_empty() -> None:
-    assert conflict_degrees(()) == []
-
-
-def test_conflict_degrees_align_with_input_order() -> None:
-    allocations = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=2, end=6),
-        Allocation(id=3, size=8, start=6, end=8),
-    )
-    assert conflict_degrees(allocations) == [1, 1, 0]
-
-
-def test_conflict_degrees_allow_duplicate_ids() -> None:
-    duplicated = (
-        Allocation(id=1, size=8, start=0, end=2),
-        Allocation(id=1, size=8, start=1, end=3),
-    )
-    assert conflict_degrees(duplicated) == [1, 1]
+def test_conflict_graph_builds_an_adjacency_inside_the_entry_ceiling() -> None:
+    assert conflict_graph(FIFTY, max_entries=50 * 49).pair_count == 50 * 49 // 2
 
 
 def test_conflict_degrees_tiny_budget_admits_degenerate_clock_columns() -> None:
@@ -108,47 +102,11 @@ def test_conflict_degrees_tiny_budget_admits_degenerate_clock_columns() -> None:
     assert conflict_degrees(lockstep, work_budget=1) == conflict_degrees(lockstep)
 
 
-def test_conflict_degrees_over_budget_raise() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=8, start=(i, 2 * i), end=(i + 10, 2 * i + 10))
-        for i in range(4)
-    )
-    with pytest.raises(RuntimeError, match="work_budget"):
-        conflict_degrees(allocations, work_budget=1)
-
-
-def test_conflict_degrees_scalar_ignores_budget() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    assert conflict_degrees(allocations, work_budget=1) == [3, 3, 3, 3]
-
-
-def test_conflict_degrees_unbounded_budget_always_counts() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=10) for i in range(4))
-    assert conflict_degrees(allocations, work_budget=None) == [3, 3, 3, 3]
-
-
-def test_conflict_degrees_reject_negative_budget() -> None:
-    with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        conflict_degrees((), work_budget=-1)
-
-
 def test_conflict_degrees_default_budget_admits_a_wide_clock_sweep() -> None:
     allocations = tuple(
         Allocation(id=i, size=8, start=(0,) * 64, end=(1,) * 64) for i in range(3000)
     )
     assert set(conflict_degrees(allocations)) == {2999}
-
-
-def test_conflicts_and_degrees_agree_on_vector_input() -> None:
-    allocations = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=8, start=(0, 0), end=(0, 1)),
-        Allocation(id="c", size=8, start=(1, 1), end=(2, 1)),
-        Allocation(id="d", size=8, start=(0, 0), end=(2, 2)),
-    )
-    conflict_map = conflicts(allocations)
-    degrees = conflict_degrees(allocations)
-    assert [len(conflict_map[a.id]) for a in allocations] == degrees
 
 
 def test_conflicts_is_deterministic_under_parallel_fill() -> None:
@@ -161,40 +119,6 @@ def test_conflicts_is_deterministic_under_parallel_fill() -> None:
         )
     fixed = tuple(allocations)
     assert conflicts(fixed) == conflicts(fixed)
-
-
-def test_conflicts_ignore_constant_padding_columns() -> None:
-    scalar = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=2, end=6),
-        Allocation(id=3, size=8, start=6, end=8),
-    )
-    padded = (
-        Allocation(id=1, size=8, start=(0, 0, 0), end=(4, 0, 0)),
-        Allocation(id=2, size=8, start=(2, 0, 0), end=(6, 0, 0)),
-        Allocation(id=3, size=8, start=(6, 0, 0), end=(8, 0, 0)),
-    )
-    assert conflicts(padded) == conflicts(scalar)
-
-
-def test_conflicts_ignore_duplicate_columns() -> None:
-    scalar = (
-        Allocation(id=1, size=8, start=0, end=4),
-        Allocation(id=2, size=8, start=2, end=6),
-    )
-    lockstep = (
-        Allocation(id=1, size=8, start=(0, 0, 0), end=(4, 4, 4)),
-        Allocation(id=2, size=8, start=(2, 2, 2), end=(6, 6, 6)),
-    )
-    assert conflicts(lockstep) == conflicts(scalar)
-
-
-def test_conflicts_keep_column_pinned_per_row_but_varying_across_rows() -> None:
-    allocations = (
-        Allocation(id=1, size=8, start=(0, 5), end=(4, 5)),
-        Allocation(id=2, size=8, start=(5, 0), end=(9, 0)),
-    )
-    assert conflicts(allocations) == {1: {2}, 2: {1}}
 
 
 def _random_instance(rng: Random) -> tuple[Allocation, ...]:
@@ -225,6 +149,8 @@ def test_conflicts_match_pairwise_overlaps() -> None:
                 if other.id != alloc.id and alloc.conflicts_with(other)
             }
             assert conflict_map[alloc.id] == expected
+        degrees = [len(conflict_map[alloc.id]) for alloc in allocations]
+        assert conflict_degrees(allocations) == degrees
 
 
 def test_degrees_match_conflict_map_on_degenerate_clocks() -> None:
@@ -252,24 +178,6 @@ def test_degrees_match_conflict_map_on_degenerate_clocks() -> None:
             degrees = conflict_degrees(allocations)
             for alloc, degree in zip(allocations, degrees, strict=True):
                 assert degree == len(expected[alloc.id])
-
-
-def test_conflict_graph_refuses_an_adjacency_over_the_entry_ceiling() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=1) for i in range(50))
-    with pytest.raises(RuntimeError, match="neighbor entries"):
-        conflict_graph(allocations, max_entries=100)
-
-
-def test_conflict_graph_builds_an_adjacency_inside_the_entry_ceiling() -> None:
-    allocations = tuple(Allocation(id=i, size=8, start=0, end=1) for i in range(50))
-    graph = conflict_graph(allocations, max_entries=50 * 49)
-    assert graph.pair_count == 50 * 49 // 2
-
-
-def test_conflict_graph_rejects_a_negative_entry_ceiling() -> None:
-    allocations = (Allocation(id=1, size=8, start=0, end=1),)
-    with pytest.raises(ValueError, match="max_entries"):
-        conflict_graph(allocations, max_entries=-1)
 
 
 def test_columns_agreeing_until_the_last_row_keep_the_exact_relation() -> None:

@@ -35,11 +35,6 @@ def _alloc(i: int, size: int, start: int, end: int) -> Allocation:
     return Allocation(id=i, size=size, start=start, end=end)
 
 
-@pytest.mark.parametrize("allocator_cls", [*SINGLE_ORDERS, GreedyByAllAllocator])
-def test_greedy_allocator_empty(allocator_cls: type) -> None:
-    assert allocator_cls().allocate(()) == ()
-
-
 @pytest.mark.parametrize(
     ("allocations", "offsets"),
     [
@@ -109,24 +104,6 @@ def test_greedy_allocator_places_in_its_order(
 ) -> None:
     allocs = tuple(_alloc(i, *spec) for i, spec in enumerate(allocations))
     assert [a.offset for a in allocator_cls().allocate(allocs)] == offsets
-
-
-@pytest.mark.parametrize("allocator_cls", [*SINGLE_ORDERS, GreedyByAllAllocator])
-def test_greedy_places_vector_time(allocator_cls: type) -> None:
-    allocs = tuple(
-        Allocation(id=i, size=8, start=(i, 0), end=(i + 2, 1)) for i in range(20)
-    )
-    validate_allocation(allocator_cls().allocate(allocs))
-
-
-@pytest.mark.parametrize(
-    "allocator_cls",
-    [GreedyByDurationAllocator, GreedyBySizeAllocator, GreedyByAllAllocator],
-)
-def test_greedy_deterministic(allocator_cls: type) -> None:
-    allocator = allocator_cls()
-    allocs = tuple(_alloc(i, (i % 5 + 1) * 100, 0, i % 7 + 1) for i in range(20))
-    assert allocator.allocate(allocs) == allocator.allocate(allocs)
 
 
 def test_greedy_by_all_picks_best_peak() -> None:

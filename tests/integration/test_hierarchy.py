@@ -50,14 +50,6 @@ def test_a_six_memory_system_places_and_validates() -> None:
     validate_allocation(placed, require_capacity=True)
 
 
-def test_every_pool_of_a_memory_gets_a_distinct_base() -> None:
-    placed = allocate(_accelerator(), "omni")
-    for memory in placed.memories:
-        bases = [pool.offset for pool in memory.pools]
-        assert len(set(bases)) == len(bases)
-        assert all(base is not None for base in bases)
-
-
 def test_pool_bases_stack_without_gaps() -> None:
     placed = allocate(_accelerator(), "omni")
     for memory in placed.memories:

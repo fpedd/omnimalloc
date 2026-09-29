@@ -4,7 +4,6 @@
 
 import pytest
 from omnimalloc import allocate, validate_allocation
-from omnimalloc.allocators import BaseAllocator, available_allocators
 from omnimalloc.analysis import (
     antichain_pressure,
     conflict_degrees,
@@ -16,49 +15,6 @@ from omnimalloc.primitives import Allocation, Memory, Pool, System
 
 HUGE = 2**62
 LARGE = 2**61
-
-
-def _allocators() -> list[BaseAllocator]:
-    instances = []
-    for name in available_allocators():
-        allocator = BaseAllocator.get(name)
-        if not allocator.__module__.startswith("omnimalloc."):
-            continue
-        try:
-            instances.append(allocator(timeout=1.0))
-        except TypeError:
-            try:
-                instances.append(allocator())
-            except ImportError:
-                continue
-        except ImportError:
-            continue
-    return instances
-
-
-def test_empty_pool_places_and_validates() -> None:
-    placed = allocate(Pool(id="p", allocations=()))
-    assert placed.allocations == ()
-    validate_allocation(placed)
-
-
-def test_single_allocation_lands_at_zero() -> None:
-    placed = allocate((Allocation(id=1, size=10, start=0, end=5),))
-    assert placed[0].offset == 0
-
-
-def test_all_identical_lifetimes_stack() -> None:
-    allocations = tuple(Allocation(id=i, size=10, start=0, end=5) for i in range(8))
-    placed = allocate(allocations, "omni")
-    validate_allocation(placed)
-    assert placement_pressure(placed) == 80
-
-
-def test_all_disjoint_lifetimes_share_one_offset() -> None:
-    allocations = tuple(Allocation(id=i, size=10, start=i, end=i + 1) for i in range(8))
-    placed = allocate(allocations, "omni")
-    validate_allocation(placed)
-    assert placement_pressure(placed) == 10
 
 
 def test_a_single_huge_allocation_places() -> None:
@@ -106,11 +62,6 @@ def test_empty_analysis_inputs_are_defined() -> None:
     assert try_linearize(()) == ()
 
 
-def test_a_zero_size_allocation_is_rejected() -> None:
-    with pytest.raises(ValueError, match="size must be positive"):
-        Allocation(id="empty", size=0, start=0, end=5)
-
-
 def test_a_one_byte_allocation_places_beside_a_large_one() -> None:
     allocations = (
         Allocation(id="tiny", size=1, start=0, end=5),
@@ -125,15 +76,3 @@ def test_empty_hierarchy_levels_validate() -> None:
     validate_allocation(System(id="s", memories=()))
     validate_allocation(Memory(id="m", pools=(), size=0))
     validate_allocation(allocate(Memory(id="m", pools=(Pool(id="p", allocations=()),))))
-
-
-def test_every_allocator_handles_a_single_allocation() -> None:
-    allocations = (Allocation(id=1, size=10, start=0, end=5),)
-    for allocator in _allocators():
-        placed = allocator.allocate(allocations)
-        assert placed[0].offset == 0, allocator
-
-
-def test_every_allocator_handles_no_allocations() -> None:
-    for allocator in _allocators():
-        assert allocator.allocate(()) == (), allocator

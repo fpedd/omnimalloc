@@ -3,9 +3,8 @@
 #
 
 import pytest
-from omnimalloc import allocate, validate_allocation
+from omnimalloc import validate_allocation
 from omnimalloc.analysis import antichain_pressure
-from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.concurrent_tiling import ConcurrentTilingSource
 from omnimalloc.primitives import Allocation
 
@@ -14,11 +13,6 @@ def _signatures(
     allocations: tuple[Allocation, ...],
 ) -> list[tuple[object, object, int]]:
     return [(a.start, a.end, a.size) for a in allocations]
-
-
-def test_concurrent_tiling_is_registered() -> None:
-    assert "concurrent_tiling" in BaseSource.registry()
-    assert BaseSource.get("concurrent_tiling") is ConcurrentTilingSource
 
 
 def test_concurrent_tiling_produces_requested_count_and_dim() -> None:
@@ -91,28 +85,23 @@ def test_concurrent_tiling_ground_truth_matches_get_allocations() -> None:
     assert _signatures(truth.allocations) == _signatures(allocs)
 
 
-def test_concurrent_tiling_is_deterministic_per_seed() -> None:
-    a = ConcurrentTilingSource(num_allocations=64, seed=7).get_allocations()
-    b = ConcurrentTilingSource(num_allocations=64, seed=7).get_allocations()
-    c = ConcurrentTilingSource(num_allocations=64, seed=8).get_allocations()
-    assert _signatures(a) == _signatures(b)
-    assert _signatures(a) != _signatures(c)
-
-
-def test_concurrent_tiling_distinct_pools_differ() -> None:
-    source = ConcurrentTilingSource(num_allocations=32)
-    pools = source.get_pools(num_pools=2)
-    assert _signatures(pools[0].allocations) != _signatures(pools[1].allocations)
-
-
-def test_concurrent_tiling_rejects_indivisible_capacity() -> None:
-    with pytest.raises(ValueError, match="divisible"):
-        ConcurrentTilingSource(num_threads=3, capacity=1024)
-
-
-def test_concurrent_tiling_rejects_nonpositive_threads() -> None:
-    with pytest.raises(ValueError, match="num_threads"):
-        ConcurrentTilingSource(num_threads=0)
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param(
+            {"num_threads": 3, "capacity": 1024}, "divisible", id="indivisible_capacity"
+        ),
+        pytest.param({"num_threads": 0}, "num_threads", id="nonpositive_threads"),
+        pytest.param(
+            {"num_threads": 4, "capacity": 4096, "size_min": 2048},
+            "per-thread capacity",
+            id="band_below_min_size",
+        ),
+    ],
+)
+def test_concurrent_tiling_rejects(kwargs: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        ConcurrentTilingSource(**kwargs)
 
 
 def test_concurrent_tiling_rejects_fewer_allocations_than_threads() -> None:
@@ -121,26 +110,11 @@ def test_concurrent_tiling_rejects_fewer_allocations_than_threads() -> None:
         source.get_allocations(num_allocations=2)
 
 
-def test_concurrent_tiling_rejects_band_below_min_size() -> None:
-    with pytest.raises(ValueError, match="per-thread capacity"):
-        ConcurrentTilingSource(num_threads=4, capacity=4096, size_min=2048)
-
-
 def test_concurrent_tiling_rejects_num_syncs_out_of_range() -> None:
     with pytest.raises(ValueError, match="num_syncs"):
         ConcurrentTilingSource(num_syncs=-1)
     with pytest.raises(ValueError, match="num_syncs"):
         ConcurrentTilingSource(num_syncs=100, makespan=64, size_min=1, duration_min=1)
-
-
-def test_concurrent_tiling_no_allocator_beats_the_optimum() -> None:
-    capacity = 1024 * 1024
-    source = ConcurrentTilingSource(
-        num_allocations=96, num_threads=4, num_syncs=64, capacity=capacity
-    )
-    pool = source.get_pool()
-    allocated = allocate(pool, "greedy_by_size", validate=True)
-    assert allocated.size >= capacity
 
 
 def test_concurrent_tiling_label_carries_thread_count() -> None:

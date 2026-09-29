@@ -17,18 +17,6 @@ def _share_of_largest(sizes: tuple[int, ...], count: int) -> float:
     return sum(ordered[:count]) / sum(ordered)
 
 
-def test_skewed_source_generates_the_requested_count() -> None:
-    allocations = SkewedSource(num_allocations=64).get_allocations()
-    assert len(allocations) == 64
-    assert {a.id for a in allocations} == set(range(64))
-
-
-def test_skewed_source_is_deterministic_for_a_fixed_seed() -> None:
-    first = SkewedSource(num_allocations=32, seed=7).get_allocations()
-    second = SkewedSource(num_allocations=32, seed=7).get_allocations()
-    assert first == second
-
-
 def test_skewed_source_respects_the_size_bounds() -> None:
     for distribution in SIZE_DISTRIBUTIONS:
         allocations = SkewedSource(
@@ -48,9 +36,25 @@ def test_dominant_distribution_concentrates_the_bytes() -> None:
     assert _share_of_largest(skewed, 1) > 5 * _share_of_largest(flat, 1)
 
 
-def test_skewed_source_rejects_an_unknown_distribution() -> None:
-    with pytest.raises(ValueError, match="not a valid SizeDistribution"):
-        SkewedSource(distribution="gaussian")
+@pytest.mark.parametrize(
+    ("source_cls", "kwargs", "match"),
+    [
+        pytest.param(
+            SkewedSource,
+            {"distribution": "gaussian"},
+            "not a valid SizeDistribution",
+            id="unknown_distribution",
+        ),
+        pytest.param(
+            TwoPlusTwoSource, {"noise": 1.0}, "noise must be in", id="noise_of_one"
+        ),
+    ],
+)
+def test_adversarial_sources_reject(
+    source_cls: type, kwargs: dict[str, object], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        source_cls(**kwargs)
 
 
 def test_skewed_placements_validate() -> None:
@@ -72,11 +76,6 @@ def test_two_plus_two_stays_non_linearizable_under_noise() -> None:
             num_allocations=64, noise=noise
         ).get_allocations()
         assert try_linearize(allocations, work_budget=None) is None, noise
-
-
-def test_two_plus_two_rejects_a_noise_of_one() -> None:
-    with pytest.raises(ValueError, match="noise must be in"):
-        TwoPlusTwoSource(noise=1.0)
 
 
 def test_two_plus_two_generates_vector_clocks() -> None:

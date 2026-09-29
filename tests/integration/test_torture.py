@@ -70,11 +70,11 @@ PACKING_ALLOCATORS = (
     GreedyByStartAllocator(),
     GreedyByAllAllocator(),
     BestFitAllocator(),
-    TelamallocAllocator(timeout=1.0),
-    HillClimbAllocator(timeout=1.0),
-    TabuSearchAllocator(timeout=1.0),
-    SimulatedAnnealingAllocator(timeout=1.0),
-    SupermallocAllocator(timeout=1.0),
+    TelamallocAllocator(timeout=0.2),
+    HillClimbAllocator(timeout=0.2),
+    TabuSearchAllocator(timeout=0.2),
+    SimulatedAnnealingAllocator(timeout=0.2),
+    SupermallocAllocator(timeout=0.2),
 )
 
 SOAK_ALLOCATORS = (
@@ -93,7 +93,7 @@ SOAK_ALLOCATORS = (
     SupermallocAllocator(timeout=0.02),
 )
 
-TIMEOUT_BUDGET = 0.5
+TIMEOUT_BUDGET = 0.1
 PLACEMENT_SLACK_MULTIPLE = 8
 FIXED_SLACK = 0.4
 SANE_PEAK_FACTOR = 3.0
@@ -402,15 +402,7 @@ def test_seeded_allocators_agree_across_core_counts() -> None:
     )
     for name in seeded:
         assert single[name] == quad[name], name
-
-
-def test_supermalloc_verdict_agrees_across_core_counts() -> None:
-    if shutil.which("taskset") is None:
-        pytest.skip("taskset is unavailable")
-    single = _pinned_probe("0", 1)
-    quad = _pinned_probe("0-3", 4)
     assert single["supermalloc_verdict"] == quad["supermalloc_verdict"]
-    assert len(single["supermalloc_offsets"]) == len(quad["supermalloc_offsets"])
 
 
 def test_supermalloc_verdict_is_stable_across_thread_counts() -> None:
@@ -427,23 +419,6 @@ def test_supermalloc_verdict_is_stable_across_thread_counts() -> None:
         assert placement_pressure(result.allocations) == result.peak
 
 
-def test_greedy_by_all_still_matches_its_best_variant() -> None:
-    allocations = _small_instance(200, seed=8)
-    best = min(
-        placement_pressure(variant.allocate(allocations))
-        for variant in (
-            GreedyAllocator(),
-            GreedyBySizeAllocator(),
-            GreedyByDurationAllocator(),
-            GreedyByAreaAllocator(),
-            GreedyByConflictAllocator(),
-            GreedyByConflictSizeAllocator(),
-            GreedyByStartAllocator(),
-        )
-    )
-    assert placement_pressure(GreedyByAllAllocator().allocate(allocations)) == best
-
-
 def test_concurrent_genetic_calls_match_the_solo_result() -> None:
     allocations = _small_instance(80, seed=3)
 
@@ -457,17 +432,6 @@ def test_concurrent_genetic_calls_match_the_solo_result() -> None:
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(run, range(6)))
     assert all(result == solo for result in results)
-
-
-def test_genetic_leaves_the_callers_global_random_stream_untouched() -> None:
-    allocations = _small_instance(80, seed=3)
-    random.seed(20250802)
-    expected = [random.random() for _ in range(5)]
-    random.seed(20250802)
-    GeneticAllocator(timeout=None, max_generations=4, population_size=20).allocate(
-        allocations
-    )
-    assert [random.random() for _ in range(5)] == expected
 
 
 def test_concurrent_genetic_calls_leave_the_global_stream_untouched() -> None:

@@ -13,7 +13,7 @@ from omnimalloc.primitives import Allocation
 from .base import BaseAllocator
 
 try:
-    import minimalloc as mm  # type: ignore
+    import minimalloc as mm  # ty: ignore[unresolved-import]
 except ImportError:
     mm = cast("Any", None)
 
@@ -26,7 +26,7 @@ def _require_minimalloc() -> None:
     if mm is not None:
         return
     try:
-        import minimalloc  # type: ignore
+        import minimalloc  # ty: ignore[unresolved-import]
     except ImportError:
         # TODO(fpedd): Make minimalloc more easily installable via PyPI
         raise ImportError(

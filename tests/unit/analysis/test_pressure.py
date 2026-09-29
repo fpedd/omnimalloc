@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+from collections.abc import Callable
 from itertools import combinations
 from random import Random
 
 import pytest
-from omnimalloc import allocate
 from omnimalloc.allocators.omni import OmniAllocator
 from omnimalloc.analysis import (
     antichain_pressure,
@@ -19,360 +19,209 @@ from omnimalloc.analysis import (
 from omnimalloc.primitives import Allocation
 
 
-def test_pressure_empty_is_zero() -> None:
-    assert antichain_pressure(()) == 0
+def _a(
+    i: object, size: int, start: object, end: object, offset: int | None = None
+) -> Allocation:
+    return Allocation(id=i, size=size, start=start, end=end, offset=offset)
 
 
-def test_pressure_scalar_overlap() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=6, end=8),
+OVERLAP = (_a(1, 100, 0, 4), _a(2, 50, 2, 6), _a(3, 25, 6, 8))
+DISJOINT = (_a(1, 100, 0, 2), _a(2, 50, 2, 4))
+LINEARIZABLE = (
+    _a(1, 100, (0, 0), (2, 1)),
+    _a(2, 50, (1, 0), (3, 2)),
+    _a(3, 25, (3, 2), (4, 3)),
+)
+TWO_PLUS_TWO = (
+    _a("a", 8, (0, 0), (1, 0)),
+    _a("b", 16, (1, 0), (2, 0)),
+    _a("c", 32, (0, 0), (0, 1)),
+    _a("d", 64, (0, 1), (0, 2)),
+)
+# Pairwise concurrent, but no cut holds all three: the closure bound is lower
+PINWHEEL = (
+    _a("i", 1, (0, 0), (2, 2)),
+    _a("j", 1, (3, 0), (4, 1)),
+    _a("k", 1, (0, 3), (1, 4)),
+)
+NO_COMMON_CUT = (
+    _a(0, 20, (1, 0, 0), (1, 2, 1)),
+    _a(1, 20, (0, 2, 0), (1, 2, 1)),
+    _a(2, 30, (1, 0, 0), (1, 2, 0)),
+)
+WIDE_CLOSURE = tuple(_a(i, 1, (i, 8 - i, 0), (i + 1, 9 - i, 9)) for i in range(8))
+OVERFLOW = tuple(_a(i, 2**62, 0, 1) for i in range(4))
+MIXED = (_a(1, 8, (0, 0), (1, 1), 0), _a(2, 8, (0, 0, 0), (1, 1, 1), 8))
+DUPLICATED = (_a(1, 8, 0, 2, 0), _a(1, 8, 1, 3, 8))
+UNPLACED = (_a(1, 8, 0, 2),)
+PLACED_TWO_PLUS_TWO = tuple(
+    a.with_offset(offset)
+    for a, offset in zip(TWO_PLUS_TWO, (96, 96, 0, 32), strict=True)
+)
+
+
+@pytest.mark.parametrize(
+    ("allocations", "antichain", "closure"),
+    [
+        pytest.param((), 0, 0, id="empty"),
+        pytest.param(OVERLAP, 150, 150, id="overlap"),
+        pytest.param(DISJOINT, 100, 100, id="disjoint"),
+        pytest.param(LINEARIZABLE, 150, 150, id="linearizable"),
+        pytest.param(TWO_PLUS_TWO, 80, 80, id="two_plus_two"),
+        pytest.param(PINWHEEL, 3, 2, id="pinwheel"),
+        pytest.param(NO_COMMON_CUT, 70, 50, id="no_common_cut"),
+        pytest.param(WIDE_CLOSURE, 8, 8, id="wide_closure"),
+    ],
+)
+def test_pressures(
+    allocations: tuple[Allocation, ...], antichain: int, closure: int
+) -> None:
+    assert antichain_pressure(allocations) == antichain
+    assert antichain_pressure(allocations, work_budget=None) == antichain
+    assert closure_pressure(allocations) == closure
+    assert closure_pressure(allocations, closure_cap=None) == closure
+
+
+@pytest.mark.parametrize(
+    ("allocations", "antichain", "closure"),
+    [
+        pytest.param((), {}, {}, id="empty"),
+        pytest.param(
+            OVERLAP, {1: 150, 2: 150, 3: 25}, {1: 150, 2: 150, 3: 25}, id="overlap"
+        ),
+        pytest.param(
+            TWO_PLUS_TWO,
+            {"a": 72, "b": 80, "c": 48, "d": 80},
+            {"a": 72, "b": 80, "c": 48, "d": 80},
+            id="two_plus_two",
+        ),
+        pytest.param(
+            PINWHEEL, dict.fromkeys("ijk", 3), dict.fromkeys("ijk", 2), id="pinwheel"
+        ),
+    ],
+)
+def test_per_allocation_pressures(
+    allocations: tuple[Allocation, ...],
+    antichain: dict[object, int],
+    closure: dict[object, int],
+) -> None:
+    assert antichain_pressure_per_allocation(allocations) == antichain
+    assert antichain_pressure_per_allocation(allocations, work_budget=None) == antichain
+    assert closure_pressure_per_allocation(allocations) == closure
+
+
+@pytest.mark.parametrize(
+    ("allocations", "peak", "per_allocation"),
+    [
+        pytest.param((), 0, {}, id="empty"),
+        pytest.param(
+            (_a("x", 5, 0, 2, 0), _a("y", 50, 1, 3, 5), _a("z", 5, 2, 4, 0)),
+            55,
+            {"x": 55, "y": 55, "z": 55},
+            id="highest_occupied_address",
+        ),
+        pytest.param(
+            (
+                _a("long", 8, 0, 10, 0),
+                _a("tall", 100, 2, 4, 8),
+                _a("short", 10, 6, 8, 8),
+            ),
+            108,
+            {"long": 108, "tall": 108, "short": 18},
+            id="nested_lifetimes",
+        ),
+        pytest.param(
+            (_a("a", 8, 0, 2, 0), _a("b", 64, 8, 10, 0)),
+            64,
+            {"a": 8, "b": 64},
+            id="uncovered_slots",
+        ),
+        pytest.param(
+            PLACED_TWO_PLUS_TWO,
+            112,
+            {"a": 104, "b": 112, "c": 112, "d": 112},
+            id="two_plus_two",
+        ),
+    ],
+)
+def test_placement_pressures(
+    allocations: tuple[Allocation, ...], peak: int, per_allocation: dict[object, int]
+) -> None:
+    assert placement_pressure(allocations) == peak
+    assert placement_pressure_per_allocation(allocations) == per_allocation
+    assert (
+        placement_pressure_per_allocation(allocations, work_budget=None)
+        == per_allocation
     )
-    assert antichain_pressure(allocations) == 150
 
 
-def test_pressure_scalar_disjoint() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=2),
-        Allocation(id=2, size=50, start=2, end=4),
-    )
-    assert antichain_pressure(allocations) == 100
-
-
-def test_pressure_linearizable_vector_is_exact() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=(0, 0), end=(2, 1)),
-        Allocation(id=2, size=50, start=(1, 0), end=(3, 2)),
-        Allocation(id=3, size=25, start=(3, 2), end=(4, 3)),
-    )
-    assert antichain_pressure(allocations) == 150
-
-
-def test_pressure_non_linearizable_is_exact() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    assert antichain_pressure(two_plus_two) == 16 + 64
-
-
-def test_pressure_matches_scalar_equivalent_under_lockstep() -> None:
-    scalar = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=5, end=8),
-    )
-    lockstep = tuple(
-        Allocation(id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end))
-        for a in scalar
-    )
-    assert antichain_pressure(lockstep) == antichain_pressure(scalar)
-
-
-def test_pressure_scalar_ignores_work_budget() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-    )
-    assert antichain_pressure(allocations, work_budget=1) == 150
-
-
-def test_pressure_work_budget_exceeded_raises() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    with pytest.raises(RuntimeError, match="work_budget"):
-        antichain_pressure(two_plus_two, work_budget=1)
-
-
-def test_pressure_negative_work_budget_rejected() -> None:
-    with pytest.raises(ValueError, match="work_budget must be non-negative"):
-        antichain_pressure((), work_budget=-1)
-
-
-def test_closure_pressure_negative_cap_rejected() -> None:
-    with pytest.raises(ValueError, match="closure_cap must be non-negative"):
-        closure_pressure((), closure_cap=-1)
-
-
-def test_closure_pressure_none_cap_enumerates_unbounded() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=1, start=(i, 8 - i, 0), end=(i + 1, 9 - i, 9))
-        for i in range(8)
-    )
-    assert closure_pressure(allocations, closure_cap=None) == closure_pressure(
-        allocations
-    )
-
-
-def test_pressure_total_size_overflow_raises() -> None:
-    allocations = tuple(Allocation(id=i, size=2**62, start=0, end=1) for i in range(4))
-    with pytest.raises(ValueError, match="int64"):
-        antichain_pressure(allocations)
-
-
-def test_closure_pressure_total_size_overflow_raises() -> None:
-    allocations = tuple(Allocation(id=i, size=2**62, start=0, end=1) for i in range(4))
-    with pytest.raises(ValueError, match="int64"):
-        closure_pressure(allocations)
-    with pytest.raises(ValueError, match="int64"):
-        closure_pressure_per_allocation(allocations)
-
-
-def test_pressure_unbudgeted_empty_is_zero() -> None:
-    assert antichain_pressure((), work_budget=None) == 0
-
-
-def test_closure_pressure_empty_is_zero() -> None:
-    assert closure_pressure(()) == 0
-
-
-def test_exact_pressures_match_scalar_sweep() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=6, end=8),
-    )
-    assert antichain_pressure(allocations, work_budget=None) == 150
-    assert closure_pressure(allocations) == 150
-
-
-def test_pressure_unbudgeted_two_plus_two_exact() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    assert antichain_pressure(two_plus_two, work_budget=None) == 16 + 64
-
-
-def test_closure_pressure_below_antichain_without_common_cut() -> None:
-    pinwheel = (
-        Allocation(id="i", size=1, start=(0, 0), end=(2, 2)),
-        Allocation(id="j", size=1, start=(3, 0), end=(4, 1)),
-        Allocation(id="k", size=1, start=(0, 3), end=(1, 4)),
-    )
-    assert antichain_pressure(pinwheel, work_budget=None) == 3
-    assert closure_pressure(pinwheel) == 2
-
-
-def test_closure_pressure_cap_raises() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=1, start=(i, 8 - i, 0), end=(i + 1, 9 - i, 9))
-        for i in range(8)
-    )
-    with pytest.raises(RuntimeError, match="closure_cap"):
-        closure_pressure(allocations, closure_cap=4)
-
-
-def test_exact_pressures_reject_mixed_dimensions() -> None:
-    mixed = (
-        Allocation(id=1, size=8, start=(0, 0), end=(1, 1)),
-        Allocation(id=2, size=8, start=(0, 0, 0), end=(1, 1, 1)),
-    )
-    with pytest.raises(ValueError, match="dimension"):
-        antichain_pressure(mixed, work_budget=None)
-    with pytest.raises(ValueError, match="dimension"):
-        closure_pressure(mixed)
-
-
-def test_exact_pressures_match_scalar_equivalent_under_lockstep() -> None:
-    scalar = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=5, end=8),
-    )
-    lockstep = tuple(
-        Allocation(id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end))
-        for a in scalar
-    )
-    assert antichain_pressure(lockstep, work_budget=None) == antichain_pressure(scalar)
-    assert closure_pressure(lockstep) == antichain_pressure(scalar)
-
-
-def test_per_allocation_pressures_empty() -> None:
-    assert antichain_pressure_per_allocation(()) == {}
-    assert closure_pressure_per_allocation(()) == {}
-    assert placement_pressure_per_allocation(()) == {}
-
-
-def test_per_allocation_pressure_scalar() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=6, end=8),
-    )
-    assert antichain_pressure_per_allocation(allocations) == {1: 150, 2: 150, 3: 25}
-    assert closure_pressure_per_allocation(allocations) == {1: 150, 2: 150, 3: 25}
-
-
-def test_per_allocation_pressure_two_plus_two() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    expected = {"a": 72, "b": 80, "c": 48, "d": 80}
-    assert antichain_pressure_per_allocation(two_plus_two) == expected
-    assert closure_pressure_per_allocation(two_plus_two) == expected
-    assert max(expected.values()) == antichain_pressure(two_plus_two)
-
-
-def test_per_allocation_pressure_scalar_ignores_work_budget() -> None:
-    allocations = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-    )
-    assert antichain_pressure_per_allocation(allocations, work_budget=1) == {
+def test_scalar_pressures_ignore_the_work_budget() -> None:
+    assert antichain_pressure(OVERLAP[:2], work_budget=1) == 150
+    assert antichain_pressure_per_allocation(OVERLAP[:2], work_budget=1) == {
         1: 150,
         2: 150,
     }
 
 
-def test_per_allocation_pressure_work_budget_exceeded_raises() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    with pytest.raises(RuntimeError, match="work_budget"):
-        antichain_pressure_per_allocation(two_plus_two, work_budget=1)
-
-
-def test_per_allocation_pressure_unbudgeted_matches_default() -> None:
-    two_plus_two = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0)),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0)),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1)),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2)),
-    )
-    assert antichain_pressure_per_allocation(
-        two_plus_two, work_budget=None
-    ) == antichain_pressure_per_allocation(two_plus_two)
-
-
-def test_per_allocation_closure_below_pinned_without_common_cut() -> None:
-    pinwheel = (
-        Allocation(id="i", size=1, start=(0, 0), end=(2, 2)),
-        Allocation(id="j", size=1, start=(3, 0), end=(4, 1)),
-        Allocation(id="k", size=1, start=(0, 3), end=(1, 4)),
-    )
-    assert antichain_pressure_per_allocation(pinwheel) == {"i": 3, "j": 3, "k": 3}
-    assert closure_pressure_per_allocation(pinwheel) == {"i": 2, "j": 2, "k": 2}
-
-
-def test_per_allocation_pressure_matches_scalar_equivalent_under_lockstep() -> None:
-    scalar = (
-        Allocation(id=1, size=100, start=0, end=4),
-        Allocation(id=2, size=50, start=2, end=6),
-        Allocation(id=3, size=25, start=5, end=8),
-    )
-    lockstep = tuple(
-        Allocation(id=a.id, size=a.size, start=(a.start, a.start), end=(a.end, a.end))
-        for a in scalar
-    )
+def test_pressures_match_the_scalar_instance_under_lockstep() -> None:
+    scalar = (_a(1, 100, 0, 4), _a(2, 50, 2, 6), _a(3, 25, 5, 8))
+    lockstep = tuple(_a(a.id, a.size, (a.start,) * 2, (a.end,) * 2) for a in scalar)
+    assert antichain_pressure(lockstep) == antichain_pressure(scalar)
+    assert antichain_pressure(lockstep, work_budget=None) == antichain_pressure(scalar)
+    assert closure_pressure(lockstep) == closure_pressure(scalar)
     assert antichain_pressure_per_allocation(
         lockstep
     ) == antichain_pressure_per_allocation(scalar)
 
 
-def test_per_allocation_closure_pressure_cap_raises() -> None:
-    allocations = tuple(
-        Allocation(id=i, size=1, start=(i, 8 - i, 0), end=(i + 1, 9 - i, 9))
-        for i in range(8)
-    )
-    with pytest.raises(RuntimeError, match="closure_cap"):
-        closure_pressure_per_allocation(allocations, closure_cap=4)
+BUDGET = {"work_budget": 1}
+CAP = {"closure_cap": 4}
 
 
-def test_per_allocation_pressures_reject_duplicate_ids() -> None:
-    duplicated = (
-        Allocation(id=1, size=8, start=0, end=2, offset=0),
-        Allocation(id=1, size=8, start=1, end=3, offset=8),
-    )
-    with pytest.raises(ValueError, match="unique"):
-        antichain_pressure_per_allocation(duplicated)
-    with pytest.raises(ValueError, match="unique"):
-        closure_pressure_per_allocation(duplicated)
-    with pytest.raises(ValueError, match="unique"):
-        placement_pressure_per_allocation(duplicated)
-
-
-def test_per_allocation_placement_pressure_requires_offsets() -> None:
-    unplaced = (Allocation(id=1, size=8, start=0, end=2),)
-    with pytest.raises(ValueError, match="placed"):
-        placement_pressure_per_allocation(unplaced)
-
-
-def test_placement_pressure_empty_is_zero() -> None:
-    assert placement_pressure(()) == 0
-
-
-def test_placement_pressure_is_highest_occupied_address() -> None:
-    placed = (
-        Allocation(id="x", size=5, start=0, end=2, offset=0),
-        Allocation(id="y", size=50, start=1, end=3, offset=5),
-        Allocation(id="z", size=5, start=2, end=4, offset=0),
-    )
-    assert placement_pressure(placed) == 55
-
-
-def test_placement_pressure_requires_offsets() -> None:
-    unplaced = (Allocation(id=1, size=8, start=0, end=2),)
-    with pytest.raises(ValueError, match="placed"):
-        placement_pressure(unplaced)
-
-
-def test_placement_pressure_rejects_mixed_dimensions() -> None:
-    mixed = (
-        Allocation(id=1, size=8, start=(0, 0), end=(1, 1), offset=0),
-        Allocation(id=2, size=8, start=(0, 0, 0), end=(1, 1, 1), offset=8),
-    )
-    with pytest.raises(ValueError, match="dimension"):
-        placement_pressure(mixed)
-
-
-def test_per_allocation_placement_pressure_max_equals_peak() -> None:
-    placed = (
-        Allocation(id="x", size=5, start=0, end=2, offset=0),
-        Allocation(id="y", size=50, start=1, end=3, offset=5),
-        Allocation(id="z", size=5, start=2, end=4, offset=0),
-    )
-    peaks = placement_pressure_per_allocation(placed)
-    assert peaks == {"x": 55, "y": 55, "z": 55}
-    assert max(peaks.values()) == 55
-
-
-def test_per_allocation_placement_pressure_budget_raises() -> None:
-    placed = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0), offset=96),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0), offset=96),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1), offset=0),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2), offset=32),
-    )
-    with pytest.raises(RuntimeError, match="work_budget"):
-        placement_pressure_per_allocation(placed, work_budget=1)
-
-
-def test_per_allocation_placement_pressure_unbounded_budget_computes() -> None:
-    placed = (
-        Allocation(id="a", size=8, start=(0, 0), end=(1, 0), offset=96),
-        Allocation(id="b", size=16, start=(1, 0), end=(2, 0), offset=96),
-        Allocation(id="c", size=32, start=(0, 0), end=(0, 1), offset=0),
-        Allocation(id="d", size=64, start=(0, 1), end=(0, 2), offset=32),
-    )
-    expected = {"a": 104, "b": 112, "c": 112, "d": 112}
-    assert placement_pressure_per_allocation(placed, work_budget=None) == expected
-    assert placement_pressure_per_allocation(placed) == expected
+@pytest.mark.parametrize(
+    ("query", "allocations", "kwargs", "error", "match"),
+    [
+        (antichain_pressure, TWO_PLUS_TWO, BUDGET, RuntimeError, "work_budget"),
+        (antichain_pressure_per_allocation, TWO_PLUS_TWO, BUDGET, RuntimeError, "work"),
+        (
+            placement_pressure_per_allocation,
+            PLACED_TWO_PLUS_TWO,
+            BUDGET,
+            RuntimeError,
+            "work",
+        ),
+        (closure_pressure, WIDE_CLOSURE, CAP, RuntimeError, "closure_cap"),
+        (
+            closure_pressure_per_allocation,
+            WIDE_CLOSURE,
+            CAP,
+            RuntimeError,
+            "closure_cap",
+        ),
+        (antichain_pressure, (), {"work_budget": -1}, ValueError, "non-negative"),
+        (closure_pressure, (), {"closure_cap": -1}, ValueError, "non-negative"),
+        (antichain_pressure, OVERFLOW, {}, ValueError, "int64"),
+        (closure_pressure, OVERFLOW, {}, ValueError, "int64"),
+        (closure_pressure_per_allocation, OVERFLOW, {}, ValueError, "int64"),
+        (antichain_pressure, MIXED, {"work_budget": None}, ValueError, "dimension"),
+        (closure_pressure, MIXED, {}, ValueError, "dimension"),
+        (placement_pressure, MIXED, {}, ValueError, "dimension"),
+        (antichain_pressure_per_allocation, DUPLICATED, {}, ValueError, "unique"),
+        (closure_pressure_per_allocation, DUPLICATED, {}, ValueError, "unique"),
+        (placement_pressure_per_allocation, DUPLICATED, {}, ValueError, "unique"),
+        (placement_pressure, UNPLACED, {}, ValueError, "placed"),
+        (placement_pressure_per_allocation, UNPLACED, {}, ValueError, "placed"),
+    ],
+)
+def test_pressure_queries_reject(
+    query: Callable[..., object],
+    allocations: tuple[Allocation, ...],
+    kwargs: dict[str, int | None],
+    error: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(error, match=match):
+        query(allocations, **kwargs)
 
 
 def _brute_antichain(allocations: tuple[Allocation, ...]) -> int:
@@ -505,57 +354,33 @@ def test_per_allocation_placement_pressure_matches_brute_force() -> None:
         ) == _brute_placement(scrambled)
 
 
-def _assert_matches_brute(allocations: tuple[Allocation, ...]) -> None:
+@pytest.mark.parametrize(
+    "allocations",
+    [
+        pytest.param(tuple(_a(i, 8, i, i + 3, 0) for i in range(40)), id="shared"),
+        pytest.param(tuple(_a(i, 8, 0, 1, 8 * i) for i in range(40)), id="instant"),
+        pytest.param(
+            tuple(_a(i, 4, i, 80 - i, 4 * i) for i in range(40)), id="staircase"
+        ),
+        pytest.param(
+            tuple(_a(i, 4, i, 80 - i, 4 * (40 - i)) for i in range(40)),
+            id="reversed_staircase",
+        ),
+        pytest.param(tuple(_a(i, 8, i, i + 1, 0) for i in range(40)), id="disjoint"),
+        pytest.param(
+            (
+                _a("span", 1, 0, 100, 0),
+                *(_a(i, 100, i, i + 1, 1) for i in range(1, 40)),
+            ),
+            id="tall_spanner",
+        ),
+    ],
+)
+def test_per_allocation_placement_pressure_matches_brute_force_on(
+    allocations: tuple[Allocation, ...],
+) -> None:
     assert placement_pressure_per_allocation(allocations) == _brute_placement(
         allocations
-    )
-
-
-def test_per_allocation_placement_pressure_on_a_shared_offset() -> None:
-    _assert_matches_brute(
-        tuple(Allocation(id=i, size=8, start=i, end=i + 3, offset=0) for i in range(40))
-    )
-
-
-def test_per_allocation_placement_pressure_on_one_shared_instant() -> None:
-    _assert_matches_brute(
-        tuple(Allocation(id=i, size=8, start=0, end=1, offset=8 * i) for i in range(40))
-    )
-
-
-def test_per_allocation_placement_pressure_on_a_nested_staircase() -> None:
-    _assert_matches_brute(
-        tuple(
-            Allocation(id=i, size=4, start=i, end=80 - i, offset=4 * i)
-            for i in range(40)
-        )
-    )
-
-
-def test_per_allocation_placement_pressure_on_a_reversed_staircase() -> None:
-    _assert_matches_brute(
-        tuple(
-            Allocation(id=i, size=4, start=i, end=80 - i, offset=4 * (40 - i))
-            for i in range(40)
-        )
-    )
-
-
-def test_per_allocation_placement_pressure_on_disjoint_unit_lifetimes() -> None:
-    _assert_matches_brute(
-        tuple(Allocation(id=i, size=8, start=i, end=i + 1, offset=0) for i in range(40))
-    )
-
-
-def test_per_allocation_placement_pressure_under_one_tall_spanner() -> None:
-    _assert_matches_brute(
-        (
-            Allocation(id="span", size=1, start=0, end=100, offset=0),
-            *(
-                Allocation(id=i, size=100, start=i, end=i + 1, offset=1)
-                for i in range(1, 40)
-            ),
-        )
     )
 
 
@@ -629,25 +454,6 @@ def test_per_allocation_bound_order_and_peak_identities() -> None:
             assert pinned[alloc_id] <= placement[alloc_id]
 
 
-def test_placement_pressure_per_allocation_paints_nested_lifetimes() -> None:
-    allocations = (
-        Allocation(id="long", size=8, start=0, end=10, offset=0),
-        Allocation(id="tall", size=100, start=2, end=4, offset=8),
-        Allocation(id="short", size=10, start=6, end=8, offset=8),
-    )
-    peaks = placement_pressure_per_allocation(allocations)
-    assert peaks == {"long": 108, "tall": 108, "short": 18}
-
-
-def test_placement_pressure_per_allocation_ignores_uncovered_slots() -> None:
-    allocations = (
-        Allocation(id="a", size=8, start=0, end=2, offset=0),
-        Allocation(id="b", size=64, start=8, end=10, offset=0),
-    )
-    peaks = placement_pressure_per_allocation(allocations)
-    assert peaks == {"a": 8, "b": 64}
-
-
 def test_placement_pressure_per_allocation_survives_degenerate_columns() -> None:
     rng = Random(23)
     for _ in range(40):
@@ -670,31 +476,3 @@ def test_placement_pressure_per_allocation_survives_degenerate_columns() -> None
         expected = placement_pressure_per_allocation(scalar)
         assert placement_pressure_per_allocation(padded) == expected
         assert placement_pressure_per_allocation(lockstep) == expected
-
-
-def test_closure_bound_is_strictly_looser_than_the_antichain_bound() -> None:
-    allocations = (
-        Allocation(id=0, size=20, start=(1, 0, 0), end=(1, 2, 1)),
-        Allocation(id=1, size=20, start=(0, 2, 0), end=(1, 2, 1)),
-        Allocation(id=2, size=30, start=(1, 0, 0), end=(1, 2, 0)),
-    )
-    assert all(
-        a.conflicts_with(b)
-        for a, b in ((allocations[0], allocations[1]), (allocations[0], allocations[2]))
-    )
-    assert closure_pressure(allocations) == 50
-    assert antichain_pressure(allocations, work_budget=None) == 70
-
-
-def test_the_bound_chain_holds_on_the_no_common_cut_clique() -> None:
-    allocations = (
-        Allocation(id=0, size=20, start=(1, 0, 0), end=(1, 2, 1)),
-        Allocation(id=1, size=20, start=(0, 2, 0), end=(1, 2, 1)),
-        Allocation(id=2, size=30, start=(1, 0, 0), end=(1, 2, 0)),
-    )
-    placed = allocate(allocations, "omni")
-    assert (
-        closure_pressure(allocations)
-        <= antichain_pressure(allocations, work_budget=None)
-        <= placement_pressure(placed)
-    )

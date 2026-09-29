@@ -3,7 +3,6 @@
 #
 
 
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +11,6 @@ from omnimalloc import allocate
 from omnimalloc.allocators import GreedyAllocator
 from omnimalloc.benchmark.results.result import BenchmarkResult
 from omnimalloc.benchmark.sources.generator import RandomSource
-
-from tests.markers import needs_matplotlib
 
 Fixture = tuple[Any, GreedyAllocator, RandomSource]
 
@@ -104,22 +101,17 @@ def test_benchmark_result_frozen(allocated_pool: Fixture) -> None:
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
-@needs_matplotlib
 def test_benchmark_result_visualize_no_file(allocated_pool: Fixture) -> None:
+    pytest.importorskip("matplotlib")
     _make(allocated_pool).visualize()
 
 
-@needs_matplotlib
-def test_benchmark_result_visualize_with_file(allocated_pool: Fixture) -> None:
-    result = _make(allocated_pool)
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-    try:
-        result.visualize(tmp_path)
-        assert tmp_path.exists()
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+def test_benchmark_result_visualize_with_file(
+    allocated_pool: Fixture, tmp_path: Path
+) -> None:
+    pytest.importorskip("matplotlib")
+    _make(allocated_pool).visualize(tmp_path / "result.pdf")
+    assert (tmp_path / "result.pdf").exists()
 
 
 def test_benchmark_result_different_num_allocations() -> None:

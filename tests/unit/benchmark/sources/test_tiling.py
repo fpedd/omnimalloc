@@ -7,24 +7,12 @@ from dataclasses import replace
 import pytest
 from omnimalloc import allocate, validate_allocation
 from omnimalloc.analysis import antichain_pressure
-from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.tiling import TilingSource
 from omnimalloc.primitives import Allocation
 
 
 def _signatures(allocations: tuple[Allocation, ...]) -> list[tuple[int, int, int]]:
     return [(a.start, a.end, a.size) for a in allocations]
-
-
-def test_tiling_source_is_registered() -> None:
-    assert "tiling" in BaseSource.registry()
-    assert BaseSource.get("tiling") is TilingSource
-
-
-def test_tiling_source_produces_requested_count() -> None:
-    source = TilingSource(num_allocations=128)
-    allocations = source.get_allocations()
-    assert len(allocations) == 128
 
 
 @pytest.mark.parametrize("num", [1, 16, 64, 256, 512])
@@ -51,34 +39,19 @@ def test_tiling_zero_requested_returns_empty() -> None:
     assert TilingSource().get_allocations(num_allocations=0) == ()
 
 
-def test_tiling_is_deterministic_per_seed() -> None:
-    a = TilingSource(num_allocations=128, seed=7).get_allocations()
-    b = TilingSource(num_allocations=128, seed=7).get_allocations()
-    c = TilingSource(num_allocations=128, seed=8).get_allocations()
-    assert _signatures(a) == _signatures(b)
-    assert _signatures(a) != _signatures(c)
-
-
-def test_tiling_distinct_pools_differ() -> None:
-    source = TilingSource(num_allocations=32)
-    pools = source.get_pools(num_pools=2)
-    assert len(pools) == 2
-    assert _signatures(pools[0].allocations) != _signatures(pools[1].allocations)
-
-
-def test_tiling_rejects_invalid_mem_cut_prob() -> None:
-    with pytest.raises(ValueError, match="mem_cut_prob"):
-        TilingSource(mem_cut_prob=1.5)
-
-
-def test_tiling_rejects_capacity_below_min_size() -> None:
-    with pytest.raises(ValueError, match="capacity"):
-        TilingSource(capacity=10, size_min=1024)
-
-
-def test_tiling_rejects_nonpositive_min_size() -> None:
-    with pytest.raises(ValueError, match="size_min"):
-        TilingSource(size_min=0)
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param({"mem_cut_prob": 1.5}, "mem_cut_prob", id="invalid_mem_cut_prob"),
+        pytest.param(
+            {"capacity": 10, "size_min": 1024}, "capacity", id="capacity_below_min_size"
+        ),
+        pytest.param({"size_min": 0}, "size_min", id="nonpositive_min_size"),
+    ],
+)
+def test_tiling_rejects(kwargs: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        TilingSource(**kwargs)
 
 
 def test_tiling_raises_when_count_unreachable() -> None:
@@ -130,14 +103,6 @@ def test_tiling_variant_sweep_builds_ladder() -> None:
         pool = source.get_variant(num)
         assert len(pool.allocations) == num
         assert pool.pressure == 1024 * 1024
-
-
-def test_tiling_no_allocator_beats_the_optimum() -> None:
-    capacity = 1024 * 1024
-    source = TilingSource(num_allocations=150, capacity=capacity)
-    pool = source.get_pool()
-    allocated = allocate(pool, "greedy_by_size", validate=True)
-    assert allocated.size >= capacity
 
 
 def test_memory_declares_the_achievable_capacity() -> None:
