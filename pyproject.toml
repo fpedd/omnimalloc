@@ -43,7 +43,6 @@ all = [
   "deap>=1.4.0",
   "huggingface-hub>=0.35.0",
   "matplotlib>=3.10.0",
-  "numpy>=1.25.0",
   "onnx>=1.19.0",
   "tqdm>=4.66.0",
 ]
@@ -86,7 +85,7 @@ test-command = "pytest {project}/tests/unit -x --no-header -q"
 
 [tool.cibuildwheel.linux]
 archs = ["auto"]
-before-all = "yum install -y cmake || apk add cmake"
+before-all = "yum install -y cmake"
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
@@ -143,8 +142,6 @@ log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)s] %(message)s (%(filename)s:%(lineno)d)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
-
-[tool.ty]
 
 [tool.ty.rules]
 # Ignores guarding optional imports are needed without the dep, unused with it
