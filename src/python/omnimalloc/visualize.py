@@ -3,12 +3,12 @@
 #
 
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
-from typing import Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from omnimalloc.analysis import antichain_pressure, conflict_degrees, try_linearize
 from omnimalloc.analysis._clock import time_components, uniform_dim
-from omnimalloc.common.intervals import stack_around_pins
 from omnimalloc.common.optional import require_optional
 from omnimalloc.primitives import (
     Allocation,
@@ -21,29 +21,16 @@ from omnimalloc.primitives import (
 
 try:
     import matplotlib.pyplot as plt
-    from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
     from matplotlib.patches import Patch, Rectangle
     from matplotlib.ticker import FuncFormatter, MaxNLocator, MultipleLocator
 
     HAS_MATPLOTLIB = True
-
 except ImportError:
-    from types import SimpleNamespace
-
     HAS_MATPLOTLIB = False
 
-    plt = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        subplots=None,
-        show=None,
-    )
-    Axes = None  # ty: ignore[invalid-assignment]
-    Figure = None  # ty: ignore[invalid-assignment]
-    Patch = None  # ty: ignore[invalid-assignment]
-    Rectangle = None  # ty: ignore[invalid-assignment]
-    FuncFormatter = None  # ty: ignore[invalid-assignment]
-    MaxNLocator = None  # ty: ignore[invalid-assignment]
-    MultipleLocator = None  # ty: ignore[invalid-assignment]
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 # Rendering guard: plot annotation gives up within tens of milliseconds
 # rather than stall on a second-scale conflict sweep.
@@ -137,18 +124,17 @@ def _projected(alloc: Allocation, extent: tuple[int, int]) -> Allocation:
 def _panel_extents(memory: Memory) -> tuple[dict[int, tuple[int, int]], bool]:
     """Projected lifetimes for one memory's panel; True when conflict-exact."""
     allocations = _memory_allocations(memory)
-    if len({alloc.dim for alloc in allocations}) == 1:
-        try:
-            linearized = try_linearize(tuple(allocations))
-        except RuntimeError:
-            linearized = None  # Over budget: fall back to the summed extents
-        if linearized is not None:
-            # Linearized bounds are scalar by construction; ty sees the vector union
-            return {  # ty: ignore[invalid-return-type]
-                id(alloc): (lin.start, lin.end)
-                for alloc, lin in zip(allocations, linearized, strict=True)
-            }, True
-    return {id(alloc): _sum_extent(alloc) for alloc in allocations}, False
+    try:
+        linearized = try_linearize(allocations)
+    except (ValueError, RuntimeError):
+        linearized = None  # Mixed dims or over budget: fall back to summed extents
+    if linearized is None:
+        return {id(alloc): _sum_extent(alloc) for alloc in allocations}, False
+    # Linearized bounds are scalar by construction; ty sees the vector union
+    return {  # ty: ignore[invalid-return-type]
+        id(alloc): (lin.start, lin.end)
+        for alloc, lin in zip(allocations, linearized, strict=True)
+    }, True
 
 
 def _conflict_pairs(allocations: tuple[Allocation, ...]) -> int | None:
@@ -218,58 +204,23 @@ def _select_lanes(
     return sorted(ranked[:max_lanes])
 
 
-def _memory_top(memory: Memory, pool_offsets: dict[Pool, int]) -> int:
-    """Highest address the drawn layout reaches, pinned pools included.
-
-    `used_size` misses a pool pinned above the sum of pool sizes and `extent`
-    refuses unplaced pools, so read the top off the offsets actually drawn.
-    """
-    return max(
-        (pool_offsets[pool] + pool.size for pool in memory.pools),
-        default=0,
-    )
-
-
-def _get_y_limits(
-    system: System, offsets: dict[Memory, dict[Pool, int]]
-) -> dict[Memory, tuple[int, int]]:
-    limits: dict[Memory, tuple[int, int]] = {}
-    for memory in system.memories:
-        size = memory.size
-        used = _memory_top(memory, offsets[memory])
-
-        if size is None or used > size:
-            # No declared size (or usage exceeds it), scale to 1.2x used
-            y_limit = used * 1.2
-
-        elif used >= size * 0.5:
-            # Usage is 50-100% of the declared size, use the size as limit
-            y_limit = size
-
-        else:
-            # Usage below 50% of the declared size, scale to 2x usage
-            y_limit = used * 2
-
-        # Clamp to at least 1 so downstream tick spacing stays positive
-        # even for entities with zero used memory.
-        limits[memory] = (0, max(int(y_limit), 1))
-
-    return limits
-
-
-def _get_y_offsets(system: System) -> dict[Memory, dict[Pool, int]]:
-    offsets: dict[Memory, dict[Pool, int]] = {}
-    for memory in system.memories:
-        stacked = stack_around_pins(
-            [pool.size for pool in memory.pools],
-            [pool.offset for pool in memory.pools],
-        )
-        offsets[memory] = dict(zip(memory.pools, stacked, strict=True))
-    return offsets
+def _y_limits(memory: Memory) -> tuple[int, int]:
+    size, used = memory.size, memory.extent
+    if size is None or used > size:
+        # No declared size (or usage exceeds it), scale to 1.2x used
+        y_limit = used * 1.2
+    elif used >= size * 0.5:
+        # Usage is 50-100% of the declared size, use the size as limit
+        y_limit = size
+    else:
+        # Usage below 50% of the declared size, scale to 2x usage
+        y_limit = used * 2
+    # Clamp to at least 1 so tick spacing stays positive for zero usage
+    return 0, max(int(y_limit), 1)
 
 
 def _draw_allocation(
-    ax: Axes,
+    ax: "Axes",
     alloc: Allocation,
     offset: int,
     color: str,
@@ -299,7 +250,7 @@ def _draw_allocation(
 
 
 def _draw_pool_background(
-    ax: Axes, y_offset: int, pool_size: int, colors: set[str]
+    ax: "Axes", y_offset: int, pool_size: int, colors: set[str]
 ) -> None:
     """Draw background rectangle for allocation pool (gray for mixed/empty kinds)."""
     color = next(iter(colors)) if len(colors) == 1 else "gray"
@@ -315,7 +266,7 @@ def _draw_pool_background(
     ax.add_patch(rect)
 
 
-def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
+def _draw_limit_lines(ax: "Axes", limits: dict[str, int]) -> None:
     """Draw annotated horizontal lines for used size, declared size, and extras."""
     _, x_max = ax.get_xlim()
     for name, value in limits.items():
@@ -339,7 +290,7 @@ def _draw_limit_lines(ax: Axes, limits: dict[str, int]) -> None:
         )
 
 
-def _set_axes_ticks(ax: Axes, y_limit: int, num_ticks: int = 8) -> None:
+def _set_axes_ticks(ax: "Axes", y_limit: int, num_ticks: int = 8) -> None:
     """Configure axis ticks and formatters."""
     tick_size = y_limit / num_ticks
     divisor, unit = _byte_unit(y_limit)
@@ -361,10 +312,9 @@ def _lane_panels(
     system: System, max_lanes: int | None
 ) -> tuple[list[_Panel], str | None]:
     """One panel per (memory, thread): each thread's local-time projection."""
-    dims = {memory: _memory_dim(memory) for memory in system.memories}
+    dims = [_memory_dim(memory) for memory in system.memories]
     panels = []
-    for memory in system.memories:
-        dim = dims[memory]
+    for memory, dim in zip(system.memories, dims, strict=True):
         allocations = _memory_allocations(memory)
         lanes = _select_lanes(allocations, dim, max_lanes)
         threads = f", {dim} threads" if dim > 1 else ""
@@ -383,7 +333,7 @@ def _lane_panels(
                     title=_memory_title(memory, threads) if index == 0 else None,
                 )
             )
-    caveat = LANE_CAVEAT if any(dim > 1 for dim in dims.values()) else None
+    caveat = LANE_CAVEAT if any(dim > 1 for dim in dims) else None
     return panels, caveat
 
 
@@ -419,7 +369,7 @@ def _projection_panels(system: System) -> tuple[list[_Panel], str | None]:
     return panels, caveat
 
 
-def _add_legend(fig: Figure) -> None:
+def _add_legend(fig: "Figure") -> None:
     """Add figure legend for allocation kinds."""
     handles = [
         Patch(color=color, label=kind.name, alpha=0.8)
@@ -435,7 +385,7 @@ def _add_legend(fig: Figure) -> None:
 
 
 def _set_axes_limits(
-    ax: Axes,
+    ax: "Axes",
     x_limits: tuple[int, int],
     y_limits: tuple[int, int],
     size: int | None,
@@ -459,13 +409,10 @@ def _set_axes_limits(
 
 
 def _draw_panel(
-    ax: Axes,
-    panel: _Panel,
-    y_limits: tuple[int, int],
-    y_offsets: dict[Pool, int],
-    capacities: dict[IdType, dict[str, int]],
+    ax: "Axes", panel: _Panel, capacities: dict[IdType, dict[str, int]]
 ) -> None:
     memory = panel.memory
+    y_limits = _y_limits(memory)
     if panel.title is not None:
         ax.set_title(panel.title)
     ax.set_xlabel(panel.xlabel)
@@ -484,19 +431,18 @@ def _draw_panel(
         )
 
     for pool in memory.pools:
-        y_offset = y_offsets[pool]
-
+        assert pool.offset is not None
         colors: set[str] = set()
         for alloc in pool.allocations:
             color = _get_allocation_color(alloc.kind)
             colors.add(color)
             extent = panel.extents.get(id(alloc))
             if extent is not None:
-                _draw_allocation(ax, alloc, y_offset, color, extent)
-        _draw_pool_background(ax, y_offset, pool.size, colors)
+                _draw_allocation(ax, alloc, pool.offset, color, extent)
+        _draw_pool_background(ax, pool.offset, pool.size, colors)
 
     # Draw used-size, declared-size, and extra capacity lines
-    limits: dict[str, int] = {"used": _memory_top(memory, y_offsets)}
+    limits: dict[str, int] = {"used": memory.extent}
     if memory.size is not None:
         limits["size"] = memory.size
     limits.update(capacities.get(memory.id, {}))
@@ -527,17 +473,8 @@ def _visualize_system(
     )
     axs = [axs] if len(panels) == 1 else axs
 
-    y_offsets = _get_y_offsets(system)
-    y_limits = _get_y_limits(system, y_offsets)
-
     for ax, panel in zip(axs, panels, strict=True):
-        _draw_panel(
-            ax,
-            panel,
-            y_limits[panel.memory],
-            y_offsets[panel.memory],
-            capacities,
-        )
+        _draw_panel(ax, panel, capacities)
 
     if caveat is not None:
         # Both projections of a partial order are sound but lossy: visible
@@ -581,10 +518,11 @@ def plot_allocation(
         entity = Pool.from_allocations(entity)
 
     if not entity.is_allocated:
-        raise ValueError(f"Cannot plot {entity.id!r}: not all allocations have offsets")
+        raise ValueError(f"Cannot plot {entity.id!r}: not all offsets are assigned")
 
     if isinstance(entity, Pool):
-        entity = Memory(id=entity.id, pools=(entity,))
+        base = entity.offset if entity.offset is not None else 0
+        entity = Memory(id=entity.id, pools=(replace(entity, offset=base),))
 
     if isinstance(entity, Memory):
         entity = System(id=f"system_{entity.id}", memories=(entity,))
