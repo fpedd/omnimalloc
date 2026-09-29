@@ -12,6 +12,13 @@ T = TypeVar("T")
 
 def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
     """Raise if any id repeats; id-keyed placement assumes uniqueness."""
+    # Fast path: one set build answers the common all-unique case; the loop
+    # below only runs to name the offending entity
+    try:
+        if len({entity.id for entity in entities}) == len(entities):
+            return
+    except AttributeError:
+        pass
     seen: dict[Any, int] = {}
     for index, entity in enumerate(entities):
         if not hasattr(entity, "id"):

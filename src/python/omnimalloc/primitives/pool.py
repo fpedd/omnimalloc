@@ -34,7 +34,7 @@ class Pool:
     @classmethod
     def from_allocations(cls, allocations: Sequence[Allocation]) -> "Pool":
         """Wrap a raw sequence of allocations in an anonymous pool."""
-        return cls(id=0, allocations=ensure_allocations(allocations))
+        return cls(id=0, allocations=allocations)
 
     @cached_property
     def size(self) -> int:
@@ -82,10 +82,15 @@ class Pool:
 
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
         """Assign offsets to the unpinned allocations, preserving input order."""
-        allocated = allocator.allocate(self.allocations)
-        # Allocators may reorder internally; restore the pool's input order so
-        # positions in the returned tuple keep corresponding to the request
-        placed_by_id = {a.id: a for a in allocated}
-        return self.with_allocations(
-            tuple(placed_by_id[a.id] for a in self.allocations)
-        )
+        return self.with_allocations(allocate_in_order(self.allocations, allocator))
+
+
+def allocate_in_order(
+    allocations: tuple[Allocation, ...], allocator: "BaseAllocator"
+) -> tuple[Allocation, ...]:
+    """Run the allocator and return its placements in the input order."""
+    allocated = allocator.allocate(allocations)
+    # Allocators may reorder internally; restore the input order so positions
+    # in the returned tuple keep corresponding to the request
+    placed_by_id = {a.id: a for a in allocated}
+    return tuple(placed_by_id[a.id] for a in allocations)
