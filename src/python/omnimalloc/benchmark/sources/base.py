@@ -83,7 +83,6 @@ class BaseSource(Registered):
 
     def get_variant(self, variant_id: IdType) -> Pool:
         """Get a specific pool variant by ID."""
-
         if isinstance(variant_id, int):
             allocations = self.get_allocations(num_allocations=variant_id)
             if not allocations:
