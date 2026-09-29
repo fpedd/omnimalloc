@@ -5,7 +5,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from omnimalloc._cpp import first_fit_place
+from omnimalloc._cpp import first_fit_place, omni_place
 from omnimalloc.analysis import conflict_degrees, placement_pressure
 from omnimalloc.analysis._clock import time_components, uniform_dim
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
@@ -176,6 +176,11 @@ class GreedyByAllAllocator(GreedyAllocator):
         self._num_threads = num_threads
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        # PROTOTYPE: the C++ omni portfolio races the same seven orders over one
+        # shared adjacency; budget 0 disables its linearized surrogate orders
+        return tuple(omni_place(allocations, 0))
+
+    def _allocate_python(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         variants: tuple[BaseAllocator, ...] = (
             GreedyAllocator(),
             GreedyBySizeAllocator(),
