@@ -3,7 +3,6 @@
 #
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from omnimalloc.allocators import BaseAllocator
@@ -17,12 +16,6 @@ try:
     mpl.use("Agg")
 except ImportError:
     pass
-
-
-@pytest.fixture  # type: ignore[misc]
-def artifacts_dir(tmp_path: Path) -> Path:
-    # Kept only for tests/integration/test_supermalloc.py; use tmp_path directly
-    return tmp_path
 
 
 @pytest.fixture(autouse=True)  # type: ignore[misc]
