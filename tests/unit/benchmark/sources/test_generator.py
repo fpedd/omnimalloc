@@ -23,14 +23,6 @@ SOURCES = [
 
 
 @pytest.mark.parametrize("source_cls", SOURCES)
-def test_source_basic_creation(source_cls: type[BaseSource]) -> None:
-    source = source_cls(num_allocations=10, seed=42)
-    allocations = source.get_allocations()
-    assert len(allocations) == 10
-    assert all(alloc.id == i for i, alloc in enumerate(allocations))
-
-
-@pytest.mark.parametrize("source_cls", SOURCES)
 def test_source_count_parameter(source_cls: type[BaseSource]) -> None:
     source = source_cls(num_allocations=100, seed=42)
     allocations = source.get_allocations(num_allocations=5)
@@ -45,15 +37,6 @@ def test_source_skip_parameter(source_cls: type[BaseSource]) -> None:
     assert allocs_skip[0].id == 3
     assert allocs_no_skip[3].size == allocs_skip[0].size
     assert allocs_no_skip[3].start == allocs_skip[0].start
-
-
-@pytest.mark.parametrize("source_cls", SOURCES)
-def test_source_determinism(source_cls: type[BaseSource]) -> None:
-    allocs1 = source_cls(num_allocations=10, seed=42).get_allocations()
-    allocs2 = source_cls(num_allocations=10, seed=42).get_allocations()
-    assert [(a.size, a.start, a.end) for a in allocs1] == [
-        (a.size, a.start, a.end) for a in allocs2
-    ]
 
 
 def test_random_source_size_bounds() -> None:

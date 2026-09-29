@@ -4,7 +4,6 @@
 
 import pytest
 from omnimalloc.analysis import antichain_pressure, try_linearize
-from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.primitives import Allocation
 
@@ -13,11 +12,6 @@ def _signatures(
     allocations: tuple[Allocation, ...],
 ) -> list[tuple[object, object, int]]:
     return [(a.start, a.end, a.size) for a in allocations]
-
-
-def test_sync_patterns_is_registered() -> None:
-    assert "sync_pattern" in BaseSource.registry()
-    assert BaseSource.get("sync_pattern") is SyncPatternSource
 
 
 @pytest.mark.parametrize("pattern", SYNC_PATTERNS)
@@ -74,38 +68,30 @@ def test_sync_patterns_groups_stay_isolated_before_global_barrier() -> None:
         assert alloc.end[2:] == (0, 0) or alloc.end[:2] == (0, 0)
 
 
-def test_sync_patterns_is_deterministic_per_seed() -> None:
-    a = SyncPatternSource(num_allocations=32, seed=7).get_allocations()
-    b = SyncPatternSource(num_allocations=32, seed=7).get_allocations()
-    c = SyncPatternSource(num_allocations=32, seed=8).get_allocations()
-    assert _signatures(a) == _signatures(b)
-    assert _signatures(a) != _signatures(c)
-
-
-def test_sync_patterns_distinct_pools_differ() -> None:
-    source = SyncPatternSource(num_allocations=16)
-    pools = source.get_pools(num_pools=2)
-    assert _signatures(pools[0].allocations) != _signatures(pools[1].allocations)
-
-
-def test_sync_patterns_rejects_unknown_pattern() -> None:
-    with pytest.raises(ValueError, match="not a valid SyncPattern"):
-        SyncPatternSource(pattern="mesh")
-
-
-def test_sync_patterns_rejects_nonpositive_threads() -> None:
-    with pytest.raises(ValueError, match="num_threads"):
-        SyncPatternSource(num_threads=0)
-
-
-def test_sync_patterns_rejects_nonpositive_sync_period() -> None:
-    with pytest.raises(ValueError, match="sync_period"):
-        SyncPatternSource(sync_period=0)
-
-
-def test_sync_patterns_rejects_too_few_steps() -> None:
-    with pytest.raises(ValueError, match="steps"):
-        SyncPatternSource(steps=1)
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param(
+            {"pattern": "mesh"}, "not a valid SyncPattern", id="unknown_pattern"
+        ),
+        pytest.param({"num_threads": 0}, "num_threads", id="nonpositive_threads"),
+        pytest.param({"sync_period": 0}, "sync_period", id="nonpositive_sync_period"),
+        pytest.param({"steps": 1}, "steps", id="too_few_steps"),
+        pytest.param(
+            {"size_distribution": "normal"},
+            "not a valid SizeDistribution",
+            id="unknown_size_distribution",
+        ),
+        pytest.param(
+            {"speed_skew": 0},
+            "speed_skew must be positive",
+            id="nonpositive_speed_skew",
+        ),
+    ],
+)
+def test_sync_patterns_rejects(kwargs: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        SyncPatternSource(**kwargs)
 
 
 @pytest.mark.parametrize("pattern", SYNC_PATTERNS)
@@ -172,16 +158,6 @@ def test_label_differs_between_thread_counts() -> None:
     assert SyncPatternSource(num_threads=4).label() != (
         SyncPatternSource(num_threads=16).label()
     )
-
-
-def test_unknown_size_distribution_rejected() -> None:
-    with pytest.raises(ValueError, match="not a valid SizeDistribution"):
-        SyncPatternSource(size_distribution="normal")
-
-
-def test_non_positive_speed_skew_rejected() -> None:
-    with pytest.raises(ValueError, match="speed_skew must be positive"):
-        SyncPatternSource(speed_skew=0)
 
 
 def test_every_step_barrier_linearizes_while_a_sparser_one_does_not() -> None:

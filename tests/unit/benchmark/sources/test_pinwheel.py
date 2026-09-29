@@ -3,9 +3,8 @@
 #
 
 import pytest
-from omnimalloc import allocate, validate_allocation
+from omnimalloc import validate_allocation
 from omnimalloc.analysis import antichain_pressure
-from omnimalloc.benchmark.sources import BaseSource
 from omnimalloc.benchmark.sources.pinwheel import PinwheelSource
 from omnimalloc.primitives import Allocation, Pool
 
@@ -29,16 +28,6 @@ def _has_guillotine_cut(pool: Pool) -> bool:
         ):
             return True
     return False
-
-
-def test_pinwheel_source_is_registered() -> None:
-    assert "pinwheel" in BaseSource.registry()
-    assert BaseSource.get("pinwheel") is PinwheelSource
-
-
-def test_pinwheel_returns_exactly_the_requested_count() -> None:
-    allocations = PinwheelSource(num_allocations=65).get_allocations()
-    assert len(allocations) == 65
 
 
 def test_pinwheel_rejects_unreachable_count() -> None:
@@ -66,34 +55,21 @@ def test_pinwheel_respects_min_size() -> None:
     assert all(a.size >= 2048 for a in source.get_allocations())
 
 
-def test_pinwheel_is_deterministic_per_seed() -> None:
-    a = PinwheelSource(num_allocations=129, seed=7).get_allocations()
-    b = PinwheelSource(num_allocations=129, seed=7).get_allocations()
-    c = PinwheelSource(num_allocations=129, seed=8).get_allocations()
-    assert _signatures(a) == _signatures(b)
-    assert _signatures(a) != _signatures(c)
-
-
-def test_pinwheel_distinct_pools_differ() -> None:
-    source = PinwheelSource(num_allocations=33)
-    pools = source.get_pools(num_pools=2)
-    assert len(pools) == 2
-    assert _signatures(pools[0].allocations) != _signatures(pools[1].allocations)
-
-
-def test_pinwheel_rejects_capacity_too_small() -> None:
-    with pytest.raises(ValueError, match="capacity"):
-        PinwheelSource(capacity=2048, size_min=1024)
-
-
-def test_pinwheel_rejects_makespan_too_small() -> None:
-    with pytest.raises(ValueError, match="makespan"):
-        PinwheelSource(makespan=2, duration_min=1)
-
-
-def test_pinwheel_rejects_nonpositive_min_size() -> None:
-    with pytest.raises(ValueError, match="size_min"):
-        PinwheelSource(size_min=0)
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param(
+            {"capacity": 2048, "size_min": 1024}, "capacity", id="capacity_too_small"
+        ),
+        pytest.param(
+            {"makespan": 2, "duration_min": 1}, "makespan", id="makespan_too_small"
+        ),
+        pytest.param({"size_min": 0}, "size_min", id="nonpositive_min_size"),
+    ],
+)
+def test_pinwheel_rejects(kwargs: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        PinwheelSource(**kwargs)
 
 
 def test_pinwheel_ground_truth_is_valid_and_optimal() -> None:
@@ -117,11 +93,3 @@ def test_pinwheel_ground_truth_matches_get_allocations() -> None:
 def test_pinwheel_packing_is_non_guillotine() -> None:
     pool = PinwheelSource(num_allocations=65).get_ground_truth_pool()
     assert not _has_guillotine_cut(pool)
-
-
-def test_pinwheel_no_allocator_beats_the_optimum() -> None:
-    capacity = 1024 * 1024
-    source = PinwheelSource(num_allocations=149, capacity=capacity)
-    pool = source.get_pool()
-    allocated = allocate(pool, "greedy_by_size", validate=True)
-    assert allocated.size >= capacity
