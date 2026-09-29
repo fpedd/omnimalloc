@@ -191,16 +191,21 @@ class SupermallocAllocator(BaseAllocator):
             "".join(h) for h in GREEDY_HEURISTICS if h not in self._heuristics
         ]
 
-        portfolio = _Portfolio(
-            partitions=[base.reorder(code) for code in heuristic_codes],
-            threads=threads,
-            deadline=deadline,
-        )
-
         incumbent = greedy_pack_portfolio(
-            base, greedy_codes, portfolio.remaining(), threads
+            base, greedy_codes, deadline_remaining(deadline), threads
         )
-        best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
+        best, proved_optimal = None, True
+        # The search members are one reorder each, seconds of work at scale,
+        # and wasted whenever the incumbent already meets the lower bound
+        if incumbent.peak > base.lower_bound:
+            portfolio = _Portfolio(
+                partitions=[base.reorder(code) for code in heuristic_codes],
+                threads=threads,
+                deadline=deadline,
+            )
+            best, proved_optimal = _search(
+                portfolio, base.lower_bound, incumbent.peak
+            )
         if best is None:
             best = incumbent
         return SupermallocResult(
