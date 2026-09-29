@@ -61,12 +61,12 @@ def test_get_by_name() -> None:
 
 
 def test_get_invalid_name() -> None:
-    with pytest.raises(KeyError, match="'invalid' not in"):
+    with pytest.raises(ValueError, match="'invalid' not in"):
         ExampleBase.get("invalid")
 
 
 def test_get_error_shows_available() -> None:
-    with pytest.raises(KeyError, match=r"Available:.*foo_bar"):
+    with pytest.raises(ValueError, match=r"Available:.*foo_bar"):
         ExampleBase.get("nonexistent")
 
 

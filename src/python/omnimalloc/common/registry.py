@@ -24,14 +24,12 @@ class Registered(ABC):
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
 
-        # Direct subclass of Registered: initialize registry, don't register
-        if Registered in cls.__bases__:
-            cls._name = _camel_to_snake(cls.__name__)
+        # A direct subclass of Registered roots a registry; roots and abstract
+        # classes keep their full name and skip registration
+        is_root = Registered in cls.__bases__
+        if is_root:
             cls._registry = {}
-            return
-
-        # Abstract classes keep their full name and skip registration
-        if inspect.isabstract(cls):
+        if is_root or inspect.isabstract(cls):
             cls._name = _camel_to_snake(cls.__name__)
             return
 
@@ -39,7 +37,7 @@ class Registered(ABC):
         # inheritance already resolves
         cls._name = _derive_name(cls.__name__, cls._strip_suffix)
         registered = cls._registry.get(cls._name)
-        if registered is not None and registered is not cls:
+        if registered is not None:
             raise RuntimeError(
                 f"Registry name '{cls._name}' already taken by "
                 f"{registered.__qualname__}; cannot register {cls.__qualname__}"
@@ -61,18 +59,19 @@ class Registered(ABC):
 
     @classmethod
     def get(cls, name: str) -> type[Self]:
-        """Get a registered class by name."""
-        if name in cls._registry:
-            return cls._registry[name]
-        raise KeyError(cls._unknown_name_message(name))
+        """Get a registered class by name; raise ValueError for an unknown one."""
+        if name not in cls._registry:
+            available = ", ".join(f"'{n}'" for n in sorted(cls._registry))
+            raise ValueError(
+                f"'{name}' not in {cls.__name__} registry. Available: {available}"
+            )
+        return cls._registry[name]
 
     @classmethod
     def resolve(cls, value: "Self | type[Self] | str") -> Self:
         """Normalize a registry name, class, or instance into an instance."""
         if isinstance(value, str):
-            if value not in cls._registry:
-                raise ValueError(cls._unknown_name_message(value))
-            value = cls._registry[value]
+            value = cls.get(value)
         if isinstance(value, type):
             if not issubclass(value, cls):
                 raise TypeError(f"{value.__qualname__} is not a {cls.__name__}")
@@ -80,11 +79,6 @@ class Registered(ABC):
         if not isinstance(value, cls):
             raise TypeError(f"{type(value).__qualname__} is not a {cls.__name__}")
         return cast("Self", value)
-
-    @classmethod
-    def _unknown_name_message(cls, name: str) -> str:
-        available = ", ".join(f"'{n}'" for n in sorted(cls._registry.keys()))
-        return f"'{name}' not in {cls.__name__} registry. Available: {available}"
 
 
 def _derive_name(class_name: str, role_token: str) -> str:
