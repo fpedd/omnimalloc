@@ -17,3 +17,9 @@ def ensure_non_negative(
     if (value is None and not allow_none) or (value is not None and value < 0):
         allowed = "non-negative or None" if allow_none else "non-negative"
         raise ValueError(f"{name} must be {allowed}, got {value}")
+
+
+def ensure_seed(seed: int) -> None:
+    """Raise ValueError unless seed fits the native kernels' uint64 seeds."""
+    if not 0 <= seed < 2**64:
+        raise ValueError(f"seed must be in [0, 2**64), got {seed}")

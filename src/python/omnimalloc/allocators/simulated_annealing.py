@@ -5,7 +5,11 @@
 from omnimalloc._cpp import simulated_annealing_place
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import ensure_valid_timeout
-from omnimalloc.common.validation import ensure_non_negative, ensure_positive
+from omnimalloc.common.validation import (
+    ensure_non_negative,
+    ensure_positive,
+    ensure_seed,
+)
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -29,6 +33,7 @@ class SimulatedAnnealingAllocator(BaseAllocator):
         cooling_rate: float = 0.998,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_positive(max_iterations, "max_iterations")
         ensure_non_negative(initial_temperature, "initial_temperature")
         if not 0.0 < cooling_rate <= 1.0:

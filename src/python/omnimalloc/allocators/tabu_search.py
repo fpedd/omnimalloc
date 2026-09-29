@@ -5,7 +5,7 @@
 from omnimalloc._cpp import tabu_search_place
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import ensure_valid_timeout
-from omnimalloc.common.validation import ensure_positive
+from omnimalloc.common.validation import ensure_positive, ensure_seed
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -29,6 +29,7 @@ class TabuSearchAllocator(BaseAllocator):
         tabu_tenure: int = 15,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_positive(max_iterations, "max_iterations")
         ensure_positive(neighborhood_size, "neighborhood_size")
         ensure_positive(tabu_tenure, "tabu_tenure")

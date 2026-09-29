@@ -6,7 +6,7 @@ import random
 import threading
 from typing import Any, cast
 
-from omnimalloc._cpp import FirstFitPlacer, GreedyOrder, greedy_order
+from omnimalloc._cpp import FirstFitPlacer, GreedyOrder, greedy_order, greedy_place
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import (
     deadline_expired,
@@ -14,10 +14,15 @@ from omnimalloc.common.deadline import (
     make_deadline,
 )
 from omnimalloc.common.optional import require_optional
-from omnimalloc.common.validation import ensure_non_negative, ensure_positive
+from omnimalloc.common.validation import (
+    ensure_non_negative,
+    ensure_positive,
+    ensure_seed,
+)
 from omnimalloc.primitives import Allocation
 
-from .greedy import GreedyAllocator
+from .base import BaseAllocator
+from .greedy import _linearized
 
 try:
     from deap import algorithms, base, creator, tools
@@ -32,13 +37,27 @@ except ImportError:
 # section is a process-wide critical section rather than per-instance state
 _GLOBAL_RNG_LOCK = threading.Lock()
 
+# The greedy orders seeding the population
+_SEED_ORDERS = (
+    GreedyOrder.SIZE,
+    GreedyOrder.DURATION,
+    GreedyOrder.AREA,
+    GreedyOrder.CONFLICT,
+    GreedyOrder.CONFLICT_SIZE,
+    GreedyOrder.START,
+    GreedyOrder.CONTENTION,
+)
 
-class GeneticAllocator(GreedyAllocator):
+
+class GeneticAllocator(BaseAllocator):
     """Genetic algorithm allocator that evolves greedy placement orders.
 
     `timeout` (default 3s) bounds wall-clock time between generations,
     independent of `max_generations`; set it to None to disable the deadline.
     """
+
+    supports_vector_time = True
+    supports_pinned = True
 
     def __init__(
         self,
@@ -52,6 +71,7 @@ class GeneticAllocator(GreedyAllocator):
     ) -> None:
         if not HAS_DEAP:
             require_optional("deap", "GeneticAllocator")
+        ensure_seed(seed)
         ensure_positive(population_size, "population_size")
         ensure_non_negative(max_generations, "max_generations")
         if not 0.0 <= crossover_prob <= 1.0 or not 0.0 <= mutation_prob <= 1.0:
@@ -83,33 +103,10 @@ class GeneticAllocator(GreedyAllocator):
                 fitness=creator.OmnimallocFitnessMin,  # ty: ignore[unresolved-attribute]
             )
 
-    def _evaluate_permutation(
-        self, permutation: list[int], placer: FirstFitPlacer
-    ) -> tuple[float]:
-        """Evaluate a permutation by computing its greedy peak memory usage."""
-        return (float(placer.peak(permutation)),)
-
-    def _heuristic_permutations(
-        self, allocations: tuple[Allocation, ...]
-    ) -> list[list[int]]:
-        """Create seed permutations mirroring the greedy sort heuristics."""
-        orders = (
-            GreedyOrder.SIZE,
-            GreedyOrder.DURATION,
-            GreedyOrder.AREA,
-            GreedyOrder.CONFLICT,
-            GreedyOrder.CONFLICT_SIZE,
-            GreedyOrder.START,
-            GreedyOrder.CONTENTION,
-        )
-        return [greedy_order(allocations, order) for order in orders][
-            : self._population_size
-        ]
-
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         """Evolve permutations using a genetic algorithm to find best allocation."""
-        if len(allocations) < 2:
-            return super()._allocate(allocations)
+        if len(allocations) < 2:  # ordered crossover needs two genes
+            return tuple(greedy_place(allocations, GreedyOrder.INPUT))
 
         # DEAP operators draw from the global random module, so the seeding is
         # process-wide: seed, restore the caller's stream afterwards, and lock
@@ -137,22 +134,30 @@ class GeneticAllocator(GreedyAllocator):
             creator.OmnimallocIndividual,  # ty: ignore[unresolved-attribute]
             toolbox.indices,  # ty: ignore[unresolved-attribute]
         )
-        toolbox.register("evaluate", self._evaluate_permutation, placer=placer)
+        toolbox.register(
+            "evaluate", lambda permutation: (float(placer.peak(permutation)),)
+        )
         toolbox.register("mate", tools.cxOrdered)
         toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
         # TODO(fpedd): Try larger tournsize and selNSGA2
         toolbox.register("select", tools.selTournament, tournsize=self._tournament_size)
 
-        # Seed the population with heuristic orders, fill up with random ones
+        # Seed the population with the greedy orders, fill up with random ones
         # OmnimallocIndividual and individual() are dynamically created by DEAP
+        # CONTENTION ranks vector clocks on their surrogate, as greedy_by_contention
+        line = _linearized(allocations)
         population = [
-            creator.OmnimallocIndividual(permutation)  # ty: ignore[unresolved-attribute]
-            for permutation in self._heuristic_permutations(allocations)
+            creator.OmnimallocIndividual(  # ty: ignore[unresolved-attribute]
+                greedy_order(line, order)
+                if line is not None and order is GreedyOrder.CONTENTION
+                else placer.order(order)
+            )
+            for order in _SEED_ORDERS[: self._population_size]
         ]
-        population += [
-            toolbox.individual()  # ty: ignore[unresolved-attribute]
-            for _ in range(self._population_size - len(population))
-        ]
+        while len(population) < self._population_size and not deadline_expired(
+            deadline
+        ):
+            population.append(toolbox.individual())  # ty: ignore[unresolved-attribute]
 
         hall_of_fame = tools.HallOfFame(maxsize=1)
 

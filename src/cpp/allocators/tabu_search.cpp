@@ -30,6 +30,7 @@ int64_t tabu_key(size_t a, size_t b, size_t num_allocations) {
 std::vector<Allocation> tabu_search_place(
     const std::vector<Allocation>& allocations,
     const TabuSearchConfig& config) {
+  const Deadline deadline = make_deadline(config.timeout);
   const FirstFitPlacer placer(allocations);
   std::vector<size_t> order = initial_order(allocations);
   if (allocations.size() < 2) {
@@ -44,9 +45,8 @@ std::vector<Allocation> tabu_search_place(
   int64_t best_peak = current_peak;
 
   std::mt19937_64 rng(config.seed);
+  // Last iteration each recorded swap stays forbidden
   std::unordered_map<int64_t, int> tabu_until;
-
-  const auto deadline = make_deadline(config.timeout);
 
   for (int iteration = 0; iteration < config.max_iterations; ++iteration) {
     if (deadline_expired(deadline)) {
@@ -79,7 +79,8 @@ std::vector<Allocation> tabu_search_place(
 
       auto tabu_it =
           tabu_until.find(tabu_key(order[target_pos], order[other_pos], n));
-      bool is_tabu = tabu_it != tabu_until.end() && tabu_it->second > iteration;
+      bool is_tabu =
+          tabu_it != tabu_until.end() && tabu_it->second >= iteration;
 
       std::swap(order[target_pos], order[other_pos]);
       std::vector<Allocation> candidate_placed = placer.place(order);

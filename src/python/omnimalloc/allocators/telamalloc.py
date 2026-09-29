@@ -5,7 +5,7 @@
 from omnimalloc._cpp import telamalloc_place
 from omnimalloc.common.constants import DEFAULT_SEED, DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import ensure_valid_timeout
-from omnimalloc.common.validation import ensure_non_negative
+from omnimalloc.common.validation import ensure_non_negative, ensure_seed
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
@@ -27,6 +27,7 @@ class TelamallocAllocator(BaseAllocator):
         max_backtracks: int = 10000,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_non_negative(max_backtracks, "max_backtracks")
         ensure_valid_timeout(timeout)
 
