@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -21,18 +20,9 @@ except ImportError:
 
 
 @pytest.fixture  # type: ignore[misc]
-def artifacts_dir(request: pytest.FixtureRequest) -> Path:
-    artifacts_root = Path(__file__).parent / "artifacts"
-    test_name = request.node.name
-    test_file = Path(request.node.fspath).stem
-    test_dir = artifacts_root / test_file / test_name
-
-    if test_dir.exists():
-        shutil.rmtree(test_dir)
-
-    test_dir.mkdir(parents=True)
-
-    return Path(test_dir)
+def artifacts_dir(tmp_path: Path) -> Path:
+    # Kept only for tests/integration/test_supermalloc.py; use tmp_path directly
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)  # type: ignore[misc]
