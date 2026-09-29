@@ -199,7 +199,7 @@ def _pip_install(spec: str) -> None:
 def _ensure_minimalloc() -> None:
     """Install Google's minimalloc on demand (no PyPI wheel)."""
     try:
-        import minimalloc  # type: ignore  # noqa: F401
+        import minimalloc  # ty: ignore[unresolved-import]  # noqa: F401
     except ImportError:
         print(f"minimalloc not installed, installing from {MINIMALLOC_URL} ...")
         _pip_install(MINIMALLOC_URL)

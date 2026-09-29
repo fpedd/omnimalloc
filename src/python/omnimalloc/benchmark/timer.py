@@ -5,13 +5,15 @@
 import time
 from types import TracebackType
 
+from typing_extensions import Self
+
 
 class Timer:
     """Context manager measuring the wall time of its block."""
 
     elapsed_ns: int = 0
 
-    def __enter__(self) -> "Timer":
+    def __enter__(self) -> Self:
         self._start_ns = time.perf_counter_ns()
         return self
 
