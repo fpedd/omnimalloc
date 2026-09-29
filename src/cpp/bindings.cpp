@@ -254,13 +254,15 @@ NB_MODULE(_cpp, m) {
                   "allocations"_a, nb::call_guard<nb::gil_scoped_release>())
       .def("reorder", &Partition::reorder, "heuristic"_a,
            nb::call_guard<nb::gil_scoped_release>())
-      .def("with_bound", &Partition::with_bound, "bound"_a,
-           nb::call_guard<nb::gil_scoped_release>())
       .def_prop_ro("lower_bound", &Partition::lower_bound);
 
   nb::class_<Solution>(m, "Solution")
       .def_ro("allocations", &Solution::allocations)
       .def_ro("peak", &Solution::peak);
+
+  nb::class_<SearchResult>(m, "SearchResult")
+      .def_ro("solution", &SearchResult::solution)
+      .def_ro("exhausted", &SearchResult::exhausted);
 
   m.def("greedy_pack_portfolio", &greedy_pack_portfolio, "partition"_a,
         "heuristics"_a, "timeout"_a.none(), "num_threads"_a,
@@ -270,16 +272,17 @@ NB_MODULE(_cpp, m) {
   // five search switches bind flat; SearchOptions stays C++-internal.
   m.def(
       "try_solve_many",
-      [](const std::vector<Partition>& partitions, int64_t best_bound,
-         std::optional<int64_t> max_nodes, bool canonical, bool dominance,
-         bool floor_inference, bool monotonic_floor, bool decompose,
-         std::optional<double> timeout, int num_threads) {
+      [](const std::vector<Partition>& partitions,
+         const std::vector<int64_t>& bounds, std::optional<int64_t> max_nodes,
+         bool canonical, bool dominance, bool floor_inference,
+         bool monotonic_floor, bool decompose, std::optional<double> timeout,
+         int num_threads) {
         return try_solve_many(
-            partitions, best_bound, max_nodes,
+            partitions, bounds, max_nodes,
             {canonical, dominance, floor_inference, monotonic_floor, decompose},
             timeout, num_threads);
       },
-      "partitions"_a, "best_bound"_a, "max_nodes"_a.none(), "canonical"_a,
+      "partitions"_a, "bounds"_a, "max_nodes"_a.none(), "canonical"_a,
       "dominance"_a, "floor_inference"_a, "monotonic_floor"_a, "decompose"_a,
       "timeout"_a.none(), "num_threads"_a,
       nb::call_guard<nb::gil_scoped_release>());

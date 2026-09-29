@@ -5,7 +5,7 @@
 from typing import cast
 
 import pytest
-from omnimalloc._cpp import Partition, try_solve_many
+from omnimalloc._cpp import Partition, SearchResult, try_solve_many
 from omnimalloc.allocators.supermalloc import (
     Heuristic,
     SortKey,
@@ -21,30 +21,37 @@ def _assert_valid(result: tuple[Allocation, ...]) -> None:
     validate_allocation(Pool(id="test_pool", allocations=result))
 
 
-def _ablation_solve(
+FLAGS = ("canonical", "dominance", "floor_inference", "monotonic_floor", "decompose")
+
+# Small enough that even the weakest ablation searches exhaustively in ms
+ABLATION_CASES = (
+    tuple(Allocation(id=i, size=100 + i, start=i % 4, end=4 + i % 5) for i in range(8)),
+    tuple(
+        Allocation(id=i, size=1 + i % 3, start=i % 5, end=i % 5 + 3) for i in range(9)
+    ),
+    tuple(Allocation(id=i, size=8, start=2 * i, end=2 * i + 3) for i in range(8)),
+)
+
+
+def _search(
     allocations: tuple[Allocation, ...],
-    canonical: bool = True,
-    dominance: bool = True,
-    floor_inference: bool = True,
-    monotonic_floor: bool = True,
-    decompose: bool = True,
-) -> tuple[Allocation, ...]:
+    bound: int,
+    max_nodes: int | None = None,
+    **disabled: bool,
+) -> SearchResult:
+    flags = dict.fromkeys(FLAGS, True) | disabled
     partition = Partition.from_allocations(allocations)
-    bound = sum(a.size for a in allocations) + 1
-    solution = try_solve_many(
-        [partition.with_bound(bound)],
-        bound,
-        None,
-        canonical,
-        dominance,
-        floor_inference,
-        monotonic_floor,
-        decompose,
-        2.0,
-        1,
+    return try_solve_many(
+        [partition], [bound], max_nodes, **flags, timeout=None, num_threads=1
     )
-    assert solution is not None
-    return tuple(solution.allocations)
+
+
+def _optimum(allocations: tuple[Allocation, ...], **disabled: bool) -> int:
+    result = _search(allocations, sum(a.size for a in allocations) + 1, **disabled)
+    assert result.exhausted
+    assert result.solution is not None
+    _assert_valid(tuple(result.solution.allocations))
+    return result.solution.peak
 
 
 def test_empty() -> None:
@@ -89,16 +96,26 @@ def test_preserves_ids_and_sizes() -> None:
     assert {(a.id, a.size) for a in result} == {(a.id, a.size) for a in allocations}
 
 
-@pytest.mark.parametrize(
-    "flag",
-    ["canonical", "dominance", "floor_inference", "monotonic_floor", "decompose"],
-)
-def test_ablation_flags_still_valid(flag: str) -> None:
-    allocations = tuple(
-        Allocation(id=i, size=100 + i, start=i % 4, end=4 + i % 5) for i in range(8)
-    )
-    placed = _ablation_solve(allocations, **{flag: False})
-    _assert_valid(placed)
+@pytest.mark.parametrize("flag", FLAGS)
+@pytest.mark.parametrize("allocations", ABLATION_CASES)
+def test_ablation_keeps_the_optimum(
+    flag: str, allocations: tuple[Allocation, ...]
+) -> None:
+    assert _optimum(allocations, **{flag: False}) == _optimum(allocations)
+
+
+def test_search_below_the_optimum_is_exhausted_empty() -> None:
+    allocations = ABLATION_CASES[0]
+    result = _search(allocations, _optimum(allocations))
+    assert result.solution is None
+    assert result.exhausted
+
+
+def test_search_out_of_nodes_is_not_exhausted() -> None:
+    allocations = ABLATION_CASES[0]
+    result = _search(allocations, sum(a.size for a in allocations) + 1, max_nodes=1)
+    assert result.solution is None
+    assert not result.exhausted
 
 
 def test_deterministic_single_threaded() -> None:
@@ -168,9 +185,12 @@ def test_interleaved_lifetimes() -> None:
     assert placement_pressure(result) == 300
 
 
-def test_solve_reports_a_proved_optimum() -> None:
+@pytest.mark.parametrize("num_threads", [1, 4])
+def test_solve_reports_a_proved_optimum(num_threads: int) -> None:
     allocations = tuple(Allocation(id=i, size=8, start=i, end=i + 2) for i in range(12))
-    result = SupermallocAllocator(timeout=5.0).solve(allocations)
+    result = SupermallocAllocator(timeout=5.0, num_threads=num_threads).solve(
+        allocations
+    )
     assert result.peak == result.lower_bound
     assert result.proved_optimal
 

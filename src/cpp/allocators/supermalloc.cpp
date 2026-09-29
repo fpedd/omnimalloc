@@ -729,11 +729,11 @@ void solve_dfs(Partition& node, int64_t min_offset, int min_idx, SearchCtx& ctx,
     return;
   }
   // The clock is orders of magnitude costlier than a node, so sample it every
-  // 256 nodes; the deadline loses at most microseconds of precision.
+  // 256 nodes, starting with the first; precision is lost in microseconds.
   if (ctx.nodes >= ctx.node_limit ||
       ctx.portfolio_best.load(std::memory_order_relaxed) <=
           ctx.problem_lower_bound ||
-      ((ctx.nodes & 255) == 0 &&
+      ((ctx.nodes & 255) == 1 &&
        std::chrono::steady_clock::now() > ctx.deadline)) {
     ctx.stopped = true;
     return;
@@ -917,17 +917,23 @@ Solution greedy_pack_portfolio(const Partition& partition,
   validate_heuristics(heuristics);
 
   const auto deadline = compute_deadline(timeout);
+  const int64_t lower_bound = partition.lower_bound();
   std::vector<std::optional<Solution>> results(heuristics.size());
   std::atomic<size_t> next{0};
+  std::atomic<bool> optimal{false};
 
   // The first heuristic is packed regardless of the deadline so that at
-  // least one result always exists.
+  // least one result always exists; a packing at the lower bound ends it.
   run_workers(
       [&]() {
         for (size_t i = next.fetch_add(1); i < heuristics.size();
              i = next.fetch_add(1)) {
-          if (i > 0 && std::chrono::steady_clock::now() > deadline) break;
+          if (i > 0 && (optimal.load(std::memory_order_relaxed) ||
+                        std::chrono::steady_clock::now() > deadline)) {
+            break;
+          }
           results[i] = partition.greedy_pack(heuristics[i]);
+          if (results[i]->peak <= lower_bound) optimal = true;
         }
       },
       num_threads, heuristics.size());
@@ -939,39 +945,49 @@ Solution greedy_pack_portfolio(const Partition& partition,
   return std::move(*best);
 }
 
-std::optional<Solution> try_solve_many(const std::vector<Partition>& partitions,
-                                       int64_t best_bound,
-                                       std::optional<int64_t> max_nodes,
-                                       SearchOptions options,
-                                       std::optional<double> timeout,
-                                       int num_threads) {
-  if (partitions.empty()) return std::nullopt;
+SearchResult try_solve_many(const std::vector<Partition>& partitions,
+                            const std::vector<int64_t>& bounds,
+                            std::optional<int64_t> max_nodes,
+                            SearchOptions options,
+                            std::optional<double> timeout, int num_threads) {
+  if (partitions.empty() || bounds.empty()) return {std::nullopt, true};
 
+  const size_t num_members = partitions.size() * bounds.size();
   const int64_t node_limit = max_nodes.value_or(INT64_MAX);
   const auto deadline = compute_deadline(timeout);
-  std::atomic<int64_t> shared_best{best_bound};
-  std::vector<std::optional<Solution>> results(partitions.size());
+  std::atomic<int64_t> shared_best{
+      *std::max_element(bounds.begin(), bounds.end())};
+  std::atomic<bool> exhausted{true};
+  std::vector<std::optional<Solution>> results(num_members);
   std::atomic<size_t> next{0};
 
+  // Member i searches partitions[i % P] below bounds[i / P].
   run_workers(
       [&]() {
-        for (size_t i = next.fetch_add(1); i < partitions.size();
+        for (size_t i = next.fetch_add(1); i < num_members;
              i = next.fetch_add(1)) {
-          Partition root = partitions[i];
-          root.set_best_height(std::min(
-              root.best_height(), shared_best.load(std::memory_order_relaxed)));
+          Partition root = partitions[i % partitions.size()];
+          root.set_best_height(
+              std::min(bounds[i / partitions.size()],
+                       shared_best.load(std::memory_order_relaxed)));
           SearchCtx ctx{node_limit, deadline, options, shared_best,
                         root.lower_bound()};
           solve_dfs(root, 0, 0, ctx, results[i], false);
+          // A stop once the portfolio meets the lower bound misses nothing
+          if (ctx.stopped && shared_best.load() > ctx.problem_lower_bound) {
+            exhausted = false;
+          }
         }
       },
-      num_threads, partitions.size());
+      num_threads, num_members);
 
-  std::optional<Solution> best;
+  SearchResult result{std::nullopt, exhausted};
   for (auto& r : results) {
-    if (r && (!best || r->peak < best->peak)) best = std::move(*r);
+    if (r && (!result.solution || r->peak < result.solution->peak)) {
+      result.solution = std::move(*r);
+    }
   }
-  return best;
+  return result;
 }
 
 }  // namespace omnimalloc

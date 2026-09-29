@@ -6,7 +6,13 @@ import logging
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from omnimalloc._cpp import Partition, Solution, greedy_pack_portfolio, try_solve_many
+from omnimalloc._cpp import (
+    Partition,
+    SearchResult,
+    Solution,
+    greedy_pack_portfolio,
+    try_solve_many,
+)
 from omnimalloc.allocators.base import BaseAllocator
 from omnimalloc.common.constants import DEFAULT_TIMEOUT
 from omnimalloc.common.deadline import (
@@ -56,6 +62,11 @@ GREEDY_HEURISTICS: tuple[Heuristic, ...] = (
 )
 
 
+# Node budget of a member's first round, doubled whenever a round ends with
+# neither a solution nor a proof
+_FIRST_MAX_NODES = 10_000
+
+
 @dataclass(frozen=True)
 class _Portfolio:
     """Search invariants for one allocate() run."""
@@ -65,33 +76,24 @@ class _Portfolio:
     # Absolute time.monotonic() deadline; None means the search is unbounded.
     deadline: float | None
 
-    def remaining(self) -> float | None:
-        """Seconds left on the budget (0.0 once expired), or None when unbounded."""
-        return deadline_remaining(self.deadline)
-
     def expired(self) -> bool:
         return deadline_expired(self.deadline)
 
-    def solve(self, bounds: tuple[int, ...]) -> Solution | None:
-        """Run one portfolio round, or None once the budget has expired.
+    def solve(self, bounds: tuple[int, ...], max_nodes: int | None) -> SearchResult:
+        """Run one portfolio round over every (bound, partition) pair.
 
-        The budget is read once per round so the expiry check and the round's
-        timeout agree. Ablations call `_cpp.try_solve_many` directly.
+        Ablations call `_cpp.try_solve_many` directly.
         """
-        remaining = self.remaining()
-        if remaining is not None and remaining <= 0:
-            return None
-        members = [p.with_bound(b) for b in bounds for p in self.partitions]
         return try_solve_many(
-            members,
-            max(bounds),
-            None,
+            self.partitions,
+            bounds,
+            max_nodes,
             canonical=True,
             dominance=True,
             floor_inference=True,
             monotonic_floor=True,
             decompose=True,
-            timeout=remaining,
+            timeout=deadline_remaining(self.deadline),
             num_threads=self.threads,
         )
 
@@ -117,24 +119,27 @@ class SupermallocResult:
 def _search(portfolio: _Portfolio, low: int, peak: int) -> tuple[Solution | None, bool]:
     """Run the concurrent bound-ladder search below the incumbent `peak`.
 
-    Returns the best solution and whether optimality was proved: the solver
-    reports "none below" and "budget gone" alike, so time left is the proof.
+    Returns the best solution and whether optimality was proved.
     """
     best: Solution | None = None
-    rungs = max(1, portfolio.threads // len(portfolio.partitions))
-    exhausted = False
-    while peak > low:
-        result = portfolio.solve(_bound_ladder(low, peak, rungs))
-        if result is None:
-            exhausted = not portfolio.expired()
-            break
-        best, peak = result, result.peak
+    # Always the incumbent and low + 1 rungs, however few the threads
+    rungs = max(2, portfolio.threads // len(portfolio.partitions))
+    # Members beyond the thread count run one after another, and an unbounded
+    # one would spend the whole deadline; node budgets let every member run
+    serial = rungs * len(portfolio.partitions) > portfolio.threads
+    max_nodes = _FIRST_MAX_NODES if serial else None
+    while peak > low and not portfolio.expired():
+        result = portfolio.solve(_bound_ladder(low, peak, rungs), max_nodes)
+        if result.solution is not None:
+            best, peak = result.solution, result.solution.peak
+        elif result.exhausted:
+            return best, True  # no member found anything below `peak`
+        elif max_nodes is not None:
+            max_nodes *= 2
 
-    proved_optimal = peak <= low or exhausted
-    if not proved_optimal:
+    if peak > low:
         logger.debug("Supermalloc timed out above lower bound: %d > %d", peak, low)
-
-    return best, proved_optimal
+    return best, peak <= low
 
 
 class SupermallocAllocator(BaseAllocator):
@@ -192,16 +197,19 @@ class SupermallocAllocator(BaseAllocator):
             "".join(h) for h in GREEDY_HEURISTICS if h not in self._heuristics
         ]
 
-        portfolio = _Portfolio(
-            partitions=[base.reorder(code) for code in heuristic_codes],
-            threads=threads,
-            deadline=deadline,
-        )
-
         incumbent = greedy_pack_portfolio(
-            base, greedy_codes, portfolio.remaining(), threads
+            base, greedy_codes, deadline_remaining(deadline), threads
         )
-        best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
+        best, proved_optimal = None, incumbent.peak <= base.lower_bound
+        # Each search member is a reorder, seconds of work at scale, so build
+        # them only when the incumbent leaves a gap to close
+        if not proved_optimal:
+            portfolio = _Portfolio(
+                partitions=[base.reorder(code) for code in heuristic_codes],
+                threads=threads,
+                deadline=deadline,
+            )
+            best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
         if best is None:
             best = incumbent
         return SupermallocResult(

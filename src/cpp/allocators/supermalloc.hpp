@@ -107,13 +107,6 @@ class Partition {
   void commit(const PlacementUndo& undo);
   void revert(const PlacementUndo& undo, bool committed);
   void set_best_height(int64_t h) noexcept { best_height_ = h; }
-  // Copy with `best_height` set to `bound`: a portfolio member that only
-  // accepts solutions strictly below `bound`.
-  [[nodiscard]] Partition with_bound(int64_t bound) const {
-    Partition copy = *this;
-    copy.best_height_ = bound;
-    return copy;
-  }
 
   // First-fit packing in `heuristic` order (empty keeps the input order):
   // each buffer takes the lowest gap among its already-placed overlaps. Cheap
@@ -213,17 +206,27 @@ class Partition {
 
 // Run `partition.greedy_pack` under each heuristic across `num_threads` and
 // return the best packing, ties to the lowest index. Heuristics claimed after
-// `timeout` are skipped except the first. Throws on an empty/unknown heuristic.
+// `timeout`, or once a packing meets the lower bound, are skipped except the
+// first. Throws on an empty/unknown heuristic.
 [[nodiscard]] Solution greedy_pack_portfolio(
     const Partition& partition, const std::vector<std::string>& heuristics,
     std::optional<double> timeout, int num_threads);
 
-// Run `partitions` as an independent-search portfolio across `num_threads`,
-// sharing one atomic bound so any solution prunes the rest; `max_nodes` caps
-// each member. Returns the best solution beating `best_bound`, else nullopt.
-[[nodiscard]] std::optional<Solution> try_solve_many(
-    const std::vector<Partition>& partitions, int64_t best_bound,
-    std::optional<int64_t> max_nodes, SearchOptions options,
-    std::optional<double> timeout, int num_threads);
+// Portfolio outcome. `exhausted` means no member stopped early (node limit or
+// deadline) short of the lower bound, so the search missed nothing: a nullopt
+// `solution` proves none exists below the bounds.
+struct SearchResult {
+  std::optional<Solution> solution;
+  bool exhausted;
+};
+
+// Run every (bound, partition) pair as an independent-search portfolio member
+// across `num_threads`, bound-major, sharing one atomic bound so any solution
+// prunes the rest; `max_nodes` caps each member. Returns the best solution
+// strictly below the largest bound, if any.
+[[nodiscard]] SearchResult try_solve_many(
+    const std::vector<Partition>& partitions,
+    const std::vector<int64_t>& bounds, std::optional<int64_t> max_nodes,
+    SearchOptions options, std::optional<double> timeout, int num_threads);
 
 }  // namespace omnimalloc
