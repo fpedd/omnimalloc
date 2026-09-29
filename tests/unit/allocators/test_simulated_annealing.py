@@ -123,3 +123,9 @@ def test_simulated_annealing_repr_shows_flat_kwargs() -> None:
         "SimulatedAnnealingAllocator(seed=7, max_iterations=10, "
         "initial_temperature=3.0, cooling_rate=0.998, timeout=3.0)"
     )
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_simulated_annealing_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        SimulatedAnnealingAllocator(seed=seed)

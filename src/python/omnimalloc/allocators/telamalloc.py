@@ -9,6 +9,7 @@ from omnimalloc.common.validation import ensure_non_negative
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
+from .utils import ensure_seed
 
 
 class TelamallocAllocator(BaseAllocator):
@@ -27,6 +28,7 @@ class TelamallocAllocator(BaseAllocator):
         max_backtracks: int = 10000,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_non_negative(max_backtracks, "max_backtracks")
         ensure_valid_timeout(timeout)
 

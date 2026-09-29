@@ -9,6 +9,7 @@ from omnimalloc.common.validation import ensure_positive
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
+from .utils import ensure_seed
 
 
 class TabuSearchAllocator(BaseAllocator):
@@ -29,6 +30,7 @@ class TabuSearchAllocator(BaseAllocator):
         tabu_tenure: int = 15,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_positive(max_iterations, "max_iterations")
         ensure_positive(neighborhood_size, "neighborhood_size")
         ensure_positive(tabu_tenure, "tabu_tenure")

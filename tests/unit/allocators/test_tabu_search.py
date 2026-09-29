@@ -130,3 +130,9 @@ def test_tabu_search_matches_or_beats_single_pass_greedy() -> None:
     searched = TabuSearchAllocator(max_iterations=200).allocate(allocs)
     _assert_valid(searched)
     assert placement_pressure(searched) <= greedy_peak
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_tabu_search_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        TabuSearchAllocator(seed=seed)

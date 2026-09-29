@@ -9,6 +9,7 @@ from omnimalloc.common.validation import ensure_non_negative, ensure_positive
 from omnimalloc.primitives import Allocation
 
 from .base import BaseAllocator
+from .utils import ensure_seed
 
 
 class SimulatedAnnealingAllocator(BaseAllocator):
@@ -29,6 +30,7 @@ class SimulatedAnnealingAllocator(BaseAllocator):
         cooling_rate: float = 0.998,
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> None:
+        ensure_seed(seed)
         ensure_positive(max_iterations, "max_iterations")
         ensure_non_negative(initial_temperature, "initial_temperature")
         if not 0.0 < cooling_rate <= 1.0:
