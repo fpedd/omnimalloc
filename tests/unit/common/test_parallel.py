@@ -8,12 +8,13 @@ from collections.abc import Iterator
 import pytest
 from omnimalloc import Allocation, allocate
 from omnimalloc.analysis import placement_pressure
-from omnimalloc.common.parallel import (
-    available_cores,
-    max_threads,
-    resolve_num_threads,
-    set_max_threads,
-)
+from omnimalloc.common.parallel import max_threads, resolve_num_threads, set_max_threads
+
+
+def available_cores() -> int:
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count() or 1
 
 
 @pytest.fixture(autouse=True)
@@ -21,20 +22,6 @@ def restore_max_threads() -> Iterator[None]:
     original = max_threads()
     yield
     set_max_threads(original)
-
-
-def test_available_cores_is_positive() -> None:
-    assert available_cores() >= 1
-
-
-def test_available_cores_follows_the_affinity_mask() -> None:
-    if not hasattr(os, "sched_getaffinity"):
-        pytest.skip("no affinity support on this platform")
-    assert available_cores() == len(os.sched_getaffinity(0))
-
-
-def test_available_cores_never_exceeds_the_machine() -> None:
-    assert available_cores() <= (os.cpu_count() or 1)
 
 
 def test_explicit_thread_count_passes_through() -> None:

@@ -5,7 +5,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from omnimalloc.allocators import BaseAllocator
@@ -34,7 +34,8 @@ class Pool:
     @classmethod
     def from_allocations(cls, allocations: Sequence[Allocation]) -> "Pool":
         """Wrap a raw sequence of allocations in an anonymous pool."""
-        return cls(id=0, allocations=ensure_allocations(allocations))
+        # __post_init__ coerces and checks the sequence
+        return cls(id=0, allocations=cast("tuple[Allocation, ...]", allocations))
 
     @cached_property
     def size(self) -> int:
@@ -53,9 +54,8 @@ class Pool:
         """Allocation efficiency: ratio of pressure to allocated size."""
         if not self.is_allocated:
             raise ValueError("cannot compute efficiency of unallocated pool")
-        if self.size == 0:
-            return 1.0 if self.pressure == 0 else 0.0
-        return self.pressure / self.size
+        # Allocation sizes are positive, so only an empty pool has size 0
+        return self.pressure / self.size if self.size else 1.0
 
     @cached_property
     def is_allocated(self) -> bool:
@@ -67,25 +67,10 @@ class Pool:
         """True if any allocation has been assigned a memory offset."""
         return any(alloc.offset is not None for alloc in self.allocations)
 
-    def overlaps(self, other: "Pool") -> bool:
-        """True if pools overlap in memory space."""
-        if self.offset is None or other.offset is None:
-            return False
-        return (
-            self.offset < other.offset + other.size
-            and other.offset < self.offset + self.size
-        )
-
     def with_allocations(self, allocations: tuple[Allocation, ...]) -> "Pool":
         """Return new Pool with specified allocations."""
         return Pool(id=self.id, offset=self.offset, allocations=allocations)
 
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
         """Assign offsets to the unpinned allocations, preserving input order."""
-        allocated = allocator.allocate(self.allocations)
-        # Allocators may reorder internally; restore the pool's input order so
-        # positions in the returned tuple keep corresponding to the request
-        placed_by_id = {a.id: a for a in allocated}
-        return self.with_allocations(
-            tuple(placed_by_id[a.id] for a in self.allocations)
-        )
+        return self.with_allocations(allocator.allocate(self.allocations))

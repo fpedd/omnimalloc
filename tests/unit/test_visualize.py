@@ -12,12 +12,11 @@ from omnimalloc.visualize import (
     _conflict_pairs,
     _conflict_visibility,
     _format_bytes,
-    _get_y_limits,
-    _get_y_offsets,
     _lane_panels,
     _panel_extents,
     _projection_panels,
     _select_lanes,
+    _y_limits,
     plot_allocation,
 )
 
@@ -235,7 +234,7 @@ def test_visualize_memory_with_empty_pool(artifacts_dir: Path) -> None:
     memory = Memory(
         id="mem",
         pools=(
-            Pool(id="empty", allocations=()),
+            Pool(id="empty", allocations=(), offset=0),
             Pool(id="full", allocations=(alloc,), offset=0),
         ),
     )
@@ -529,7 +528,7 @@ def test_panel_projection_never_shows_false_conflicts(artifacts_dir: Path) -> No
         )
         for i, start in enumerate(rng_starts)
     )
-    memory = Memory(id="mem", pools=(Pool(id=1, allocations=allocations),))
+    memory = Memory(id="mem", pools=(Pool(id=1, allocations=allocations, offset=0),))
 
     extents, exact = _panel_extents(memory)
 
@@ -558,39 +557,16 @@ def test_y_limits_cover_a_pool_pinned_above_the_sum_of_pool_sizes() -> None:
         allocations=(Allocation(id=2, size=10, start=0, end=5, offset=0),),
         offset=0,
     )
-    memory = Memory(id="m", pools=(high, low))
-    system = System(id="s", memories=(memory,))
-    _, upper = _get_y_limits(system, _get_y_offsets(system))[memory]
+    _, upper = _y_limits(Memory(id="m", pools=(high, low)))
     assert upper >= 1010
 
 
-def test_y_limits_stack_unplaced_pools_from_zero() -> None:
-    first = Pool(
-        id="a", allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),)
+def test_plot_rejects_a_memory_with_an_unplaced_pool_base() -> None:
+    pool = Pool(
+        id="p", allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),)
     )
-    second = Pool(
-        id="b", allocations=(Allocation(id=2, size=20, start=0, end=5, offset=0),)
-    )
-    memory = Memory(id="m", pools=(first, second))
-    system = System(id="s", memories=(memory,))
-    _, upper = _get_y_limits(system, _get_y_offsets(system))[memory]
-    assert upper >= 30
-
-
-def test_y_offsets_stack_unpinned_pools_around_pinned() -> None:
-    pinned = Pool(
-        id="pinned",
-        allocations=(Allocation(id=1, size=10, start=0, end=5, offset=0),),
-        offset=0,
-    )
-    free = Pool(
-        id="free", allocations=(Allocation(id=2, size=10, start=0, end=5, offset=0),)
-    )
-    memory = Memory(id="m", pools=(pinned, free))
-    system = System(id="s", memories=(memory,))
-    offsets = _get_y_offsets(system)[memory]
-    assert offsets[pinned] == 0
-    assert offsets[free] == 10
+    with pytest.raises(ValueError, match="offsets"):
+        plot_allocation(Memory(id="m", pools=(pool,)))
 
 
 def test_plot_rejects_unallocated_entity() -> None:

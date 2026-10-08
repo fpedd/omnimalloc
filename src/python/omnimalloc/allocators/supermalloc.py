@@ -3,7 +3,7 @@
 #
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from omnimalloc._cpp import Partition, Solution, greedy_pack_portfolio, try_solve_many
@@ -167,14 +167,15 @@ class SupermallocAllocator(BaseAllocator):
         `allocate` returns the placement alone, which cannot say whether the
         search proved optimality or merely ran out of budget.
         """
-        pins = self._ensure_preconditions(allocations)
+        self._ensure_preconditions(allocations)
         if not allocations:
             return SupermallocResult(
                 allocations=(), peak=0, lower_bound=0, proved_optimal=True
             )
         result = self._solve(allocations)
-        self._ensure_postconditions(allocations, result.allocations, pins)
-        return result
+        return replace(
+            result, allocations=self._finish(allocations, result.allocations)
+        )
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return self._solve(allocations).allocations

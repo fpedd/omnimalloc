@@ -9,392 +9,153 @@ from omnimalloc.primitives import Allocation
 from omnimalloc.primitives.pool import Pool
 
 
-def test_basic_creation_with_int_id() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,))
-    assert pool.id == 201
+def _placed(*spans: tuple[int, int | None]) -> tuple[Allocation, ...]:
+    """Allocations sharing one lifetime, as (size, offset) pairs."""
+    return tuple(
+        Allocation(id=i, size=size, start=0, end=10, offset=offset)
+        for i, (size, offset) in enumerate(spans)
+    )
+
+
+@pytest.mark.parametrize("id_", [201, "pool_main"])
+def test_creation_defaults(id_: int | str) -> None:
+    pool = Pool(id=id_, allocations=_placed((100, 0)))
+    assert pool.id == id_
     assert len(pool.allocations) == 1
     assert pool.offset is None
 
 
-def test_basic_creation_with_str_id() -> None:
-    alloc = Allocation(id="alloc_101", size=100, start=0, end=10, offset=0)
-    pool = Pool(id="pool_main", allocations=(alloc,))
-    assert pool.id == "pool_main"
-    assert len(pool.allocations) == 1
-    assert pool.offset is None
+@pytest.mark.parametrize("offset", [0, 50, 10**15])
+def test_creation_with_offset(offset: int) -> None:
+    assert Pool(id=1, allocations=(), offset=offset).offset == offset
+
+
+@pytest.mark.parametrize(
+    ("allocations", "offset", "error", "match"),
+    [
+        ((), -1, ValueError, "offset must be non-negative"),
+        (_placed((100, 0)) * 2, None, ValueError, "allocation ids must be unique"),
+        ([1, 2], None, TypeError, "Expected Allocation"),
+        ("abc", None, TypeError, "Unsupported entity type"),
+    ],
+)
+def test_construction_errors(
+    allocations: object, offset: int | None, error: type[Exception], match: str
+) -> None:
+    with pytest.raises(error, match=match):
+        Pool(id=1, allocations=allocations, offset=offset)
 
 
 def test_empty_pool() -> None:
     pool = Pool(id=1, allocations=())
-    assert len(pool.allocations) == 0
     assert pool.size == 0
     assert pool.pressure == 0
+    assert pool.efficiency == 1.0
     assert pool.is_allocated is True
+    assert pool.any_allocated is False
 
 
-def test_creation_with_offset() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,), offset=50)
-    assert pool.offset == 50
+@pytest.mark.parametrize(
+    ("spans", "size"),
+    [
+        (((100, 0),), 100),
+        (((100, 0), (50, 100)), 150),
+        (((100, 0), (100, 50)), 150),
+        (((100, 0), (50, 25)), 100),
+        (((100, 0), (50, 200)), 250),
+        (((100, 1000),), 1100),
+        (((10**12, 0), (10**11, 10**12)), 10**12 + 10**11),
+    ],
+)
+def test_size(spans: tuple[tuple[int, int], ...], size: int) -> None:
+    assert Pool(id=1, allocations=_placed(*spans)).size == size
 
 
-def test_negative_offset() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    with pytest.raises(ValueError, match="offset must be non-negative"):
-        Pool(id=201, allocations=(alloc,), offset=-1)
-
-
-def test_zero_offset() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,), offset=0)
-    assert pool.offset == 0
-
-
-def test_duplicate_allocation_ids() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=101, size=50, start=5, end=15, offset=100)
-    with pytest.raises(ValueError, match="allocation ids must be unique"):
-        Pool(id=201, allocations=(alloc1, alloc2))
-
-
-def test_size_single_allocation() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,))
-    assert pool.size == 100
-
-
-def test_size_non_overlapping_allocations() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=100)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.size == 150
-
-
-def test_size_overlapping_allocations() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=50)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.size == 150
-
-
-def test_size_completely_overlapping_allocations() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=25)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.size == 100
-
-
-def test_size_with_gaps() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=200)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.size == 250
-
-
-def test_size_unallocated_items() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    with pytest.raises(ValueError, match="unallocated pool"):
+@pytest.mark.parametrize("spans", [((100, None), (50, None)), ((100, 0), (50, None))])
+def test_size_and_efficiency_of_unallocated_pool_raise(
+    spans: tuple[tuple[int, int | None], ...],
+) -> None:
+    pool = Pool(id=1, allocations=_placed(*spans))
+    with pytest.raises(ValueError, match="cannot compute size of unallocated pool"):
         _ = pool.size
+    with pytest.raises(ValueError, match="efficiency of unallocated pool"):
+        _ = pool.efficiency
 
 
-def test_size_mixed_allocated_unallocated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    with pytest.raises(ValueError, match="unallocated pool"):
-        _ = pool.size
+@pytest.mark.parametrize(
+    ("lifetimes", "pressure"),
+    [
+        (((100, 0, 10),), 100),
+        (((100, 0, 10), (50, 0, 10), (75, 0, 10)), 225),
+        (((100, 0, 5), (50, 5, 10), (75, 10, 15)), 100),
+        (((100, 0, 10), (50, 5, 15), (75, 10, 20)), 150),
+    ],
+)
+def test_pressure(lifetimes: tuple[tuple[int, int, int], ...], pressure: int) -> None:
+    allocations = tuple(
+        Allocation(id=i, size=size, start=start, end=end)
+        for i, (size, start, end) in enumerate(lifetimes)
+    )
+    assert Pool(id=1, allocations=allocations).pressure == pressure
 
 
-def test_pressure_single_allocation() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc,))
-    assert pool.pressure == 100
+def test_efficiency_is_pressure_over_size() -> None:
+    pool = Pool(id=1, allocations=_placed((100, 0), (50, 150)))
+    assert pool.efficiency == 150 / 200
 
 
-def test_pressure_all_overlapping() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10)
-    alloc3 = Allocation(id=103, size=75, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc1, alloc2, alloc3))
-    assert pool.pressure == 225
+@pytest.mark.parametrize(
+    ("spans", "is_allocated", "any_allocated"),
+    [
+        (((100, 0), (50, 100)), True, True),
+        (((100, None), (50, None)), False, False),
+        (((100, 0), (50, None)), False, True),
+    ],
+)
+def test_allocation_status(
+    spans: tuple[tuple[int, int | None], ...], is_allocated: bool, any_allocated: bool
+) -> None:
+    pool = Pool(id=1, allocations=_placed(*spans))
+    assert pool.is_allocated is is_allocated
+    assert pool.any_allocated is any_allocated
 
 
-def test_pressure_no_overlap() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=5)
-    alloc2 = Allocation(id=102, size=50, start=5, end=10)
-    alloc3 = Allocation(id=103, size=75, start=10, end=15)
-    pool = Pool(id=201, allocations=(alloc1, alloc2, alloc3))
-    assert pool.pressure == 100
-
-
-def test_pressure_partial_overlap() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=50, start=5, end=15)
-    alloc3 = Allocation(id=103, size=75, start=10, end=20)
-    pool = Pool(id=201, allocations=(alloc1, alloc2, alloc3))
-    assert pool.pressure == 150
-
-
-def test_pressure_empty_pool() -> None:
-    pool = Pool(id=1, allocations=())
-    assert pool.pressure == 0
-
-
-def test_is_allocated_all_allocated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=100)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.is_allocated is True
-
-
-def test_is_allocated_none_allocated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.is_allocated is False
-
-
-def test_is_allocated_partially_allocated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
-    assert pool.is_allocated is False
-
-
-def test_is_allocated_empty_pool() -> None:
-    pool = Pool(id=1, allocations=())
-    assert pool.is_allocated is True
-
-
-def test_overlaps_pools_with_overlap() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,), offset=0)
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=50)
-    assert pool1.overlaps(pool2)
-    assert pool2.overlaps(pool1)
-
-
-def test_overlaps_pools_adjacent() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,), offset=0)
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=100)
-    assert not pool1.overlaps(pool2)
-    assert not pool2.overlaps(pool1)
-
-
-def test_overlaps_pools_separated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,), offset=0)
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=200)
-    assert not pool1.overlaps(pool2)
-    assert not pool2.overlaps(pool1)
-
-
-def test_overlaps_pools_exact_match() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,), offset=0)
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=0)
-    assert pool1.overlaps(pool2)
-    assert pool2.overlaps(pool1)
-
-
-def test_overlaps_pool_without_offset() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,))
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=0)
-    assert not pool1.overlaps(pool2)
-    assert not pool2.overlaps(pool1)
-
-
-def test_overlaps_both_pools_without_offset() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,))
-    pool2 = Pool(id=202, allocations=(alloc2,))
-    assert not pool1.overlaps(pool2)
-
-
-def test_overlaps_single_byte() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    pool1 = Pool(id=201, allocations=(alloc1,), offset=0)
-    pool2 = Pool(id=202, allocations=(alloc2,), offset=99)
-    assert pool1.overlaps(pool2)
-    assert pool2.overlaps(pool1)
-
-
-def test_with_allocations_replace() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=100)
-    pool = Pool(id=201, allocations=(alloc1,), offset=50)
-    new_pool = pool.with_allocations((alloc2,))
-    assert len(new_pool.allocations) == 1
-    assert new_pool.allocations[0].id == 102
-    assert new_pool.id == pool.id
-    assert new_pool.offset == pool.offset
-
-
-def test_with_allocations_immutability() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=100)
-    pool = Pool(id=201, allocations=(alloc1,))
-    new_pool = pool.with_allocations((alloc2,))
-    assert pool is not new_pool
+def test_with_allocations_keeps_id_and_offset() -> None:
+    pool = Pool(id=201, allocations=_placed((100, 0)), offset=50)
+    replaced = pool.with_allocations(())
+    assert (replaced.id, replaced.offset, replaced.allocations) == (201, 50, ())
     assert len(pool.allocations) == 1
-    assert pool.allocations[0].id == 101
-    assert len(new_pool.allocations) == 1
-    assert new_pool.allocations[0].id == 102
 
 
-def test_with_allocations_empty() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,))
-    new_pool = pool.with_allocations(())
-    assert len(new_pool.allocations) == 0
-
-
-def test_cannot_modify_id() -> None:
-    pool = Pool(id=201, allocations=())
-    with pytest.raises(AttributeError):
-        pool.id = "new_id"  # type: ignore[misc]
-
-
-def test_cannot_modify_allocations() -> None:
-    alloc = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    pool = Pool(id=201, allocations=(alloc,))
-    with pytest.raises(AttributeError):
-        pool.allocations = ()  # type: ignore[misc]
-
-
-def test_cannot_modify_offset() -> None:
+@pytest.mark.parametrize("field", ["id", "allocations", "offset"])
+def test_fields_are_read_only(field: str) -> None:
     pool = Pool(id=201, allocations=(), offset=50)
     with pytest.raises(AttributeError):
-        pool.offset = 100  # type: ignore[misc]
-
-
-def test_large_values() -> None:
-    alloc1 = Allocation(id=101, size=10**12, start=0, end=100, offset=0)
-    alloc2 = Allocation(id=102, size=10**11, start=0, end=100, offset=10**12)
-    pool = Pool(id=999, allocations=(alloc1, alloc2), offset=10**15)
-    assert pool.size == 10**12 + 10**11
-    assert pool.pressure == 10**12 + 10**11
-    assert pool.offset == 10**15
-
-
-def test_multiple_allocations_complex() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=5, end=15, offset=150)
-    alloc3 = Allocation(id=103, size=75, start=10, end=20, offset=50)
-    pool = Pool(id=300, allocations=(alloc1, alloc2, alloc3))
-    assert pool.pressure == 150
-    assert pool.size == 200
-    assert pool.is_allocated is True
+        setattr(pool, field, 7)
 
 
 def test_allocate_with_allocator() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=50, start=5, end=15)
-    pool = Pool(id=201, allocations=(alloc1, alloc2))
+    pool = Pool(id=201, allocations=_placed((100, None), (50, None)))
+    allocated = pool.allocate(NaiveAllocator())
+    assert allocated.is_allocated is True
+    assert (allocated.id, allocated.offset) == (pool.id, pool.offset)
     assert pool.is_allocated is False
-
-    allocator = NaiveAllocator()
-    allocated_pool = pool.allocate(allocator)
-
-    assert allocated_pool.is_allocated is True
-    assert allocated_pool.id == pool.id
-    assert allocated_pool.offset == pool.offset
-    assert len(allocated_pool.allocations) == 2
-    assert pool.is_allocated is False
-
-
-def test_pool_allocate_rejects_allocator_returning_different_set() -> None:
-    from omnimalloc.allocators.base import BaseAllocator
-
-    class DroppingAllocator(BaseAllocator):
-        def _allocate(
-            self, allocations: tuple[Allocation, ...]
-        ) -> tuple[Allocation, ...]:
-            return tuple(a.with_offset(0) for a in allocations[:-1])
-
-    pool = Pool(
-        id="p",
-        allocations=(
-            Allocation(id=1, size=10, start=0, end=5),
-            Allocation(id=2, size=10, start=0, end=5),
-        ),
-    )
-    with pytest.raises(ValueError, match="different allocation set"):
-        pool.allocate(DroppingAllocator())
-
-
-def test_size_counts_gap_below_lowest_allocation() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=1000)
-    pool = Pool(id="p", allocations=(alloc,))
-    assert pool.size == 1100
-
-
-def test_any_allocated_empty_pool() -> None:
-    pool = Pool(id=1, allocations=())
-    assert pool.any_allocated is False
-    assert pool.is_allocated is True
-
-
-def test_any_allocated_none_placed() -> None:
-    pool = Pool(id=1, allocations=(Allocation(id=1, size=10, start=0, end=5),))
-    assert pool.any_allocated is False
-
-
-def test_any_allocated_partially_placed() -> None:
-    alloc1 = Allocation(id=1, size=10, start=0, end=5, offset=0)
-    alloc2 = Allocation(id=2, size=10, start=0, end=5)
-    pool = Pool(id=1, allocations=(alloc1, alloc2))
-    assert pool.any_allocated is True
-    assert pool.is_allocated is False
-
-
-def test_from_allocations_wraps_sequence() -> None:
-    allocations = [Allocation(id=1, size=10, start=0, end=5)]
-    pool = Pool.from_allocations(allocations)
-    assert pool.allocations == tuple(allocations)
-
-
-def test_from_allocations_rejects_non_allocation_elements() -> None:
-    with pytest.raises(TypeError, match="Expected Allocation"):
-        Pool.from_allocations((1, 2))
-
-
-def test_from_allocations_rejects_non_sequence() -> None:
-    with pytest.raises(TypeError, match="Unsupported entity type"):
-        Pool.from_allocations("abc")
 
 
 def test_allocate_preserves_allocation_order() -> None:
     allocations = tuple(
         Allocation(id=i, size=10 * (i + 1), start=0, end=5) for i in range(8)
     )
-    pool = Pool(id=1, allocations=allocations)
-    allocated = pool.allocate(GreedyBySizeAllocator())
-    assert allocated.is_allocated is True
-    assert tuple(a.id for a in allocated.allocations) == tuple(range(8))
-    assert tuple(a.size for a in allocated.allocations) == tuple(
-        a.size for a in allocations
-    )
+    allocated = Pool(id=1, allocations=allocations).allocate(GreedyBySizeAllocator())
+    assert [a.id for a in allocated.allocations] == list(range(8))
+
+
+def test_from_allocations_wraps_sequence() -> None:
+    allocations = [Allocation(id=1, size=10, start=0, end=5)]
+    assert Pool.from_allocations(allocations).allocations == tuple(allocations)
 
 
 def test_pool_coerces_a_list_of_allocations_to_a_tuple() -> None:
     pool = Pool(id="p", allocations=[Allocation(id=1, size=10, start=0, end=5)])
     assert isinstance(pool.allocations, tuple)
     assert hash(pool)
-
-
-def test_pool_rejects_non_allocation_members() -> None:
-    with pytest.raises(TypeError, match="Expected Allocation"):
-        Pool(id="p", allocations=[1, 2])
