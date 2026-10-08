@@ -131,12 +131,12 @@ def test_order_by_start_is_invariant_under_input_permutation() -> None:
         assert [a.id for a in order_by_start(perm)] == expected
 
 
-def test_order_by_start_breaks_full_ties_by_id() -> None:
+def test_order_by_start_breaks_full_ties_by_input_order() -> None:
     allocs = (
         Allocation(id="b", size=4, start=(0, 0), end=(1, 1)),
         Allocation(id="a", size=4, start=(0, 0), end=(2, 2)),
     )
-    assert [a.id for a in order_by_start(allocs)] == ["a", "b"]
+    assert [a.id for a in order_by_start(allocs)] == ["b", "a"]
 
 
 def test_greedy_by_start_places_vector_time() -> None:
