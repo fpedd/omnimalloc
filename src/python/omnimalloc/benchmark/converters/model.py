@@ -16,6 +16,8 @@ ITEMBITS: Final[dict[str, int]] = {
     "int4": 4,
     "uint4": 4,
     "float4_e2m1fn": 4,
+    "float6_e2m3fn": 6,
+    "float6_e3m2fn": 6,
     "bool": 8,
     "int8": 8,
     "uint8": 8,
