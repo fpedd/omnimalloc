@@ -28,6 +28,7 @@ from omnimalloc.allocators import (
     GreedyByAreaAllocator,
     GreedyByConflictAllocator,
     GreedyByConflictSizeAllocator,
+    GreedyByContentionAllocator,
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
@@ -69,6 +70,7 @@ PACKING_ALLOCATORS = (
     GreedyByConflictAllocator(),
     GreedyByConflictSizeAllocator(),
     GreedyByStartAllocator(),
+    GreedyByContentionAllocator(),
     GreedyByAllAllocator(),
     BestFitAllocator(),
     TelamallocAllocator(timeout=1.0),
@@ -476,6 +478,7 @@ def test_greedy_by_all_still_matches_its_best_variant() -> None:
             GreedyByConflictAllocator(),
             GreedyByConflictSizeAllocator(),
             GreedyByStartAllocator(),
+            GreedyByContentionAllocator(),
         )
     )
     assert placement_pressure(GreedyByAllAllocator().allocate(allocations)) == best

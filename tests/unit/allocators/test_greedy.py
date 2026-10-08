@@ -13,12 +13,15 @@ from omnimalloc.allocators.greedy import (
     GreedyByAreaAllocator,
     GreedyByConflictAllocator,
     GreedyByConflictSizeAllocator,
+    GreedyByContentionAllocator,
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
     allocate_parallel,
+    order_by_contention,
 )
 from omnimalloc.analysis import placement_pressure
+from omnimalloc.benchmark.sources import TwoPlusTwoSource
 from omnimalloc.primitives import Allocation
 from omnimalloc.validate import validate_allocation
 
@@ -33,6 +36,7 @@ from omnimalloc.validate import validate_allocation
         GreedyBySizeAllocator,
         GreedyByConflictSizeAllocator,
         GreedyByStartAllocator,
+        GreedyByContentionAllocator,
         GreedyByAllAllocator,
     ],
 )
@@ -251,6 +255,23 @@ def test_greedy_by_start_allocates_correctly() -> None:
     assert result[1].offset == 100
 
 
+def test_greedy_by_contention_sorts_by_peak_then_duration_then_size() -> None:
+    allocs = (
+        Allocation(id=1, size=1, start=2, end=3),
+        Allocation(id=2, size=2, start=0, end=2),
+        Allocation(id=3, size=1, start=5, end=6),
+        Allocation(id=4, size=3, start=2, end=3),
+        Allocation(id=5, size=1, start=0, end=4),
+        Allocation(id=6, size=1, start=2, end=3),
+    )
+    assert [a.id for a in order_by_contention(allocs)] == [5, 4, 1, 6, 2, 3]
+
+
+def test_greedy_by_contention_keeps_input_order_without_a_scalar_timeline() -> None:
+    allocs = TwoPlusTwoSource(num_allocations=4).get_allocations()
+    assert order_by_contention(allocs) == allocs
+
+
 def test_greedy_allocator_all_overlap() -> None:
     allocator = GreedyAllocator()
     allocs = tuple(Allocation(id=i, size=100, start=0, end=10) for i in range(5))
@@ -330,6 +351,7 @@ def test_greedy_by_all_picks_best_peak() -> None:
         GreedyByConflictAllocator(),
         GreedyByConflictSizeAllocator(),
         GreedyByStartAllocator(),
+        GreedyByContentionAllocator(),
     )
     best_variant_peak = min(placement_pressure(v.allocate(allocs)) for v in variants)
     assert peak == best_variant_peak

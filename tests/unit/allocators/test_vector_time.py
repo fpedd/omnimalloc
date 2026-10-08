@@ -16,6 +16,7 @@ from omnimalloc.allocators.greedy import (
     order_by_area,
     order_by_conflict,
     order_by_conflict_size,
+    order_by_contention,
     order_by_duration,
     order_by_size,
     order_by_start,
@@ -83,6 +84,7 @@ def test_orderings_permute_vector_problems() -> None:
         order_by_conflict,
         order_by_conflict_size,
         order_by_start,
+        order_by_contention,
     )
     for order in orders:
         assert sorted(a.id for a in order(allocs)) == sorted(a.id for a in allocs)

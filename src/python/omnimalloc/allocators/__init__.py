@@ -10,6 +10,7 @@ from .greedy import GreedyByAllAllocator as GreedyByAllAllocator
 from .greedy import GreedyByAreaAllocator as GreedyByAreaAllocator
 from .greedy import GreedyByConflictAllocator as GreedyByConflictAllocator
 from .greedy import GreedyByConflictSizeAllocator as GreedyByConflictSizeAllocator
+from .greedy import GreedyByContentionAllocator as GreedyByContentionAllocator
 from .greedy import GreedyByDurationAllocator as GreedyByDurationAllocator
 from .greedy import GreedyBySizeAllocator as GreedyBySizeAllocator
 from .greedy import GreedyByStartAllocator as GreedyByStartAllocator

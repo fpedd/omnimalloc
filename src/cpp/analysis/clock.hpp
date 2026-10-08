@@ -319,16 +319,18 @@ inline std::vector<int64_t> interval_peaks(
     const std::vector<int64_t>& weights) {
   const std::vector<int64_t> bounds = slot_bounds(times);
   std::vector<int64_t> pressure(bounds.size(), 0);
+  std::vector<std::pair<size_t, size_t>> slots(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
-    pressure[slot_index(bounds, times[i].first)] += weights[i];
-    pressure[slot_index(bounds, times[i].second)] -= weights[i];
+    slots[i] = {slot_index(bounds, times[i].first),
+                slot_index(bounds, times[i].second)};
+    pressure[slots[i].first] += weights[i];
+    pressure[slots[i].second] -= weights[i];
   }
   std::partial_sum(pressure.begin(), pressure.end(), pressure.begin());
   const MaxSegtree live(pressure);
   std::vector<int64_t> peaks(times.size());
   for (size_t i = 0; i < times.size(); ++i) {
-    peaks[i] = live.max(slot_index(bounds, times[i].first),
-                        slot_index(bounds, times[i].second));
+    peaks[i] = live.max(slots[i].first, slots[i].second);
   }
   return peaks;
 }

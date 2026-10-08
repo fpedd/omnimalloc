@@ -22,6 +22,7 @@ from .greedy import (
     order_by_area,
     order_by_conflict,
     order_by_conflict_size,
+    order_by_contention,
     order_by_duration,
     order_by_size,
     order_by_start,
@@ -108,6 +109,7 @@ class GeneticAllocator(GreedyAllocator):
             order_by_conflict,
             order_by_conflict_size,
             order_by_start,
+            order_by_contention,
         )
         positions = {alloc.id: i for i, alloc in enumerate(allocations)}
         permutations = [

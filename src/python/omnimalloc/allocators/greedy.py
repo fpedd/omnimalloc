@@ -6,7 +6,12 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from omnimalloc._cpp import first_fit_place
-from omnimalloc.analysis import conflict_degrees, placement_pressure
+from omnimalloc.analysis import (
+    antichain_pressure_per_allocation,
+    conflict_degrees,
+    placement_pressure,
+    try_linearize,
+)
 from omnimalloc.analysis._clock import time_components, uniform_dim
 from omnimalloc.common.constants import DEFAULT_WORK_BUDGET
 from omnimalloc.common.parallel import resolve_num_threads
@@ -85,6 +90,19 @@ def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...
         ),
     )
     return tuple(allocations[i] for i in order)
+
+
+def order_by_contention(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+    """Order by lifetime peak, duration, size; input order unless linearizable."""
+    line = try_linearize(allocations, DEFAULT_WORK_BUDGET)
+    if line is None:
+        return allocations
+    peaks = antichain_pressure_per_allocation(line)
+    return tuple(
+        sorted(
+            allocations, key=lambda a: (peaks[a.id], a.duration, a.size), reverse=True
+        )
+    )
 
 
 def allocate_parallel(
@@ -168,6 +186,13 @@ class GreedyBySizeAllocator(GreedyAllocator):
         return super()._allocate(order_by_size(allocations))
 
 
+class GreedyByContentionAllocator(GreedyAllocator):
+    """Greedy allocator sorting by peak pressure over the lifetime (highest first)."""
+
+    def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
+        return super()._allocate(order_by_contention(allocations))
+
+
 class GreedyByAllAllocator(GreedyAllocator):
     """Greedy allocator that runs every variant and keeps the best result."""
 
@@ -184,5 +209,6 @@ class GreedyByAllAllocator(GreedyAllocator):
             GreedyByConflictAllocator(),
             GreedyByConflictSizeAllocator(),
             GreedyByStartAllocator(),
+            GreedyByContentionAllocator(),
         )
         return allocate_parallel(allocations, variants, num_threads=self._num_threads)

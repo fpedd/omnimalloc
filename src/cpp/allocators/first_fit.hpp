@@ -31,7 +31,7 @@ struct PortfolioPlacement {
   int64_t peak = 0;
 };
 
-// First-fit over the 7-order greedy portfolio in parallel, keeping the lowest
+// First-fit over the greedy portfolio in parallel, keeping the lowest
 // peak; ties break by the fixed order sequence. A pre-existing offset pins its
 // allocation; `surrogate` appends 3 orders.
 [[nodiscard]] PortfolioPlacement place_portfolio(

@@ -8,6 +8,7 @@ import pytest
 from omnimalloc.allocators import (
     BaseAllocator,
     GreedyByAllAllocator,
+    GreedyByContentionAllocator,
     NaiveAllocator,
     OmniAllocator,
 )
@@ -187,7 +188,7 @@ def test_omni_matches_greedy_portfolio_on_scalar_input() -> None:
     assert omni == _best_greedy_peak(allocations)
 
 
-def test_omni_without_linearization_matches_greedy_portfolio() -> None:
+def test_omni_without_linearization_matches_greedy_on_non_interval_input() -> None:
     allocations = _random_vector(30, dim=3, seed=5)
     omni = placement_pressure(OmniAllocator(linearize_budget=0).allocate(allocations))
     assert omni == _best_greedy_peak(allocations)
@@ -209,7 +210,7 @@ def test_omni_linearize_budget_does_not_lower_quality() -> None:
     )
     unlinearized = OmniAllocator(linearize_budget=0).allocate(allocations)
     linearized = OmniAllocator(linearize_budget=None).allocate(allocations)
-    assert placement_pressure(unlinearized) == _best_greedy_peak(allocations) == 104
+    assert placement_pressure(unlinearized) == 104
     assert placement_pressure(linearized) == 104
 
 
@@ -233,8 +234,46 @@ def test_omni_linearization_widens_the_portfolio() -> None:
     )
     widened = OmniAllocator().allocate(allocations)
     base_only = OmniAllocator(linearize_budget=0).allocate(allocations)
-    assert placement_pressure(base_only) == _best_greedy_peak(allocations) == 140
-    assert placement_pressure(widened) == 139
+    assert placement_pressure(base_only) == 140
+    assert placement_pressure(widened) == _best_greedy_peak(allocations) == 139
+
+
+CONTENTION_GAP = (
+    Allocation(id=0, size=1, start=0, end=1),
+    Allocation(id=1, size=3, start=0, end=2),
+    Allocation(id=2, size=2, start=1, end=4),
+    Allocation(id=3, size=2, start=1, end=3),
+    Allocation(id=4, size=4, start=3, end=8),
+)
+
+
+def test_omni_packs_at_the_bound_where_other_orders_miss() -> None:
+    others = (
+        "greedy",
+        "greedy_by_size",
+        "greedy_by_duration",
+        "greedy_by_area",
+        "greedy_by_conflict",
+        "greedy_by_conflict_size",
+        "greedy_by_start",
+    )
+
+    def peak(allocator: BaseAllocator) -> int:
+        return placement_pressure(allocator.allocate(CONTENTION_GAP))
+
+    assert antichain_pressure(CONTENTION_GAP) == 7
+    assert peak(OmniAllocator()) == peak(GreedyByContentionAllocator()) == 7
+    assert min(peak(BaseAllocator.get(name)()) for name in others) == 8
+
+
+def test_omni_contention_order_needs_a_scalar_timeline() -> None:
+    lockstep = tuple(
+        Allocation(id=a.id, size=a.size, start=(a.start,) * 2, end=(a.end,) * 2)
+        for a in CONTENTION_GAP
+    )
+    assert placement_pressure(OmniAllocator().allocate(lockstep)) == 7
+    assert placement_pressure(GreedyByContentionAllocator().allocate(lockstep)) == 7
+    assert placement_pressure(OmniAllocator(linearize_budget=0).allocate(lockstep)) == 8
 
 
 @pytest.mark.parametrize("num_syncs", [0, 16, 256])

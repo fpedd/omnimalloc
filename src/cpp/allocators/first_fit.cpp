@@ -11,6 +11,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "common/parallel.hpp"
@@ -203,8 +204,9 @@ std::array<std::vector<int32_t>, 3> time_orders(
 }
 
 // The seven greedy_by_* sort orders over one shared adjacency, optionally
-// followed by the three time-derived orders of `surrogate`; place_portfolio
-// races them all. Surrogate orders append, never displacing an input winner.
+// followed by the three time-derived orders of `surrogate`, then
+// greedy_by_contention on whichever timeline is scalar; place_portfolio races
+// them all. Appended orders never displace an earlier winner.
 std::vector<std::vector<int32_t>> greedy_orders(
     const std::vector<Allocation>& allocations,
     const std::vector<Allocation>* surrogate, const CsrAdjacency& adj,
@@ -221,7 +223,7 @@ std::vector<std::vector<int32_t>> greedy_orders(
   std::iota(base.begin(), base.end(), 0);
   auto [by_duration, by_area, by_start] = time_orders(allocations, sizes, base);
   std::vector<std::vector<int32_t>> orders;
-  orders.reserve(10);
+  orders.reserve(11);
   orders.push_back(base);  // greedy (input order)
   orders.push_back(
       sorted_by(base,  // greedy_by_size
@@ -245,6 +247,22 @@ std::vector<std::vector<int32_t>> greedy_orders(
         orders.push_back(std::move(order));
       }
     }
+  }
+  const auto& line = surrogate != nullptr ? *surrogate : allocations;
+  if (std::ranges::all_of(line, &Allocation::is_scalar_time)) {
+    std::vector<std::pair<int64_t, int64_t>> times(n);
+    std::ranges::transform(line, times.begin(), [](const Allocation& a) {
+      return std::pair(a.start(), a.end());
+    });
+    const std::vector<int64_t> peaks = interval_peaks(times, sizes);
+    std::vector<std::tuple<int64_t, int64_t, int64_t>> keys(n);
+    for (size_t i = 0; i < n; ++i) {
+      keys[i] = {peaks[i], allocations[i].duration(), sizes[i]};
+    }
+    orders.push_back(
+        sorted_by(base, [&](int32_t a, int32_t b) {  // greedy_by_contention
+          return keys[a] > keys[b];
+        }));
   }
   return orders;
 }
