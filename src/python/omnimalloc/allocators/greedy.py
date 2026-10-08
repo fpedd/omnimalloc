@@ -86,7 +86,6 @@ def order_by_start(allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...
         key=lambda i: (
             tuple(starts[i][lane] for lane in lanes),
             -allocations[i].size,
-            str(allocations[i].id),
         ),
     )
     return tuple(allocations[i] for i in order)

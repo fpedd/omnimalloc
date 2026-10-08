@@ -188,6 +188,18 @@ def test_omni_matches_greedy_portfolio_on_scalar_input() -> None:
     assert omni == _best_greedy_peak(allocations)
 
 
+def test_omni_matches_greedy_portfolio_on_tied_starts() -> None:
+    allocations = (
+        Allocation(id="f", size=3, start=0, end=1),
+        Allocation(id="i", size=3, start=2, end=5),
+        Allocation(id="c", size=3, start=0, end=3),
+        Allocation(id="a", size=1, start=0, end=2),
+        Allocation(id="b", size=2, start=1, end=4),
+    )
+    omni = placement_pressure(OmniAllocator().allocate(allocations))
+    assert omni == _best_greedy_peak(allocations)
+
+
 def test_omni_without_linearization_matches_greedy_on_non_interval_input() -> None:
     allocations = _random_vector(30, dim=3, seed=5)
     omni = placement_pressure(OmniAllocator(linearize_budget=0).allocate(allocations))
