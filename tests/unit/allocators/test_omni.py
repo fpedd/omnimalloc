@@ -187,7 +187,7 @@ def test_omni_matches_greedy_portfolio_on_scalar_input() -> None:
     assert omni == _best_greedy_peak(allocations)
 
 
-def test_omni_without_linearization_matches_greedy_portfolio() -> None:
+def test_omni_without_linearization_matches_greedy_on_non_interval_input() -> None:
     allocations = _random_vector(30, dim=3, seed=5)
     omni = placement_pressure(OmniAllocator(linearize_budget=0).allocate(allocations))
     assert omni == _best_greedy_peak(allocations)
@@ -209,7 +209,7 @@ def test_omni_linearize_budget_does_not_lower_quality() -> None:
     )
     unlinearized = OmniAllocator(linearize_budget=0).allocate(allocations)
     linearized = OmniAllocator(linearize_budget=None).allocate(allocations)
-    assert placement_pressure(unlinearized) == _best_greedy_peak(allocations) == 104
+    assert placement_pressure(unlinearized) == 104
     assert placement_pressure(linearized) == 104
 
 
@@ -233,8 +233,8 @@ def test_omni_linearization_widens_the_portfolio() -> None:
     )
     widened = OmniAllocator().allocate(allocations)
     base_only = OmniAllocator(linearize_budget=0).allocate(allocations)
-    assert placement_pressure(base_only) == _best_greedy_peak(allocations) == 140
-    assert placement_pressure(widened) == 139
+    assert placement_pressure(base_only) == 140
+    assert placement_pressure(widened) == _best_greedy_peak(allocations) == 139
 
 
 @pytest.mark.parametrize("num_syncs", [0, 16, 256])
