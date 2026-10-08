@@ -14,6 +14,7 @@ from omnimalloc.allocators.greedy import (
     GreedyByAreaAllocator,
     GreedyByConflictAllocator,
     GreedyByConflictSizeAllocator,
+    GreedyByContentionAllocator,
     GreedyByDurationAllocator,
     GreedyBySizeAllocator,
     GreedyByStartAllocator,
@@ -40,6 +41,7 @@ GREEDY_PORTFOLIO = (
     GreedyByConflictAllocator,
     GreedyByConflictSizeAllocator,
     GreedyByStartAllocator,
+    GreedyByContentionAllocator,
 )
 
 

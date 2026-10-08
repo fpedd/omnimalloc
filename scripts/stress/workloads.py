@@ -9,6 +9,7 @@ Wraps the benchmark sources plus shapes no generator produces, and records a
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import cycle
 
 from omnimalloc.benchmark.sources import (
     ConcurrentTilingSource,
@@ -311,6 +312,15 @@ def _vector_chain(n: int, _seed: int) -> tuple[Allocation, ...]:
     )
 
 
+def _contention_gap(n: int, _seed: int) -> tuple[Allocation, ...]:
+    """Disjoint copies of a gadget only the contention order packs at 7 KB."""
+    gadget = ((1, 0, 1), (3, 0, 2), (2, 1, 4), (2, 1, 3), (4, 3, 8))
+    return tuple(
+        Allocation(id=i, size=size * KB, start=8 * (i // 5) + lo, end=8 * (i // 5) + hi)
+        for i, (size, lo, hi) in zip(range(max(n, 5)), cycle(gadget), strict=False)
+    )
+
+
 def _degenerate() -> list[Workload]:
     return [
         Workload("degenerate_identical", "degenerate", 1, _identical),
@@ -333,6 +343,14 @@ def _degenerate() -> list[Workload]:
             tags=frozenset({"overflow"}),
         ),
         Workload("degenerate_string_ids", "degenerate", 1, _string_ids),
+        Workload(
+            "contention_gap",
+            "adversarial",
+            1,
+            _contention_gap,
+            known_optimum=7 * KB,
+            tags=frozenset({"known_optimum", "adversarial"}),
+        ),
         Workload(
             "degenerate_vector_identical",
             "degenerate",

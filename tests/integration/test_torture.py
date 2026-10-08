@@ -70,6 +70,7 @@ PACKING_ALLOCATORS = (
     GreedyByConflictAllocator(),
     GreedyByConflictSizeAllocator(),
     GreedyByStartAllocator(),
+    GreedyByContentionAllocator(),
     GreedyByAllAllocator(),
     BestFitAllocator(),
     TelamallocAllocator(timeout=1.0),

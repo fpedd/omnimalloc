@@ -43,6 +43,7 @@ SCALAR_RIVALS = (
     "greedy_by_conflict",
     "greedy_by_conflict_size",
     "greedy_by_start",
+    "greedy_by_contention",
     "greedy_by_all",
     "best_fit",
     "minimalloc",
