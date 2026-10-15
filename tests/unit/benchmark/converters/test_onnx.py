@@ -70,7 +70,15 @@ def simple_onnx_model() -> "onnx.ModelProto":
 
 # The widths onnx.helper.make_tensor packs a raw tensor to, for the types numpy
 # has no storage for; every other type is one numpy itemsize per element.
-SUB_BYTE_BITS = {"INT2": 2, "UINT2": 2, "INT4": 4, "UINT4": 4, "FLOAT4E2M1": 4}
+SUB_BYTE_BITS = {
+    "INT2": 2,
+    "UINT2": 2,
+    "INT4": 4,
+    "UINT4": 4,
+    "FLOAT4E2M1": 4,
+    "FLOAT6E2M3": 6,
+    "FLOAT6E3M2": 6,
+}
 
 
 def test_itembits_covers_every_onnx_dtype() -> None:
