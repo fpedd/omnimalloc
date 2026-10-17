@@ -126,3 +126,9 @@ def test_hillclimb_repr_omits_the_pinned_kernel_knobs() -> None:
     assert repr(HillClimbAllocator()) == (
         "HillClimbAllocator(seed=42, max_iterations=3000, timeout=3.0)"
     )
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64])
+def test_hillclimb_rejects_out_of_range_seed(seed: int) -> None:
+    with pytest.raises(ValueError, match="seed must be in"):
+        HillClimbAllocator(seed=seed)

@@ -33,13 +33,13 @@ namespace omnimalloc {
 // adjacency: this runs per sampled move, where hashing ids would dominate.
 [[nodiscard]] std::vector<size_t> earlier_neighbors(
     const std::vector<size_t>& order, size_t target_pos,
-    const ConflictIndices& indices);
+    const CsrAdjacency& adj);
 
 // One random peak-lowering move for the local searches: a random position
 // among `peaks` paired with a random earlier temporal neighbor, or nullopt
 // when the chosen target has no earlier position to swap with.
 [[nodiscard]] std::optional<std::pair<size_t, size_t>> propose_peak_swap(
     const std::vector<size_t>& peaks, const std::vector<size_t>& order,
-    const ConflictIndices& indices, std::mt19937_64& rng);
+    const CsrAdjacency& adj, std::mt19937_64& rng);
 
 }  // namespace omnimalloc
