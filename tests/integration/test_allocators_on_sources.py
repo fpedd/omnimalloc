@@ -121,7 +121,7 @@ def test_greedy_with_memory_hierarchy() -> None:
     allocated_memory = allocate(memory, allocator)
 
     validate_allocation(allocated_memory)
-    assert allocated_memory.used_size > 0
+    assert allocated_memory.extent > 0
     assert len(allocated_memory.pools) == 1
 
 

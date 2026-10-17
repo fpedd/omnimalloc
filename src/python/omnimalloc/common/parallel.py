@@ -16,8 +16,7 @@ def set_max_threads(value: int | None) -> None:
     Covers the native kernels and the worker pools alike. The kernels spawn per
     call, so without the default 8, N callers put N times the cores in flight.
     """
-    if value is not None and value < 1:
-        raise ValueError(f"max threads must be positive or None, got {value}")
+    ensure_positive(value, "max threads", allow_none=True)
     _set_max_threads(0 if value is None else value)
 
 

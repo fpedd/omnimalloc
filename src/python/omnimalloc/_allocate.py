@@ -8,6 +8,7 @@ from typing import TypeAlias, TypeVar, overload
 
 from .allocators import DEFAULT_ALLOCATOR, BaseAllocator
 from .primitives import Allocation, Memory, Pool, System
+from .primitives.utils import ensure_allocations
 from .validate import validate_allocation
 
 AllocatorLike: TypeAlias = BaseAllocator | type[BaseAllocator] | str | None
@@ -50,7 +51,7 @@ def allocate(
     if isinstance(entity, System | Memory | Pool):
         allocated = entity.allocate(resolved)
     else:
-        allocated = Pool.from_allocations(entity).allocate(resolved).allocations
+        allocated = resolved.allocate(ensure_allocations(entity))
 
     if validate:
         validate_allocation(allocated)

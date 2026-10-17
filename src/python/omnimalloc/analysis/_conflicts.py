@@ -22,7 +22,7 @@ def conflicts(
     """Conflict map: each allocation's id to the ids it must not share addresses with.
 
     The happens-before conflict relation every placement packs against. Raises
-    past `work_budget`, whose tight default reflects the map, not the sweep.
+    past `work_budget` of sweep work, set tight to spare the map's memory.
     """
     ensure_unique_ids(allocations, "allocation")
     graph = conflict_graph(allocations, work_budget)

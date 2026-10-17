@@ -8,342 +8,173 @@ import pytest
 from omnimalloc.primitives import Allocation, AllocationKind
 
 
-def test_basic_creation_with_int_id() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    assert alloc.id == 1
-    assert alloc.size == 100
-    assert alloc.start == 0
-    assert alloc.end == 10
+@pytest.mark.parametrize("id_", [1, "alloc_1"])
+def test_creation_defaults(id_: int | str) -> None:
+    alloc = Allocation(id=id_, size=100, start=0, end=10)
+    assert (alloc.id, alloc.size, alloc.start, alloc.end) == (id_, 100, 0, 10)
     assert alloc.offset is None
     assert alloc.kind is None
-
-
-def test_basic_creation_with_str_id() -> None:
-    alloc = Allocation(id="alloc_1", size=100, start=0, end=10)
-    assert alloc.id == "alloc_1"
-    assert alloc.size == 100
-    assert alloc.start == 0
-    assert alloc.end == 10
-    assert alloc.offset is None
-    assert alloc.kind is None
-
-
-def test_creation_with_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
-    assert alloc.offset == 50
-    assert alloc.is_allocated is True
-
-
-def test_creation_with_kind() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, kind=AllocationKind.WORKSPACE)
-    assert alloc.kind == AllocationKind.WORKSPACE
-
-
-def test_negative_start() -> None:
-    with pytest.raises(ValueError, match="start must be non-negative"):
-        Allocation(id=1, size=100, start=-1, end=10)
-
-
-def test_end_equal_to_start() -> None:
-    with pytest.raises(ValueError, match=r"end .* must be > start"):
-        Allocation(id=1, size=100, start=5, end=5)
-
-
-def test_end_less_than_start() -> None:
-    with pytest.raises(ValueError, match=r"end .* must be > start"):
-        Allocation(id=1, size=100, start=10, end=5)
-
-
-def test_zero_size() -> None:
-    with pytest.raises(ValueError, match="size must be positive"):
-        Allocation(id=1, size=0, start=0, end=10)
-
-
-def test_negative_size() -> None:
-    with pytest.raises(ValueError, match="size must be positive"):
-        Allocation(id=1, size=-100, start=0, end=10)
-
-
-def test_negative_offset() -> None:
-    with pytest.raises(ValueError, match="offset must be non-negative"):
-        Allocation(id=1, size=100, start=0, end=10, offset=-1)
-
-
-def test_zero_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
-    assert alloc.offset == 0
-
-
-def test_offset_plus_size_overflow_rejected() -> None:
-    with pytest.raises(ValueError, match="exceeds int64"):
-        Allocation(id=1, size=2**62, start=0, end=10, offset=2**62)
-
-
-def test_offset_plus_size_at_int64_max_is_valid() -> None:
-    alloc = Allocation(id=1, size=1, start=0, end=10, offset=2**63 - 2)
-    assert alloc.height == 2**63 - 1
-
-
-def test_is_allocated_with_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
-    assert alloc.is_allocated is True
-
-
-def test_is_allocated_without_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
     assert alloc.is_allocated is False
-
-
-def test_duration() -> None:
-    alloc = Allocation(id=1, size=100, start=5, end=15)
-    assert alloc.duration == 10
-
-
-def test_duration_single_timestep() -> None:
-    alloc = Allocation(id=1, size=100, start=5, end=6)
-    assert alloc.duration == 1
-
-
-def test_height_with_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
-    assert alloc.height == 150
-
-
-def test_height_without_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
     assert alloc.height is None
 
 
-def test_height_with_zero_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=0)
-    assert alloc.height == 100
-
-
-def test_area() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    assert alloc.area == 1000
-
-
-def test_area_different_values() -> None:
-    alloc = Allocation(id=1, size=256, start=5, end=20)
-    assert alloc.area == 256 * 15
-
-
-def test_conflicts_with_partial_overlap() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.conflicts_with(alloc2)
-    assert alloc2.conflicts_with(alloc1)
-
-
-def test_conflicts_with_contained_lifetime() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=20)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.conflicts_with(alloc2)
-    assert alloc2.conflicts_with(alloc1)
-
-
-def test_conflicts_with_exact_match() -> None:
-    alloc1 = Allocation(id=101, size=100, start=5, end=15)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert alloc1.conflicts_with(alloc2)
-    assert alloc2.conflicts_with(alloc1)
-
-
-def test_no_conflict_when_adjacent() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=10, end=20)
-    assert not alloc1.conflicts_with(alloc2)
-    assert not alloc2.conflicts_with(alloc1)
-
-
-def test_no_conflict_when_separated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=5)
-    alloc2 = Allocation(id=102, size=100, start=10, end=15)
-    assert not alloc1.conflicts_with(alloc2)
-    assert not alloc2.conflicts_with(alloc1)
-
-
-def test_conflicts_with_single_timestep() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=9, end=20)
-    assert alloc1.conflicts_with(alloc2)
-    assert alloc2.conflicts_with(alloc1)
-
-
-def test_overlaps_spatially_partial_overlap() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=50)
-    assert alloc1.overlaps_spatially(alloc2)
-    assert alloc2.overlaps_spatially(alloc1)
-
-
-def test_overlaps_spatially_complete_overlap() -> None:
-    alloc1 = Allocation(id=101, size=200, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=50, start=0, end=10, offset=50)
-    assert alloc1.overlaps_spatially(alloc2)
-    assert alloc2.overlaps_spatially(alloc1)
-
-
-def test_overlaps_spatially_exact_match() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=50)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=50)
-    assert alloc1.overlaps_spatially(alloc2)
-    assert alloc2.overlaps_spatially(alloc1)
-
-
-def test_no_spatial_overlap_adjacent() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=100)
-    assert not alloc1.overlaps_spatially(alloc2)
-    assert not alloc2.overlaps_spatially(alloc1)
-
-
-def test_no_spatial_overlap_separated() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=200)
-    assert not alloc1.overlaps_spatially(alloc2)
-    assert not alloc2.overlaps_spatially(alloc1)
-
-
-def test_no_spatial_overlap_without_offset_first() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=0)
-    assert not alloc1.overlaps_spatially(alloc2)
-    assert not alloc2.overlaps_spatially(alloc1)
-
-
-def test_no_spatial_overlap_without_offset_second() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10)
-    assert not alloc1.overlaps_spatially(alloc2)
-    assert not alloc2.overlaps_spatially(alloc1)
-
-
-def test_no_spatial_overlap_both_without_offset() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10)
-    assert not alloc1.overlaps_spatially(alloc2)
-
-
-def test_spatial_overlap_single_byte() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=0, end=10, offset=99)
-    assert alloc1.overlaps_spatially(alloc2)
-    assert alloc2.overlaps_spatially(alloc1)
-
-
-def test_overlaps_both_temporal_and_spatial() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15, offset=50)
-    assert alloc1.overlaps(alloc2)
-    assert alloc2.overlaps(alloc1)
-
-
-def test_no_overlaps_temporal_only() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15, offset=200)
-    assert not alloc1.overlaps(alloc2)
-    assert not alloc2.overlaps(alloc1)
-
-
-def test_no_overlaps_spatial_only() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=20, end=30, offset=50)
-    assert not alloc1.overlaps(alloc2)
-    assert not alloc2.overlaps(alloc1)
-
-
-def test_no_overlaps_neither() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
-    alloc2 = Allocation(id=102, size=100, start=20, end=30, offset=200)
-    assert not alloc1.overlaps(alloc2)
-    assert not alloc2.overlaps(alloc1)
-
-
-def test_no_overlaps_without_offset() -> None:
-    alloc1 = Allocation(id=101, size=100, start=0, end=10)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15)
-    assert not alloc1.overlaps(alloc2)
-
-
-def test_overlaps_exact_match() -> None:
-    alloc1 = Allocation(id=101, size=100, start=5, end=15, offset=50)
-    alloc2 = Allocation(id=102, size=100, start=5, end=15, offset=50)
-    assert alloc1.overlaps(alloc2)
-    assert alloc2.overlaps(alloc1)
-
-
-def test_with_offset_from_none() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    new_alloc = alloc.with_offset(50)
-    assert new_alloc.offset == 50
-    assert new_alloc.id == alloc.id
-    assert new_alloc.size == alloc.size
-    assert new_alloc.start == alloc.start
-    assert new_alloc.end == alloc.end
-    assert new_alloc.kind == alloc.kind
-    assert alloc.offset is None
-
-
-def test_with_offset_replace_existing() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
-    new_alloc = alloc.with_offset(100)
-    assert new_alloc.offset == 100
-    assert alloc.offset == 50
-
-
-def test_with_offset_zero() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    new_alloc = alloc.with_offset(0)
-    assert new_alloc.offset == 0
-
-
-def test_with_offset_preserves_kind() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, kind=AllocationKind.CONSTANT)
-    new_alloc = alloc.with_offset(50)
-    assert new_alloc.kind == AllocationKind.CONSTANT
-
-
-def test_cannot_modify_id() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    with pytest.raises(AttributeError):
-        alloc.id = "new_id"  # type: ignore[misc]
-
-
-def test_cannot_modify_size() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10)
-    with pytest.raises(AttributeError):
-        alloc.size = 200  # type: ignore[misc]
-
-
-def test_cannot_modify_offset() -> None:
-    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
-    with pytest.raises(AttributeError):
-        alloc.offset = 100  # type: ignore[misc]
-
-
-def test_large_values() -> None:
-    alloc = Allocation(id=999, size=10**12, start=0, end=10**6, offset=10**15)
-    assert alloc.size == 10**12
-    assert alloc.height == 10**15 + 10**12
-    assert alloc.area == 10**12 * 10**6
-
-
-def test_pickle_roundtrip() -> None:
-    allocs = (
-        Allocation(
-            id="x", size=10, start=0, end=5, offset=3, kind=AllocationKind.INPUT
-        ),
-        Allocation(id=7, size=10, start=0, end=5),
+def test_creation_with_offset_and_kind() -> None:
+    alloc = Allocation(
+        id=1, size=100, start=0, end=10, offset=50, kind=AllocationKind.WORKSPACE
     )
-    for alloc in allocs:
-        restored = pickle.loads(pickle.dumps(alloc))  # noqa: S301
-        assert restored == alloc
-        assert hash(restored) == hash(alloc)
-        assert restored.id == alloc.id
-        assert restored.offset == alloc.offset
-        assert restored.kind == alloc.kind
+    assert alloc.offset == 50
+    assert alloc.kind == AllocationKind.WORKSPACE
+    assert alloc.is_allocated is True
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"start": -1}, "start must be non-negative"),
+        ({"start": 5, "end": 5}, r"end .* must be > start"),
+        ({"start": 10, "end": 5}, r"end .* must be > start"),
+        ({"size": 0}, "size must be positive"),
+        ({"size": -100}, "size must be positive"),
+        ({"offset": -1}, "offset must be non-negative"),
+        ({"size": 2**62, "offset": 2**62}, "exceeds int64"),
+    ],
+)
+def test_construction_errors(kwargs: dict[str, int], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        Allocation(**{"id": 1, "size": 100, "start": 0, "end": 10, **kwargs})
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "duration", "height", "area"),
+    [
+        ({"start": 5, "end": 15}, 10, None, 1000),
+        ({"start": 5, "end": 6}, 1, None, 100),
+        ({"offset": 0}, 10, 100, 1000),
+        ({"offset": 50}, 10, 150, 1000),
+        ({"size": 256, "start": 5, "end": 20}, 15, None, 256 * 15),
+        ({"size": 1, "offset": 2**63 - 2}, 10, 2**63 - 1, 10),
+        (
+            {"size": 10**12, "end": 10**6, "offset": 10**15},
+            10**6,
+            10**15 + 10**12,
+            10**18,
+        ),
+    ],
+)
+def test_derived_properties(
+    kwargs: dict[str, int], duration: int, height: int | None, area: int
+) -> None:
+    alloc = Allocation(**{"id": 1, "size": 100, "start": 0, "end": 10, **kwargs})
+    assert alloc.duration == duration
+    assert alloc.height == height
+    assert alloc.area == area
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        ((0, 10), (5, 15), True),
+        ((0, 20), (5, 15), True),
+        ((5, 15), (5, 15), True),
+        ((0, 10), (9, 20), True),
+        ((0, 10), (10, 20), False),
+        ((0, 5), (10, 15), False),
+    ],
+)
+def test_conflicts_with(
+    first: tuple[int, int], second: tuple[int, int], expected: bool
+) -> None:
+    a = Allocation(id=1, size=100, start=first[0], end=first[1])
+    b = Allocation(id=2, size=100, start=second[0], end=second[1])
+    assert a.conflicts_with(b) is expected
+    assert b.conflicts_with(a) is expected
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        ((100, 0), (100, 50), True),
+        ((200, 0), (50, 50), True),
+        ((100, 50), (100, 50), True),
+        ((100, 0), (100, 99), True),
+        ((100, 0), (100, 100), False),
+        ((100, 0), (100, 200), False),
+        ((100, None), (100, 0), False),
+        ((100, None), (100, None), False),
+    ],
+)
+def test_overlaps_spatially(
+    first: tuple[int, int | None], second: tuple[int, int | None], expected: bool
+) -> None:
+    a = Allocation(id=1, size=first[0], start=0, end=10, offset=first[1])
+    b = Allocation(id=2, size=second[0], start=0, end=10, offset=second[1])
+    assert a.overlaps_spatially(b) is expected
+    assert b.overlaps_spatially(a) is expected
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        ((0, 10, 0), (5, 15, 50), True),
+        ((5, 15, 50), (5, 15, 50), True),
+        ((0, 10, 0), (5, 15, 200), False),
+        ((0, 10, 0), (20, 30, 50), False),
+        ((0, 10, 0), (20, 30, 200), False),
+        ((0, 10, None), (5, 15, None), False),
+    ],
+)
+def test_overlaps(
+    first: tuple[int, int, int | None],
+    second: tuple[int, int, int | None],
+    expected: bool,
+) -> None:
+    a = Allocation(id=1, size=100, start=first[0], end=first[1], offset=first[2])
+    b = Allocation(id=2, size=100, start=second[0], end=second[1], offset=second[2])
+    assert a.overlaps(b) is expected
+    assert b.overlaps(a) is expected
+
+
+@pytest.mark.parametrize("old_offset", [None, 50])
+@pytest.mark.parametrize("new_offset", [0, 100])
+def test_with_offset(old_offset: int | None, new_offset: int) -> None:
+    alloc = Allocation(
+        id=1, size=100, start=0, end=10, offset=old_offset, kind=AllocationKind.CONSTANT
+    )
+    moved = alloc.with_offset(new_offset)
+    assert moved.offset == new_offset
+    assert (moved.id, moved.size, moved.start, moved.end, moved.kind) == (
+        1,
+        100,
+        0,
+        10,
+        AllocationKind.CONSTANT,
+    )
+    assert alloc.offset == old_offset
+
+
+@pytest.mark.parametrize("field", ["id", "size", "offset"])
+def test_fields_are_read_only(field: str) -> None:
+    alloc = Allocation(id=1, size=100, start=0, end=10, offset=50)
+    with pytest.raises(AttributeError):
+        setattr(alloc, field, 7)
+
+
+@pytest.mark.parametrize(
+    "alloc",
+    [
+        Allocation(id="x", size=1, start=0, end=5, offset=3, kind=AllocationKind.INPUT),
+        Allocation(id=7, size=10, start=0, end=5),
+    ],
+)
+def test_pickle_roundtrip(alloc: Allocation) -> None:
+    restored = pickle.loads(pickle.dumps(alloc))  # noqa: S301
+    assert restored == alloc
+    assert hash(restored) == hash(alloc)
+    assert (restored.id, restored.offset, restored.kind) == (
+        alloc.id,
+        alloc.offset,
+        alloc.kind,
+    )
 
 
 def test_equal_allocations_hash_equal() -> None:

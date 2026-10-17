@@ -187,7 +187,7 @@ def test_allocate_pool_calculates_correct_size() -> None:
     assert allocated_pool.size == 250
 
 
-def test_allocate_memory_calculates_used_size() -> None:
+def test_allocate_memory_calculates_extent() -> None:
     alloc1 = Allocation(id=1, size=100, start=0, end=10)
     alloc2 = Allocation(id=2, size=150, start=0, end=10)
     pool1 = Pool(id=1, allocations=(alloc1,))
@@ -197,7 +197,7 @@ def test_allocate_memory_calculates_used_size() -> None:
     allocator = NaiveAllocator()
     allocated_memory = allocate(memory, allocator)
 
-    assert allocated_memory.used_size == 250
+    assert allocated_memory.extent == 250
 
 
 def test_allocate_raw_allocations_returns_tuple() -> None:

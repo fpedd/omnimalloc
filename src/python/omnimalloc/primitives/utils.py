@@ -3,7 +3,8 @@
 #
 
 from collections.abc import Sequence
-from typing import Any, TypeVar
+from contextlib import suppress
+from typing import Any, TypeVar, cast
 
 from .allocation import Allocation
 
@@ -12,6 +13,9 @@ T = TypeVar("T")
 
 def ensure_unique_ids(entities: Sequence[Any], kind: str) -> None:
     """Raise if any id repeats; id-keyed placement assumes uniqueness."""
+    with suppress(AttributeError):
+        if len({entity.id for entity in entities}) == len(entities):
+            return
     seen: dict[Any, int] = {}
     for index, entity in enumerate(entities):
         if not hasattr(entity, "id"):
@@ -28,12 +32,11 @@ def ensure_items(items: object, item_type: type[T], label: str) -> tuple[T, ...]
     """Coerce a raw sequence to a tuple, requiring every element be `item_type`."""
     if isinstance(items, str | bytes) or not isinstance(items, Sequence):
         raise TypeError(f"Unsupported {label} type: {type(items)!r}")
-    checked: list[T] = []
-    for item in items:
+    checked = tuple(items)
+    for item in checked:
         if not isinstance(item, item_type):
             raise TypeError(f"Expected {item_type.__name__}, got {type(item)!r}")
-        checked.append(item)
-    return tuple(checked)
+    return cast("tuple[T, ...]", checked)
 
 
 def ensure_allocations(allocations: object) -> tuple[Allocation, ...]:

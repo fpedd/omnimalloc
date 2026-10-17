@@ -55,8 +55,8 @@ def test_duplicate_memory_ids() -> None:
 def test_is_allocated_all_memories_allocated() -> None:
     alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
     alloc2 = Allocation(id=102, size=200, start=0, end=10, offset=0)
-    pool1 = Pool(id=211, allocations=(alloc1,))
-    pool2 = Pool(id=212, allocations=(alloc2,))
+    pool1 = Pool(id=211, allocations=(alloc1,), offset=0)
+    pool2 = Pool(id=212, allocations=(alloc2,), offset=0)
     memory1 = Memory(id=311, pools=(pool1,))
     memory2 = Memory(id=312, pools=(pool2,))
     system = System(id=401, memories=(memory1, memory2))
@@ -88,6 +88,21 @@ def test_is_allocated_partially_allocated() -> None:
 def test_is_allocated_empty_system() -> None:
     system = System(id=1, memories=())
     assert system.is_allocated is True
+
+
+def test_any_allocated_across_memories() -> None:
+    placed = Allocation(id=1, size=10, start=0, end=5, offset=0)
+    unplaced = Allocation(id=2, size=10, start=0, end=5)
+    system = System(
+        id=1,
+        memories=(
+            Memory(id=1, pools=(Pool(id=1, allocations=(placed,)),)),
+            Memory(id=2, pools=(Pool(id=2, allocations=(unplaced,)),)),
+        ),
+    )
+    assert system.any_allocated is True
+    assert System(id=2, memories=system.memories[1:]).any_allocated is False
+    assert System(id=3, memories=()).any_allocated is False
 
 
 def test_with_memories_replace() -> None:
@@ -147,7 +162,7 @@ def test_cannot_modify_memories() -> None:
 def test_hierarchical_allocation_status() -> None:
     alloc1 = Allocation(id=101, size=100, start=0, end=10, offset=0)
     alloc2 = Allocation(id=102, size=50, start=5, end=15)
-    pool1 = Pool(id=211, allocations=(alloc1,))
+    pool1 = Pool(id=211, allocations=(alloc1,), offset=0)
     pool2 = Pool(id=212, allocations=(alloc2,))
     memory1 = Memory(id=311, pools=(pool1,))
     memory2 = Memory(id=312, pools=(pool2,))
@@ -157,34 +172,16 @@ def test_hierarchical_allocation_status() -> None:
     assert system.is_allocated is False
 
 
-def test_any_allocated_across_memories() -> None:
-    alloc = Allocation(id=1, size=10, start=0, end=5, offset=0)
-    placed = Memory(id=1, pools=(Pool(id=1, allocations=(alloc,)),))
-    unplaced = Memory(
-        id=2,
-        pools=(Pool(id=2, allocations=(Allocation(id=2, size=10, start=0, end=5),)),),
-    )
-    system = System(id=1, memories=(placed, unplaced))
-    assert system.any_allocated is True
-    assert system.is_allocated is False
-
-
-def test_any_allocated_empty_system() -> None:
-    system = System(id=1, memories=())
-    assert system.any_allocated is False
-    assert system.is_allocated is True
-
-
 def test_large_system() -> None:
     alloc1 = Allocation(id=101, size=10**12, start=0, end=100, offset=0)
     alloc2 = Allocation(id=102, size=10**11, start=0, end=100, offset=0)
-    pool1 = Pool(id=211, allocations=(alloc1,))
-    pool2 = Pool(id=212, allocations=(alloc2,))
+    pool1 = Pool(id=211, allocations=(alloc1,), offset=0)
+    pool2 = Pool(id=212, allocations=(alloc2,), offset=0)
     memory1 = Memory(id=311, pools=(pool1,), size=10**15)
     memory2 = Memory(id=312, pools=(pool2,), size=10**14)
     system = System(id=999, memories=(memory1, memory2))
-    assert memory1.used_size == 10**12
-    assert memory2.used_size == 10**11
+    assert memory1.extent == 10**12
+    assert memory2.extent == 10**11
     assert system.is_allocated is True
 
 
