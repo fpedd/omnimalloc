@@ -37,18 +37,19 @@ def stack_around_pins(sizes: Sequence[int], offsets: Sequence[int | None]) -> li
 
     resolved = []
     for size, offset in zip(sizes, offsets, strict=True):
-        if offset is None:
-            node = 1
-            while node < leaves:
-                node = 2 * node if free[2 * node] >= size else 2 * node + 1
-            gap = node - leaves
-            offset = los[gap]
-            los[gap] += size
-            free[node] -= size
-            while node > 1:
-                node //= 2
-                free[node] = max(free[2 * node], free[2 * node + 1])
-        resolved.append(offset)
+        if offset is not None:
+            resolved.append(offset)
+            continue
+        node = 1
+        while node < leaves:
+            node = 2 * node if free[2 * node] >= size else 2 * node + 1
+        gap = node - leaves
+        resolved.append(los[gap])
+        los[gap] += size
+        free[node] -= size
+        while node > 1:
+            node //= 2
+            free[node] = max(free[2 * node], free[2 * node + 1])
     return resolved
 
 

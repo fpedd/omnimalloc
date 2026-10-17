@@ -49,24 +49,12 @@ def test_base_source_counts_are_plain_assignable_attributes() -> None:
     assert (source.num_memories, source.num_systems) == (5, 4)
 
 
-def test_base_source_constructor_validates_num_allocations() -> None:
-    with pytest.raises(ValueError, match="num_allocations must be positive"):
-        ProbeSource(num_allocations=0)
-
-
-def test_base_source_constructor_validates_num_pools() -> None:
-    with pytest.raises(ValueError, match="num_pools must be positive"):
-        ProbeSource(num_pools=0)
-
-
-def test_base_source_constructor_validates_num_memories() -> None:
-    with pytest.raises(ValueError, match="num_memories must be positive"):
-        ProbeSource(num_memories=0)
-
-
-def test_base_source_constructor_validates_num_systems() -> None:
-    with pytest.raises(ValueError, match="num_systems must be positive"):
-        ProbeSource(num_systems=0)
+@pytest.mark.parametrize(
+    "count", ["num_allocations", "num_pools", "num_memories", "num_systems"]
+)
+def test_base_source_rejects_a_non_positive(count: str) -> None:
+    with pytest.raises(ValueError, match=f"{count} must be positive"):
+        ProbeSource(**{count: 0})
 
 
 def test_base_source_is_parameterizable() -> None:

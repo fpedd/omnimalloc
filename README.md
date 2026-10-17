@@ -90,10 +90,10 @@ Run your own campaigns with the [benchmark harness](examples/05_benchmark.py).
 # Initial setup
 git clone git@github.com:fpedd/omnimalloc.git
 cd omnimalloc
-uv sync --all-extras --group dev
+uv sync --all-extras
 
 # Run tests, linting, type checking
-uv run pytest
+uv run pytest -n auto
 uv run ruff check --fix && uv run ruff format && uv run ty check
 
 # Setup pre-commit hooks (run once)

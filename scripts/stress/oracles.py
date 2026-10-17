@@ -118,13 +118,15 @@ def _check_solution(report: Report, allocations: tuple, where: str) -> int:
 def _check_unbeaten(report: Report, allocations: tuple, peak: int, where: str) -> None:
     """No allocator may undercut a peak the search proved optimal."""
     for name in SCALAR_RIVALS:
-        allocator = BaseAllocator.get(name)()
-        if not allocator.supports(allocations):
-            continue
         try:
+            allocator = BaseAllocator.get(name)()
+            if not allocator.supports(allocations):
+                continue
             rival = tuple(allocator.allocate(allocations))
         except (ImportError, RuntimeError) as e:
             # minimalloc wraps a package that need not be installed
+            if name != "minimalloc":
+                raise
             print(f"  skipped {name} on {where}: {e}", flush=True)
             continue
         if peak_of(rival) < peak:

@@ -15,35 +15,30 @@ from statistics import mean
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+from _plot import (
+    AXIS,
+    INK_SECONDARY,
+    MARKERS,
+    SERIES,
+    SURFACE,
+    log_time_axes,
+    plot_series,
+    style_axes,
+    titles,
+    two_panel_figure,
+)
 from omnimalloc.allocators import OmniAllocator
-from omnimalloc.analysis import antichain_pressure
+from omnimalloc.analysis import antichain_pressure, placement_pressure
 from omnimalloc.benchmark.sources.sync_patterns import SYNC_PATTERNS, SyncPatternSource
 from omnimalloc.benchmark.timer import Timer
 
 if TYPE_CHECKING:
-    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
     from omnimalloc.primitives import Allocation
 
 DIMS = (2, 4, 8, 16, 32, 64)
 PATTERNS = ("independent", "sparse", "barrier", "dense")
 CALLERS = (1, 2, 4, 8, 16, 32)
-
-SURFACE = "#fcfcfb"
-INK = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-INK_MUTED = "#898781"
-GRID = "#e1e0d9"
-AXIS = "#c3c2b7"
-# House palette (see benchmark_allocation.py), most-separated hues first;
-# per-series markers keep identity readable without color
-SERIES = ("#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#008300", "#e87ba4")
-MARKERS = ("o", "s", "^", "D", "v", "P", "X")
-
-
-def _peak(placed: "tuple[Allocation, ...]") -> int:
-    heights = [alloc.height for alloc in placed if alloc.height is not None]
-    return max(heights, default=0)
 
 
 def _timed_allocate(
@@ -85,7 +80,9 @@ def dim_sweep(args: argparse.Namespace) -> dict[str, dict[int, tuple[float, floa
                 seconds, placed = _timed_allocate(allocations, repeats=1)
                 times.append(seconds)
                 ratios.append(
-                    _bounded_ratio(allocations, _peak(placed), args.work_budget)
+                    _bounded_ratio(
+                        allocations, placement_pressure(placed), args.work_budget
+                    )
                 )
             clean = [r for r in ratios if not isnan(r)]
             results[pattern][dim] = (min(times), mean(clean) if clean else nan)
@@ -123,83 +120,26 @@ def caller_sweep(args: argparse.Namespace) -> dict[int, float]:
     return throughput
 
 
-def _style_axes(ax: "Axes") -> None:
-    ax.set_facecolor(SURFACE)
-    ax.grid(visible=True, which="major", color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-    ax.tick_params(colors=INK_MUTED, labelcolor=INK_SECONDARY, labelsize=9)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("bottom", "left"):
-        ax.spines[side].set_color(AXIS)
-
-
-def _plot_series(
-    ax: "Axes",
-    xs: list[int],
-    values: list[float],
-    label: str,
-    color: str,
-    marker: str,
-) -> None:
-    if all(isnan(value) for value in values):
-        return
-    ax.plot(
-        xs,
-        values,
-        label=label,
-        color=color,
-        linewidth=2,
-        marker=marker,
-        markersize=5.5,
-        markeredgecolor=SURFACE,
-        markeredgewidth=1,
-    )
-
-
-def _titles(ax: "Axes", title: str, caption: str) -> None:
-    ax.set_title(title, loc="left", color=INK, fontsize=12, fontweight="medium", pad=22)
-    note = ax.text(
-        0.0, 1.04, caption, transform=ax.transAxes, fontsize=8.5, color=INK_MUTED
-    )
-    note.set_in_layout(False)
-
-
 def render_dim_sweep(
     results: dict[str, dict[int, tuple[float, float]]], args: argparse.Namespace
 ) -> "Figure":
-    fig, (ax_time, ax_ratio) = plt.subplots(
-        2,
-        1,
-        sharex=True,
-        figsize=(8, 6.4),
-        height_ratios=(3, 1.4),
-        layout="constrained",
-    )
-    fig.set_facecolor(SURFACE)
+    fig, ax_time, ax_ratio = two_panel_figure()
     dims = list(args.dims)
     for (pattern, by_dim), color, marker in zip(
         results.items(), SERIES, MARKERS, strict=False
     ):
-        _plot_series(
-            ax_time, dims, [by_dim[d][0] for d in dims], pattern, color, marker
-        )
-        _plot_series(
+        plot_series(ax_time, dims, [by_dim[d][0] for d in dims], pattern, color, marker)
+        plot_series(
             ax_ratio, dims, [by_dim[d][1] for d in dims], pattern, color, marker
         )
-    _style_axes(ax_time)
-    ax_time.set_yscale("log")
-    ax_time.set_xscale("log", base=2)
-    ax_time.set_xticks(dims, [str(d) for d in dims])
-    ax_time.tick_params(which="minor", bottom=False)
-    ax_time.set_ylabel("wall time [s]", color=INK_SECONDARY, fontsize=10)
-    _titles(
+    log_time_axes(ax_time, dims, base=2)
+    titles(
         ax_time,
         "omni allocator vs clock dimension",
         f"{args.size:,} allocations, best of {args.repeats} seeds per point",
     )
     ax_time.legend(frameon=False, fontsize=8.5, labelcolor=INK_SECONDARY)
-    _style_axes(ax_ratio)
+    style_axes(ax_ratio)
     ax_ratio.axhline(1.0, color=AXIS, linewidth=1)
     ax_ratio.set_ylabel("peak /\nexact bound", color=INK_SECONDARY, fontsize=9)
     ax_ratio.set_xlabel("clock dimension [threads]", color=INK_SECONDARY, fontsize=10)
@@ -214,16 +154,16 @@ def render_caller_sweep(
     callers = list(throughput)
     ideal = [throughput[callers[0]] * c / callers[0] for c in callers]
     ax.plot(callers, ideal, color=AXIS, linewidth=1, linestyle="--", label="ideal")
-    _plot_series(
+    plot_series(
         ax, callers, [throughput[c] for c in callers], "measured", SERIES[0], "o"
     )
-    _style_axes(ax)
+    style_axes(ax)
     ax.set_xscale("log", base=2)
     ax.set_xticks(callers, [str(c) for c in callers])
     ax.tick_params(which="minor", bottom=False)
     ax.set_ylabel("allocate calls / s", color=INK_SECONDARY, fontsize=10)
     ax.set_xlabel("concurrent Python callers", color=INK_SECONDARY, fontsize=10)
-    _titles(
+    titles(
         ax,
         "omni allocator throughput vs concurrent callers",
         f"{args.calls} calls on one {args.size:,}-allocation sparse instance, "

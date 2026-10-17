@@ -121,7 +121,6 @@ def save_benchmark(
     overwrite: bool = True,
 ) -> Path:
     """Save a campaign, defaulting to `artifacts/<id>` under the cwd."""
-
     if not isinstance(campaign, BenchmarkCampaign):
         raise TypeError(f"Expected a BenchmarkCampaign, got {type(campaign)!r}")
 

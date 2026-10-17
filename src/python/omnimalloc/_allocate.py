@@ -42,7 +42,6 @@ def allocate(
     Accepts a System, Memory, or Pool (returned as the same type) or a raw
     sequence of Allocations. An allocation carrying an offset is pinned.
     """
-
     if allocator is None:
         allocator = DEFAULT_ALLOCATOR
 

@@ -42,6 +42,12 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-extras
+      - run: uv pip install ${{ env.MINIMALLOC_URL }}
+      # Fuzz every workload and allocator, then the optimality, timeout and pin oracles
+      - run: uv run python fuzz.py --deep
+        working-directory: scripts/stress
+      - run: uv run python oracles.py
+        working-directory: scripts/stress
       - run: uv run python scripts/stress_omni.py
       # Two workers keep greedy_by_all's per-process copies inside runner memory
       - run: uv run python scripts/benchmark_allocation.py --max-threads 2
@@ -51,6 +57,7 @@ jobs:
         with:
           name: nightly-figures
           path: |
+            scripts/stress/fuzz_results_stress/
             stress_results_omni/
             benchmark_results_allocation/
             benchmark_results_pressure/
@@ -108,8 +115,8 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run ty check
 
-  # The examples job in checks.yml stops at 04; notebooks run nowhere else.
-  examples-notebooks:
+  # The examples job in checks.yml stops at 04: 05 is slow and hits the HF Hub.
+  examples-benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -120,6 +127,3 @@ jobs:
       - run: uv sync --all-extras
       - run: uv pip install ${{ env.MINIMALLOC_URL }}
       - run: uv run python examples/05_benchmark.py
-      - run: >
-          uv run jupyter nbconvert --execute --to notebook
-          --output-dir executed_notebooks notebooks/*.ipynb
