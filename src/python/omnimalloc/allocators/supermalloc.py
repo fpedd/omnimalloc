@@ -78,14 +78,9 @@ class _Portfolio:
         Ablations call `_cpp.try_solve_many` directly.
         """
         members = [p.with_bound(b) for b in bounds for p in self.partitions]
-        return self._run(members, max(bounds), None, self.threads)
+        return self.run(members, max(bounds), None, self.threads)
 
-    def solve_member(self, index: int, bound: int, max_nodes: int) -> Solution | None:
-        """Search one member alone under a node budget, which makes it repeatable."""
-        member = self.partitions[index].with_bound(bound)
-        return self._run([member], bound, max_nodes, 1)
-
-    def _run(
+    def run(
         self, members: list[Partition], bound: int, max_nodes: int | None, threads: int
     ) -> Solution | None:
         # The budget is read once so the expiry check and the timeout agree
@@ -152,16 +147,14 @@ def _rederive(portfolio: _Portfolio, peak: int, n: int) -> Solution | None:
 
     Concurrent members prune against a shared bound, so which one places the
     optimum, and how, varies from run to run. Take instead the first member
-    to reach `peak` alone, under the smallest of a quadrupling series of node
-    budgets. Returns None if the budget expires first.
+    to reach `peak` alone within 2n nodes, a deterministic cap that almost
+    always suffices. Returns None if none does, or the budget expires first.
     """
-    max_nodes = 2 * n
-    while not portfolio.expired():
-        for index in range(len(portfolio.partitions)):
-            solution = portfolio.solve_member(index, peak + 1, max_nodes)
-            if solution is not None:
-                return solution
-        max_nodes *= 4
+    for partition in portfolio.partitions:
+        member = partition.with_bound(peak + 1)
+        solution = portfolio.run([member], peak + 1, 2 * n, 1)
+        if solution is not None:
+            return solution
     return None
 
 
