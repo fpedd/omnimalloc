@@ -19,6 +19,7 @@ class OmniAllocator(BaseAllocator):
 
     supports_vector_time = True
     supports_pinned = True
+    supports_alignment = True
 
     def __init__(self, linearize_budget: int | None = DEFAULT_WORK_BUDGET) -> None:
         ensure_non_negative(linearize_budget, "linearize_budget", allow_none=True)

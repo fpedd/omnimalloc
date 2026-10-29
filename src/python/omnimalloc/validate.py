@@ -25,20 +25,22 @@ def _check_ids_across_pools(pools: tuple[Pool, ...]) -> None:
 
 
 def _check_alignment(
-    allocations: tuple[Allocation, ...], alignment: int, base: int
+    allocations: tuple[Allocation, ...], alignment: int | None, base: int
 ) -> None:
     # Allocation offsets are pool-relative, so alignment is a property of
     # `base + offset`: a pool sitting at an unaligned base misaligns every
     # allocation in it, however well-aligned each offset looks on its own.
+    # Each allocation's own alignment applies on top of the requested one.
     for alloc in allocations:
         if alloc.offset is None:
             continue
         address = base + alloc.offset
-        if address % alignment != 0:
-            raise ValueError(
-                f"allocation {alloc.id!r} at address {address} is not "
-                f"{alignment}-byte aligned"
-            )
+        for required in (alignment, alloc.alignment):
+            if required is not None and address % required != 0:
+                raise ValueError(
+                    f"allocation {alloc.id!r} at address {address} is not "
+                    f"{required}-byte aligned"
+                )
 
 
 def _check_collisions(
@@ -108,7 +110,7 @@ def _validate_allocations(
 ) -> None:
     ensure_unique_ids(allocations, "allocation")
     uniform_dim(allocations)
-    if alignment is not None and base is not None:
+    if base is not None:
         _check_alignment(allocations, alignment, base)
     _check_collisions(allocations, require_allocated)
 
@@ -169,7 +171,9 @@ def validate_allocation(
 ) -> None:
     """Raise ValueError unless the entity is fully placed with no collisions.
 
-    Checks unique ids, placement completeness, collisions, and memory capacity.
+    Checks unique ids, placement completeness, collisions, memory capacity, and
+    that every address is a multiple of its allocation's `alignment` (and of
+    `alignment`, when given).
     `require_allocated=False` drops completeness and checks the placed subset
     only, so pins and partial placements validate before an allocator runs.
     """

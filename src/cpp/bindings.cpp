@@ -70,9 +70,10 @@ NB_MODULE(_cpp, m) {
   // Allocation class
   nb::class_<Allocation>(m, "Allocation")
       .def(nb::init<IdType, int64_t, TimePoint, TimePoint,
-                    std::optional<int64_t>, std::optional<AllocationKind>>(),
+                    std::optional<int64_t>, std::optional<AllocationKind>,
+                    int64_t>(),
            "id"_a, "size"_a, "start"_a, "end"_a, "offset"_a = nb::none(),
-           "kind"_a = nb::none())
+           "kind"_a = nb::none(), "alignment"_a = 1)
       .def_prop_ro("id", &Allocation::id, nb::rv_policy::copy)
       .def_prop_ro("size", &Allocation::size)
       .def_prop_ro(
@@ -87,6 +88,7 @@ NB_MODULE(_cpp, m) {
       .def_prop_ro("dim", &Allocation::dim)
       .def_prop_ro("offset", &Allocation::offset, nb::rv_policy::copy)
       .def_prop_ro("kind", &Allocation::kind, nb::rv_policy::copy)
+      .def_prop_ro("alignment", &Allocation::alignment)
       .def_prop_ro("is_allocated", &Allocation::is_allocated)
       .def_prop_ro("duration", &Allocation::duration)
       .def_prop_ro("height", &Allocation::height, nb::rv_policy::copy)
@@ -104,18 +106,29 @@ NB_MODULE(_cpp, m) {
       .def("__hash__", std::hash<Allocation>{})
       // Times route through time_to_python so pickled payloads match the
       // tuple form the start/end properties expose; old list-payload pickles
-      // still load through __setstate__'s sequence caster.
+      // still load through __setstate__'s sequence caster, and pre-alignment
+      // 6-tuple pickles through its second overload.
       .def(
           "__getstate__",
           [](const Allocation& a) {
-            return nb::make_tuple(nb::cast(a.id()), a.size(),
-                                  time_to_python(a.start_time()),
-                                  time_to_python(a.end_time()),
-                                  nb::cast(a.offset()), nb::cast(a.kind()));
+            return nb::make_tuple(
+                nb::cast(a.id()), a.size(), time_to_python(a.start_time()),
+                time_to_python(a.end_time()), nb::cast(a.offset()),
+                nb::cast(a.kind()), a.alignment());
           },
           nb::sig("def __getstate__(self) -> tuple[int | str, int, int | "
                   "tuple[int, ...], int | tuple[int, ...], int | None, "
-                  "AllocationKind | None]"))
+                  "AllocationKind | None, int]"))
+      .def("__setstate__",
+           [](Allocation& a,
+              const std::tuple<IdType, int64_t, TimePoint, TimePoint,
+                               std::optional<int64_t>,
+                               std::optional<AllocationKind>, int64_t>& state) {
+             new (&a) Allocation(std::get<0>(state), std::get<1>(state),
+                                 std::get<2>(state), std::get<3>(state),
+                                 std::get<4>(state), std::get<5>(state),
+                                 std::get<6>(state));
+           })
       .def("__setstate__",
            [](Allocation& a,
               const std::tuple<IdType, int64_t, TimePoint, TimePoint,

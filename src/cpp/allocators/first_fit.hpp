@@ -21,9 +21,11 @@ void gather_spans(const std::vector<size_t>& neighbors,
                   const std::vector<Allocation>& allocations,
                   std::vector<std::pair<int64_t, int64_t>>& spans);
 
-// First-fit: lowest offset where `size` fits between the sorted spans
+// First-fit: lowest multiple of `alignment` where `size` fits between the
+// sorted spans
 [[nodiscard]] int64_t first_fit_offset(
-    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans);
+    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans,
+    int64_t alignment = 1);
 
 // Offsets (aligned with `allocations`) and peak of the winning placement.
 struct PortfolioPlacement {
@@ -67,7 +69,8 @@ template <typename OffsetFn>
   for (size_t i = 0; i < allocations.size(); ++i) {
     if (!allocations[i].offset().has_value()) {
       gather_spans(indices[i], offsets, allocations, spans);
-      offsets[i] = choose_offset(allocations[i].size(), spans);
+      offsets[i] = choose_offset(allocations[i].size(), spans,
+                                 allocations[i].alignment());
     }
     placed.push_back(allocations[i].with_offset(*offsets[i]));
   }

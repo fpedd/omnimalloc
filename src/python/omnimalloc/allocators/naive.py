@@ -13,11 +13,13 @@ class NaiveAllocator(BaseAllocator):
 
     supports_vector_time = True
     supports_pinned = True
+    supports_alignment = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         offsets = stack_around_pins(
             [alloc.size for alloc in allocations],
             [alloc.offset for alloc in allocations],
+            [alloc.alignment for alloc in allocations],
         )
         return tuple(
             alloc if alloc.offset is not None else alloc.with_offset(offset)

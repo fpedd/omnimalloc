@@ -67,10 +67,16 @@ class Memory:
 
 
 def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
-    """Stack the pools that carry no offset around the ones that do."""
+    """Stack the pools that carry no offset around the ones that do.
+
+    Each base is a multiple of the pool's largest allocation alignment, so the
+    pool-relative alignment the allocators honor holds for the address too.
+    """
     _ensure_pinned_bases_disjoint(pools)
     offsets = stack_around_pins(
-        [pool.size for pool in pools], [pool.offset for pool in pools]
+        [pool.size for pool in pools],
+        [pool.offset for pool in pools],
+        [max((a.alignment for a in pool.allocations), default=1) for pool in pools],
     )
     return tuple(
         pool if pool.offset is not None else replace(pool, offset=offset)

@@ -83,17 +83,19 @@ void validate_heuristics(const std::vector<std::string>& heuristics) {
   }
 }
 
-// For each allocation, the largest lower index with identical start, end, and
-// size, or -1. Such buffers are fully interchangeable, so the search may
-// force them into index order (symmetry breaking).
+// For each allocation, the largest lower index with identical start, end,
+// size, and alignment, or -1. Such buffers are fully interchangeable, so the
+// search may force them into index order (symmetry breaking).
 std::vector<int> compute_sym_predecessor(
     const std::vector<Allocation>& allocations) {
   const int n = static_cast<int>(allocations.size());
-  std::vector<std::pair<std::tuple<int64_t, int64_t, int64_t>, int>> keyed;
+  std::vector<std::pair<std::tuple<int64_t, int64_t, int64_t, int64_t>, int>>
+      keyed;
   keyed.reserve(static_cast<size_t>(n));
   for (int i = 0; i < n; ++i) {
     const Allocation& a = allocations[i];
-    keyed.emplace_back(std::make_tuple(a.start(), a.end(), a.size()), i);
+    keyed.emplace_back(
+        std::make_tuple(a.start(), a.end(), a.size(), a.alignment()), i);
   }
   std::sort(keyed.begin(), keyed.end());
 
@@ -114,6 +116,9 @@ std::shared_ptr<Partition::SharedData> Partition::make_shared_data(
     std::vector<std::vector<int>> overlaps,
     std::vector<std::pair<int, int>> section_spans) {
   std::vector<int> sym_predecessor = compute_sym_predecessor(allocations);
+  std::vector<int64_t> alloc_alignments(allocations.size());
+  std::ranges::transform(allocations, alloc_alignments.begin(),
+                         &Allocation::alignment);
   return std::make_shared<SharedData>(SharedData{
       std::move(allocations),
       std::move(alloc_sizes),
@@ -121,6 +126,7 @@ std::shared_ptr<Partition::SharedData> Partition::make_shared_data(
       std::move(overlaps),
       std::move(section_spans),
       std::move(sym_predecessor),
+      std::move(alloc_alignments),
   });
 }
 
@@ -345,21 +351,23 @@ const Partition::PlacementUndo& Partition::apply_at(int idx,
     if (--cuts_[b] == 0) ++num_zero_cuts_;
   }
 
-  // Propagate the placed allocation's top to overlapping unplaced
-  // allocations, tracking affected sections for the floor inference below.
-  // Extract/insert node handles reuse tree nodes instead of reallocating.
+  // Propagate the placed allocation's top, rounded up to each one's
+  // alignment, to overlapping unplaced allocations, tracking affected
+  // sections for the floor inference below. Extract/insert node handles reuse
+  // tree nodes instead of reallocating.
   for (int j : data_->overlaps[idx]) {
     if (offsets_[j] >= 0) continue;
     const int64_t old_min = min_offsets_[j];
-    if (top <= old_min) continue;
+    const int64_t new_min = align_up(top, data_->alloc_alignments[j]);
+    if (new_min <= old_min) continue;
     undo.min_offset_changes.emplace_back(j, old_min);
-    min_offsets_[j] = top;
+    min_offsets_[j] = new_min;
     auto candidate = candidates_.extract({old_min, j});
-    candidate.value() = {top, j};
+    candidate.value() = {new_min, j};
     candidates_.insert(std::move(candidate));
     const int64_t j_size = data_->alloc_sizes[j];
     auto top_node = tops_.extract(tops_.find(old_min + j_size));
-    top_node.value() = top + j_size;
+    top_node.value() = new_min + j_size;
     tops_.insert(std::move(top_node));
     if (!floor_inference) continue;
     const auto [jf, jl] = data_->section_spans[j];
@@ -488,7 +496,8 @@ Solution Partition::first_fit(const std::vector<int>& order) const {
     std::sort(intervals.begin(), intervals.end());
 
     const int64_t size = data_->alloc_sizes[i];
-    const int64_t offset = first_fit_offset(size, intervals);
+    const int64_t offset =
+        first_fit_offset(size, intervals, data_->alloc_alignments[i]);
     offsets[i] = offset;
     height = std::max(height, offset + size);
   }

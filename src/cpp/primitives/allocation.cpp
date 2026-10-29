@@ -57,13 +57,14 @@ std::string to_string(const TimePoint& time) {
 
 Allocation::Allocation(IdType id, int64_t size, TimePoint start, TimePoint end,
                        std::optional<int64_t> offset,
-                       std::optional<AllocationKind> kind)
+                       std::optional<AllocationKind> kind, int64_t alignment)
     : id_(std::move(id)),
       size_(size),
       start_(normalized(std::move(start))),
       end_(normalized(std::move(end))),
       offset_(offset),
-      kind_(kind) {
+      kind_(kind),
+      alignment_(alignment) {
   validate();
 }
 
@@ -115,6 +116,11 @@ void Allocation::validate() const {
     throw std::invalid_argument("offset must be non-negative, got " +
                                 std::to_string(offset_.value()));
   }
+  if (alignment_ <= 0 || (alignment_ & (alignment_ - 1)) != 0) {
+    throw std::invalid_argument(
+        "alignment must be a positive power of two, got " +
+        std::to_string(alignment_));
+  }
   // height() and every downstream offset + size must stay in int64 (UB
   // otherwise)
   if (offset_.has_value() &&
@@ -161,7 +167,7 @@ bool Allocation::overlaps(const Allocation& other) const {
 }
 
 Allocation Allocation::with_offset(std::optional<int64_t> new_offset) const {
-  return {id_, size_, start_, end_, new_offset, kind_};
+  return {id_, size_, start_, end_, new_offset, kind_, alignment_};
 }
 
 std::ostream& operator<<(std::ostream& os, const Allocation& a) {
@@ -186,6 +192,9 @@ std::ostream& operator<<(std::ostream& os, const Allocation& a) {
   if (a.kind_.has_value()) {
     os << ", kind=" << to_string(a.kind_.value());
   }
+  if (a.alignment_ != 1) {
+    os << ", alignment=" << a.alignment_;
+  }
   return os << ')';
 }
 
@@ -207,7 +216,8 @@ size_t hash<omnimalloc::Allocation>::operator()(
   const int kind_val =
       a.kind().has_value() ? static_cast<int>(a.kind().value()) : -1;
   return omnimalloc::make_hash(id_hash, a.size(), hash_time(a.start_vec()),
-                               hash_time(a.end_vec()), offset_val, kind_val);
+                               hash_time(a.end_vec()), offset_val, kind_val,
+                               a.alignment());
 }
 
 }  // namespace std

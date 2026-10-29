@@ -20,6 +20,7 @@ class SimulatedAnnealingAllocator(BaseAllocator):
 
     supports_vector_time = True
     supports_pinned = True
+    supports_alignment = True
 
     def __init__(
         self,
