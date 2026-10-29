@@ -75,24 +75,34 @@ class _Portfolio:
     def solve(self, bounds: tuple[int, ...]) -> Solution | None:
         """Run one portfolio round, or None once the budget has expired.
 
-        The budget is read once per round so the expiry check and the round's
-        timeout agree. Ablations call `_cpp.try_solve_many` directly.
+        Ablations call `_cpp.try_solve_many` directly.
         """
+        members = [p.with_bound(b) for b in bounds for p in self.partitions]
+        return self._run(members, max(bounds), None, self.threads)
+
+    def solve_member(self, index: int, bound: int, max_nodes: int) -> Solution | None:
+        """Search one member alone under a node budget, which makes it repeatable."""
+        member = self.partitions[index].with_bound(bound)
+        return self._run([member], bound, max_nodes, 1)
+
+    def _run(
+        self, members: list[Partition], bound: int, max_nodes: int | None, threads: int
+    ) -> Solution | None:
+        # The budget is read once so the expiry check and the timeout agree
         remaining = self.remaining()
         if remaining is not None and remaining <= 0:
             return None
-        members = [p.with_bound(b) for b in bounds for p in self.partitions]
         return try_solve_many(
             members,
-            max(bounds),
-            None,
+            bound,
+            max_nodes,
             canonical=True,
             dominance=True,
             floor_inference=True,
             monotonic_floor=True,
             decompose=True,
             timeout=remaining,
-            num_threads=self.threads,
+            num_threads=threads,
         )
 
 
@@ -135,6 +145,24 @@ def _search(portfolio: _Portfolio, low: int, peak: int) -> tuple[Solution | None
         logger.debug("Supermalloc timed out above lower bound: %d > %d", peak, low)
 
     return best, proved_optimal
+
+
+def _rederive(portfolio: _Portfolio, peak: int, n: int) -> Solution | None:
+    """Place the proved optimum `peak` again, independent of thread timing.
+
+    Concurrent members prune against a shared bound, so which one places the
+    optimum, and how, varies from run to run. Take instead the first member
+    to reach `peak` alone, under the smallest of a quadrupling series of node
+    budgets. Returns None if the budget expires first.
+    """
+    max_nodes = 2 * n
+    while not portfolio.expired():
+        for index in range(len(portfolio.partitions)):
+            solution = portfolio.solve_member(index, peak + 1, max_nodes)
+            if solution is not None:
+                return solution
+        max_nodes *= 4
+    return None
 
 
 class SupermallocAllocator(BaseAllocator):
@@ -201,6 +229,9 @@ class SupermallocAllocator(BaseAllocator):
             base, greedy_codes, portfolio.remaining(), threads
         )
         best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
+        # The placement still depends on timing once the budget runs out
+        if best is not None and proved_optimal:
+            best = _rederive(portfolio, best.peak, len(allocations)) or best
         if best is None:
             best = incumbent
         return SupermallocResult(

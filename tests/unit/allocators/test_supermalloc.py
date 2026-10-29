@@ -202,3 +202,20 @@ def test_solve_agrees_with_allocate() -> None:
     )
     allocator = SupermallocAllocator(timeout=5.0)
     assert allocator.solve(allocations).allocations == allocator.allocate(allocations)
+
+
+def test_deterministic_across_threads() -> None:
+    # Several portfolio members reach the optimum here, first in timing order
+    sizes = (12, 13, 7, 16, 15, 7, 13, 15, 14, 6, 7, 13, 11, 16, 2)
+    starts = (28, 18, 14, 30, 1, 4, 8, 40, 34, 25, 24, 5, 13, 15, 25)
+    ends = (29, 29, 29, 37, 13, 6, 19, 41, 42, 27, 39, 15, 19, 16, 27)
+    allocations = tuple(
+        Allocation(id=i, size=size, start=start, end=end)
+        for i, (size, start, end) in enumerate(zip(sizes, starts, ends, strict=True))
+    )
+    placements = set()
+    for num_threads in (1, 2, 4, 8):
+        allocator = SupermallocAllocator(num_threads=num_threads)
+        for _ in range(3):
+            placements.add(tuple(a.offset for a in allocator.allocate(allocations)))
+    assert len(placements) == 1
