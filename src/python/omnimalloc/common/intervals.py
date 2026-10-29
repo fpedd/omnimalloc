@@ -34,7 +34,7 @@ def stack_around_pins(
         # Sizes are positive, so no gap ever opens below the top and the scan
         # returns the running (aligned) total every time. Take it directly:
         # the scan is quadratic and this is the hot path for the baselines.
-        if all(alignment == 1 for alignment in alignments):
+        if max(alignments, default=1) == 1:
             return list(accumulate(sizes, initial=0))[:-1]
         resolved, top = [], 0
         for size, alignment in zip(sizes, alignments, strict=True):

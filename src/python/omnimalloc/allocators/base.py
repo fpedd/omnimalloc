@@ -155,7 +155,10 @@ class BaseAllocator(Registered):
         unplaced = next((alloc for alloc in placed if alloc.offset is None), None)
         if unplaced is not None:
             raise ValueError(f"{self.name()} left allocation {unplaced.id!r} unplaced")
-        misaligned = next((a for a in placed if _misaligned(a)), None)
+        # Every result pays this scan, so skip the call at alignment 1
+        misaligned = next(
+            (a for a in placed if a.alignment != 1 and _misaligned(a)), None
+        )
         if misaligned is not None:
             raise ValueError(
                 f"{self.name()} placed allocation {misaligned.id!r} at offset "

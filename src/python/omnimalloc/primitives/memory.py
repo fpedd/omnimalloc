@@ -61,6 +61,14 @@ class Memory:
 
     def allocate(self, allocator: "BaseAllocator") -> "Memory":
         """Apply allocator to all pools, then give every unplaced pool a base."""
+        # Allocators align pool-relative offsets, so a pinned base must align too
+        for pool in self.pools:
+            alignment = _pool_alignment(pool)
+            if pool.offset is not None and pool.offset % alignment != 0:
+                raise ValueError(
+                    f"pinned pool {pool.id!r} at base {pool.offset} breaks its "
+                    f"alignment {alignment}"
+                )
         return self.with_pools(
             _place_pools(tuple(p.allocate(allocator) for p in self.pools))
         )
@@ -76,12 +84,16 @@ def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
     offsets = stack_around_pins(
         [pool.size for pool in pools],
         [pool.offset for pool in pools],
-        [max((a.alignment for a in pool.allocations), default=1) for pool in pools],
+        [_pool_alignment(pool) for pool in pools],
     )
     return tuple(
         pool if pool.offset is not None else replace(pool, offset=offset)
         for pool, offset in zip(pools, offsets, strict=True)
     )
+
+
+def _pool_alignment(pool: Pool) -> int:
+    return max((a.alignment for a in pool.allocations), default=1)
 
 
 def _ensure_pinned_bases_disjoint(pools: tuple[Pool, ...]) -> None:
