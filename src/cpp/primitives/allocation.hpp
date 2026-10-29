@@ -151,11 +151,17 @@ class Allocation {
 // ruling out signed overflow in downstream sums: placer offsets, sweep deltas,
 // flow capacities. An internal correctness bound, not a policy value. Each
 // allocation also counts its worst-case alignment padding, which bounds every
-// aligned placement's height the same way.
+// aligned placement's height the same way. Placements stack on top of the
+// highest pin, so the sum starts there.
 inline void check_total_size(
     const std::vector<Allocation>& allocations,
     int64_t limit = std::numeric_limits<int64_t>::max() / 2) {
   int64_t total_size = 0;
+  for (const Allocation& a : allocations) {
+    if (a.offset().has_value()) {
+      total_size = std::max(total_size, a.offset().value() + a.size());
+    }
+  }
   for (const Allocation& a : allocations) {
     const int64_t padding = a.alignment() - 1;
     if (a.size() > limit - total_size ||

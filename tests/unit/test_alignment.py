@@ -16,6 +16,7 @@ from omnimalloc.allocators import (
     TelamallocAllocator,
     available_allocators,
 )
+from omnimalloc.benchmark.sources.base import prefix_ids
 from omnimalloc.io import load_allocation, save_allocation
 from omnimalloc.primitives import Allocation, Memory, Pool
 from omnimalloc.validate import validate_allocation
@@ -209,6 +210,33 @@ def test_supporting_allocator_aligns_around_pins(allocator: BaseAllocator) -> No
     )
     placed = {a.id: a.offset for a in allocator.allocate(allocations)}
     assert placed == {"pinned": 3, "free": 8}
+
+
+@pytest.mark.parametrize(
+    "allocator",
+    [a for a in SUPPORTING if a.supports_pinned and a.name() != "naive"],
+    ids=lambda a: a.name(),
+)
+def test_padding_above_the_highest_pin_is_bounded(allocator: BaseAllocator) -> None:
+    # The only aligned fit lies past 2^63: without the pins in the size bound
+    # the rounding overflowed and landed the free allocation on the top pin
+    step = 2**61
+    pins = tuple(
+        Allocation(id=k, size=1, start=0, end=2, offset=k * step) for k in range(4)
+    )
+    free = Allocation(id="free", size=1, start=0, end=2, alignment=step)
+    # greedy_by_all reports its failed variants as one RuntimeError
+    with pytest.raises(
+        (ValueError, RuntimeError), match=r"exceeds int64 range|variant failed"
+    ):
+        allocator.allocate((*pins, free))
+
+
+def test_prefix_ids_keeps_the_alignment() -> None:
+    pool = Pool(
+        id="p", allocations=(Allocation(id=1, size=4, start=0, end=1, alignment=8),)
+    )
+    assert prefix_ids(pool).allocations[0].alignment == 8
 
 
 @pytest.mark.parametrize("allocator", SUPPORTING, ids=lambda a: a.name())
