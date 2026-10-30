@@ -3,7 +3,7 @@
 #
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from omnimalloc._cpp import Partition, Solution, greedy_pack_portfolio, try_solve_many
@@ -142,20 +142,17 @@ def _search(portfolio: _Portfolio, low: int, peak: int) -> tuple[Solution | None
     return best, proved_optimal
 
 
-def _rederive(portfolio: _Portfolio, peak: int, n: int) -> Solution | None:
-    """Place the proved optimum `peak` again, independent of thread timing.
-
-    Concurrent members prune against a shared bound, so which one places the
-    optimum, and how, varies from run to run. Take instead the first member
-    to reach `peak` alone within 2n nodes, a deterministic cap that almost
-    always suffices. Returns None if none does, or the budget expires first.
-    """
-    for partition in portfolio.partitions:
-        member = partition.with_bound(peak + 1)
-        solution = portfolio.run([member], peak + 1, 2 * n, 1)
-        if solution is not None:
-            return solution
-    return None
+def _rederive(portfolio: _Portfolio, peak: int, n: int) -> Solution:
+    """Place the proved optimum `peak` again, independent of thread timing."""
+    portfolio = replace(portfolio, deadline=None)
+    cap = 2 * n
+    while True:
+        for partition in portfolio.partitions:
+            member = partition.with_bound(peak + 1)
+            solution = portfolio.run([member], peak + 1, cap, 1)
+            if solution is not None:
+                return solution
+        cap *= 4
 
 
 class SupermallocAllocator(BaseAllocator):
@@ -222,9 +219,10 @@ class SupermallocAllocator(BaseAllocator):
             base, greedy_codes, portfolio.remaining(), threads
         )
         best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
-        # The placement still depends on timing once the budget runs out
-        if best is not None and proved_optimal:
-            best = _rederive(portfolio, best.peak, len(allocations)) or best
+        if proved_optimal and best is not None:
+            best = _rederive(portfolio, best.peak, len(allocations))
+        elif proved_optimal and portfolio.expired():
+            best = greedy_pack_portfolio(base, greedy_codes, None, threads)
         if best is None:
             best = incumbent
         return SupermallocResult(

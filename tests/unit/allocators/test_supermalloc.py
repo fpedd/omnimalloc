@@ -204,18 +204,30 @@ def test_solve_agrees_with_allocate() -> None:
     assert allocator.solve(allocations).allocations == allocator.allocate(allocations)
 
 
-def test_deterministic_across_threads() -> None:
-    # Several portfolio members reach the optimum here, first in timing order
-    sizes = (12, 13, 7, 16, 15, 7, 13, 15, 14, 6, 7, 13, 11, 16, 2)
-    starts = (28, 18, 14, 30, 1, 4, 8, 40, 34, 25, 24, 5, 13, 15, 25)
-    ends = (29, 29, 29, 37, 13, 6, 19, 41, 42, 27, 39, 15, 19, 16, 27)
+def test_proved_placement_is_deterministic() -> None:
+    sizes = (45, 17, 17, 21, 43, 14, 24, 22, 6, 14, 40, 32, 11, 43, 29, 27, 39)
+    sizes += (28, 60, 25, 63, 38, 11, 32, 28, 36, 20, 38, 46, 5, 41, 52, 46, 63)
+    starts = (9, 2, 12, 6, 16, 13, 11, 8, 10, 6, 10, 11, 7, 9, 15, 0, 1, 13, 8)
+    starts += (14, 6, 12, 0, 13, 7, 5, 9, 2, 15, 15, 12, 2, 3, 15)
+    ends = (12, 4, 15, 15, 17, 14, 16, 11, 11, 15, 12, 15, 10, 11, 17, 8, 8, 17)
+    ends += (9, 17, 13, 16, 11, 14, 9, 7, 17, 9, 17, 16, 15, 6, 6, 17)
     allocations = tuple(
         Allocation(id=i, size=size, start=start, end=end)
         for i, (size, start, end) in enumerate(zip(sizes, starts, ends, strict=True))
     )
-    placements = set()
+    expected = SupermallocAllocator(timeout=None).allocate(allocations)
     for num_threads in (1, 2, 4, 8):
-        allocator = SupermallocAllocator(num_threads=num_threads)
-        for _ in range(3):
-            placements.add(tuple(a.offset for a in allocator.allocate(allocations)))
-    assert len(placements) == 1
+        for timeout in (None, 0.002, 0.005, 0.01):
+            allocator = SupermallocAllocator(timeout=timeout, num_threads=num_threads)
+            solved = allocator.solve(allocations)
+            assert not solved.proved_optimal or solved.allocations == expected
+
+
+def test_expired_greedy_proof_is_deterministic() -> None:
+    allocations = (
+        Allocation(id=0, size=4, start=0, end=2),
+        Allocation(id=1, size=3, start=1, end=3),
+    )
+    solved = SupermallocAllocator(timeout=1e-9).solve(allocations)
+    assert solved.proved_optimal
+    assert solved.allocations == SupermallocAllocator().allocate(allocations)
