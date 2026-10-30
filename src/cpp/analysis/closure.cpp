@@ -133,7 +133,8 @@ int64_t closure_pressure(const std::vector<Allocation>& allocations,
     return 0;
   }
   const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  check_total_size(allocations, std::numeric_limits<int64_t>::max(),
+                   /*placing=*/false);
   const LifetimeGroups groups = group_lifetimes(allocations);
 
   // Scalar cuts are plain time points; the sweep is the same quantity and
@@ -155,7 +156,8 @@ std::vector<int64_t> closure_pressure_per_allocation(
     return {};
   }
   const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  check_total_size(allocations, std::numeric_limits<int64_t>::max(),
+                   /*placing=*/false);
   const LifetimeGroups groups = group_lifetimes(allocations);
   const size_t g = groups.count();
 

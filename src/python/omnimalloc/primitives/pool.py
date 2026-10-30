@@ -44,6 +44,11 @@ class Pool:
         return max((alloc.height or 0 for alloc in self.allocations), default=0)
 
     @cached_property
+    def alignment(self) -> int:
+        """Largest allocation alignment: what the pool base must be a multiple of."""
+        return max((alloc.alignment for alloc in self.allocations), default=1)
+
+    @cached_property
     def pressure(self) -> int:
         """Peak memory pressure (max cut through all buffer lifetimes)."""
         return _pressure(self.allocations)
@@ -82,6 +87,11 @@ class Pool:
 
     def allocate(self, allocator: "BaseAllocator") -> "Pool":
         """Assign offsets to the unpinned allocations, preserving input order."""
+        if self.offset is not None and self.offset % self.alignment:
+            raise ValueError(
+                f"pinned pool {self.id!r} at base {self.offset} breaks its "
+                f"alignment {self.alignment}"
+            )
         allocated = allocator.allocate(self.allocations)
         # Allocators may reorder internally; restore the pool's input order so
         # positions in the returned tuple keep corresponding to the request

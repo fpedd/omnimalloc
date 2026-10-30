@@ -30,8 +30,7 @@ def _supporting_allocators() -> list[BaseAllocator]:
         allocator = BaseAllocator.get(name)
         if not allocator.supports_alignment:
             continue
-        # Padding is invisible to supermalloc's lower bound, so aligned
-        # searches rarely prove optimality and run out their whole budget
+        # Mixed alignments loosen supermalloc's bound, so cap its search
         kwargs = {"timeout": 0.2} if allocator is SupermallocAllocator else {}
         try:
             instances.append(allocator(**kwargs))
@@ -163,7 +162,7 @@ def test_memory_aligns_the_bases_of_the_pools_it_stacks() -> None:
     validate_allocation(memory)
 
 
-def test_memory_rejects_a_pinned_pool_base_that_breaks_its_alignment() -> None:
+def test_rejects_a_pinned_pool_base_that_breaks_its_alignment() -> None:
     pool = Pool(
         id="p",
         allocations=(Allocation(id=0, size=4, start=0, end=1, alignment=8),),
@@ -171,6 +170,8 @@ def test_memory_rejects_a_pinned_pool_base_that_breaks_its_alignment() -> None:
     )
     with pytest.raises(ValueError, match="'p' at base 3 breaks its alignment 8"):
         Memory(id="m", pools=(pool,)).allocate(OmniAllocator())
+    with pytest.raises(ValueError, match="'p' at base 3 breaks its alignment 8"):
+        pool.allocate(GreedyAllocator())
 
 
 def test_csv_round_trips_alignment_and_omits_the_column_when_trivial(

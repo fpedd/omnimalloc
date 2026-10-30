@@ -21,8 +21,7 @@ void gather_spans(const std::vector<size_t>& neighbors,
                   const std::vector<Allocation>& allocations,
                   std::vector<std::pair<int64_t, int64_t>>& spans);
 
-// First-fit: lowest multiple of `alignment` where `size` fits between the
-// sorted spans
+// First-fit: lowest `alignment` multiple where `size` fits between the spans
 [[nodiscard]] int64_t first_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans,
     int64_t alignment = 1);

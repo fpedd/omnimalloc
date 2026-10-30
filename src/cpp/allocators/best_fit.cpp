@@ -15,8 +15,7 @@ namespace {
 int64_t find_best_fit_offset(
     int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans,
     int64_t alignment) {
-  // Scan every gap between the sorted placed spans, keep the smallest that
-  // fits from its first aligned offset
+  // Scan every gap between the sorted placed spans, keep the smallest that fits
   int64_t cursor = 0;
   int64_t best_offset = 0;
   int64_t best_gap = -1;  // negative sentinel: no finite fitting gap yet

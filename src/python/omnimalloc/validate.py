@@ -30,17 +30,17 @@ def _check_alignment(
     # Allocation offsets are pool-relative, so alignment is a property of
     # `base + offset`: a pool sitting at an unaligned base misaligns every
     # allocation in it, however well-aligned each offset looks on its own.
-    # Each allocation's own alignment applies on top of the requested one.
     for alloc in allocations:
-        if alloc.offset is None:
+        offset = alloc.offset
+        if offset is None:
             continue
-        address = base + alloc.offset
-        for required in (alignment, alloc.alignment):
-            if required is not None and address % required != 0:
-                raise ValueError(
-                    f"allocation {alloc.id!r} at address {address} is not "
-                    f"{required}-byte aligned"
-                )
+        address = base + offset
+        if address % alloc.alignment or (alignment and address % alignment):
+            required = alloc.alignment if address % alloc.alignment else alignment
+            raise ValueError(
+                f"allocation {alloc.id!r} at address {address} is not "
+                f"{required}-byte aligned"
+            )
 
 
 def _check_collisions(

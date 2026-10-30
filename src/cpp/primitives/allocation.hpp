@@ -60,7 +60,6 @@ class Allocation {
   [[nodiscard]] const std::optional<AllocationKind>& kind() const noexcept {
     return kind_;
   }
-  // Power of two the offset must be a multiple of; 1 is unconstrained
   [[nodiscard]] int64_t alignment() const noexcept { return alignment_; }
 
   // Computed properties
@@ -141,7 +140,6 @@ class Allocation {
   void validate() const;
 };
 
-// Smallest multiple of the power-of-two `alignment` at or above `value`
 [[nodiscard]] constexpr int64_t align_up(int64_t value,
                                          int64_t alignment) noexcept {
   return (value + alignment - 1) & ~(alignment - 1);
@@ -149,21 +147,20 @@ class Allocation {
 
 // Throw std::invalid_argument when the total allocation size exceeds `limit`,
 // ruling out signed overflow in downstream sums: placer offsets, sweep deltas,
-// flow capacities. An internal correctness bound, not a policy value. Each
-// allocation also counts its worst-case alignment padding, which bounds every
-// aligned placement's height the same way. Placements stack on top of the
-// highest pin, so the sum starts there.
+// flow capacities. An internal correctness bound, not a policy value. With
+// `placing`, the sum starts at the highest pin top and adds worst-case padding.
 inline void check_total_size(
     const std::vector<Allocation>& allocations,
-    int64_t limit = std::numeric_limits<int64_t>::max() / 2) {
+    int64_t limit = std::numeric_limits<int64_t>::max() / 2,
+    bool placing = true) {
   int64_t total_size = 0;
   for (const Allocation& a : allocations) {
-    if (a.offset().has_value()) {
+    if (placing && a.offset().has_value()) {
       total_size = std::max(total_size, a.offset().value() + a.size());
     }
   }
   for (const Allocation& a : allocations) {
-    const int64_t padding = a.alignment() - 1;
+    const int64_t padding = placing ? a.alignment() - 1 : 0;
     if (a.size() > limit - total_size ||
         padding > limit - total_size - a.size()) {
       throw std::invalid_argument("Total allocation size exceeds int64 range");
