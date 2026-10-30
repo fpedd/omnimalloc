@@ -3,7 +3,7 @@
 #
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from omnimalloc._cpp import Partition, Solution, greedy_pack_portfolio, try_solve_many
@@ -75,24 +75,29 @@ class _Portfolio:
     def solve(self, bounds: tuple[int, ...]) -> Solution | None:
         """Run one portfolio round, or None once the budget has expired.
 
-        The budget is read once per round so the expiry check and the round's
-        timeout agree. Ablations call `_cpp.try_solve_many` directly.
+        Ablations call `_cpp.try_solve_many` directly.
         """
+        members = [p.with_bound(b) for b in bounds for p in self.partitions]
+        return self.run(members, max(bounds), None, self.threads)
+
+    def run(
+        self, members: list[Partition], bound: int, max_nodes: int | None, threads: int
+    ) -> Solution | None:
+        # The budget is read once so the expiry check and the timeout agree
         remaining = self.remaining()
         if remaining is not None and remaining <= 0:
             return None
-        members = [p.with_bound(b) for b in bounds for p in self.partitions]
         return try_solve_many(
             members,
-            max(bounds),
-            None,
+            bound,
+            max_nodes,
             canonical=True,
             dominance=True,
             floor_inference=True,
             monotonic_floor=True,
             decompose=True,
             timeout=remaining,
-            num_threads=self.threads,
+            num_threads=threads,
         )
 
 
@@ -135,6 +140,19 @@ def _search(portfolio: _Portfolio, low: int, peak: int) -> tuple[Solution | None
         logger.debug("Supermalloc timed out above lower bound: %d > %d", peak, low)
 
     return best, proved_optimal
+
+
+def _rederive(portfolio: _Portfolio, peak: int, n: int) -> Solution:
+    """Place the proved optimum `peak` again, independent of thread timing."""
+    portfolio = replace(portfolio, deadline=None)
+    cap = 2 * n
+    while True:
+        for partition in portfolio.partitions:
+            member = partition.with_bound(peak + 1)
+            solution = portfolio.run([member], peak + 1, cap, 1)
+            if solution is not None:
+                return solution
+        cap *= 4
 
 
 class SupermallocAllocator(BaseAllocator):
@@ -201,6 +219,10 @@ class SupermallocAllocator(BaseAllocator):
             base, greedy_codes, portfolio.remaining(), threads
         )
         best, proved_optimal = _search(portfolio, base.lower_bound, incumbent.peak)
+        if proved_optimal and best is not None:
+            best = _rederive(portfolio, best.peak, len(allocations))
+        elif proved_optimal and portfolio.expired():
+            best = greedy_pack_portfolio(base, greedy_codes, None, threads)
         if best is None:
             best = incumbent
         return SupermallocResult(

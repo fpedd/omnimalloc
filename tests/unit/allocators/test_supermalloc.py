@@ -202,3 +202,32 @@ def test_solve_agrees_with_allocate() -> None:
     )
     allocator = SupermallocAllocator(timeout=5.0)
     assert allocator.solve(allocations).allocations == allocator.allocate(allocations)
+
+
+def test_proved_placement_is_deterministic() -> None:
+    sizes = (45, 17, 17, 21, 43, 14, 24, 22, 6, 14, 40, 32, 11, 43, 29, 27, 39)
+    sizes += (28, 60, 25, 63, 38, 11, 32, 28, 36, 20, 38, 46, 5, 41, 52, 46, 63)
+    starts = (9, 2, 12, 6, 16, 13, 11, 8, 10, 6, 10, 11, 7, 9, 15, 0, 1, 13, 8)
+    starts += (14, 6, 12, 0, 13, 7, 5, 9, 2, 15, 15, 12, 2, 3, 15)
+    ends = (12, 4, 15, 15, 17, 14, 16, 11, 11, 15, 12, 15, 10, 11, 17, 8, 8, 17)
+    ends += (9, 17, 13, 16, 11, 14, 9, 7, 17, 9, 17, 16, 15, 6, 6, 17)
+    allocations = tuple(
+        Allocation(id=i, size=size, start=start, end=end)
+        for i, (size, start, end) in enumerate(zip(sizes, starts, ends, strict=True))
+    )
+    expected = SupermallocAllocator(timeout=None).allocate(allocations)
+    for num_threads in (1, 2, 4, 8):
+        for timeout in (None, 0.002, 0.005, 0.01):
+            allocator = SupermallocAllocator(timeout=timeout, num_threads=num_threads)
+            solved = allocator.solve(allocations)
+            assert not solved.proved_optimal or solved.allocations == expected
+
+
+def test_expired_greedy_proof_is_deterministic() -> None:
+    allocations = (
+        Allocation(id=0, size=4, start=0, end=2),
+        Allocation(id=1, size=3, start=1, end=3),
+    )
+    solved = SupermallocAllocator(timeout=1e-9).solve(allocations)
+    assert solved.proved_optimal
+    assert solved.allocations == SupermallocAllocator().allocate(allocations)
