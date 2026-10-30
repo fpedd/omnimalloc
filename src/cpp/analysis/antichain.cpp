@@ -223,7 +223,8 @@ int64_t antichain_pressure(const std::vector<Allocation>& allocations,
   const size_t d = checked_dim(allocations);
   // Sizes are summed into int64 sweep deltas and flow arc capacities;
   // overflow would be UB, so refuse up front.
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  check_total_size(allocations, std::numeric_limits<int64_t>::max(),
+                   /*placing=*/false);
   // Interval orders (all-scalar included) realize the antichain as the
   // scalar sweep peak: pairwise-overlapping intervals share a common point,
   // and linearization preserves the conflict relation exactly.
@@ -247,7 +248,8 @@ std::vector<int64_t> antichain_pressure_per_allocation(
     return {};
   }
   const size_t d = checked_dim(allocations);
-  check_total_size(allocations, std::numeric_limits<int64_t>::max());
+  check_total_size(allocations, std::numeric_limits<int64_t>::max(),
+                   /*placing=*/false);
   // Interval orders: every clique through an allocation shares a time point
   // inside its own lifetime (Helly), so the pinned antichain is the window
   // peak of the linearized sweep.

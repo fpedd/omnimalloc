@@ -17,6 +17,7 @@ class BestFitAllocator(BaseAllocator):
 
     supports_vector_time = True
     supports_pinned = True
+    supports_alignment = True
 
     def _allocate(self, allocations: tuple[Allocation, ...]) -> tuple[Allocation, ...]:
         return tuple(best_fit_place(allocations))

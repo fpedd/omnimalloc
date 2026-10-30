@@ -74,6 +74,7 @@ void sort_intervals_by_lo(std::vector<Interval>& intervals,
 // non-negative `pins[i]` fixes i there, an obstacle before the first scan.
 std::vector<int64_t> place_order(const CsrAdjacency& adj,
                                  const std::vector<int64_t>& sizes,
+                                 const std::vector<int64_t>& alignments,
                                  const std::vector<int64_t>& pins,
                                  const std::vector<int32_t>& order) {
   constexpr Interval kUnplaced{-1, -1};
@@ -100,7 +101,8 @@ std::vector<int64_t> place_order(const CsrAdjacency& adj,
       }
     }
     sort_intervals_by_lo(intervals, scratch);
-    const int64_t best = first_fit_offset(sizes[idx], intervals);
+    const int64_t best =
+        first_fit_offset(sizes[idx], intervals, alignments[idx]);
     offsets[idx] = best;
     placed[static_cast<size_t>(idx)] = {best, best + sizes[idx]};
   }
@@ -279,6 +281,9 @@ PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
   const size_t n = allocations.size();
   std::vector<int64_t> sizes(n);
   std::ranges::transform(allocations, sizes.begin(), &Allocation::size);
+  std::vector<int64_t> alignments(n);
+  std::ranges::transform(allocations, alignments.begin(),
+                         &Allocation::alignment);
   std::vector<int64_t> pins(n);
   std::ranges::transform(
       allocations, pins.begin(), [](const Allocation& alloc) {
@@ -298,7 +303,7 @@ PortfolioPlacement place_portfolio(const std::vector<Allocation>& allocations,
   for_each_row_block(
       orders.size(), workers,
       [&](size_t v) {
-        placements[v] = place_order(adj, sizes, pins, orders[v]);
+        placements[v] = place_order(adj, sizes, alignments, pins, orders[v]);
       },
       1);
 
@@ -332,14 +337,15 @@ void gather_spans(const std::vector<size_t>& neighbors,
   std::sort(spans.begin(), spans.end());
 }
 
-int64_t first_fit_offset(
-    int64_t size, const std::vector<std::pair<int64_t, int64_t>>& spans) {
+int64_t first_fit_offset(int64_t size,
+                         const std::vector<std::pair<int64_t, int64_t>>& spans,
+                         int64_t alignment) {
   int64_t best_offset = 0;
   for (const auto& [offset, end] : spans) {
     if (offset - best_offset >= size) {
       break;  // Found a fitting gap
     }
-    best_offset = std::max(best_offset, end);
+    best_offset = std::max(best_offset, align_up(end, alignment));
   }
   return best_offset;
 }
@@ -350,8 +356,8 @@ std::vector<Allocation> first_fit_place_indexed(
   // Lambda rather than the function pointer so the placement loop inlines
   // the offset scan instead of an indirect call per allocation
   return place_indexed(allocations, indices,
-                       [](int64_t size, const auto& spans) {
-                         return first_fit_offset(size, spans);
+                       [](int64_t size, const auto& spans, int64_t alignment) {
+                         return first_fit_offset(size, spans, alignment);
                        });
 }
 
@@ -397,7 +403,7 @@ std::vector<std::optional<int64_t>> FirstFitPlacer::place_offsets(
       continue;
     }
     gather_spans(indices_[idx], offsets, allocations_, spans);
-    offsets[idx] = first_fit_offset(alloc.size(), spans);
+    offsets[idx] = first_fit_offset(alloc.size(), spans, alloc.alignment());
   }
   return offsets;
 }

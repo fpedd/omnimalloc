@@ -146,6 +146,7 @@ class SupermallocAllocator(BaseAllocator):
 
     # The partition solver's section grid needs a linear timeline
     supports_vector_time = False
+    supports_alignment = True
 
     def __init__(
         self,

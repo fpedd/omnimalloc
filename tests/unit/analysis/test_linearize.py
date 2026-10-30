@@ -165,13 +165,13 @@ def test_mixed_dimensions_rejected() -> None:
 def test_linearize_preserves_metadata() -> None:
     allocations = (
         Allocation(id="x", size=64, start=(0, 0), end=(2, 1), offset=128),
-        Allocation(id="y", size=32, start=(2, 1), end=(3, 2)),
+        Allocation(id="y", size=32, start=(2, 1), end=(3, 2), alignment=8),
     )
     linearized = try_linearize(allocations)
     assert linearized is not None
-    assert [(a.id, a.size, a.offset) for a in linearized] == [
-        ("x", 64, 128),
-        ("y", 32, None),
+    assert [(a.id, a.size, a.offset, a.alignment) for a in linearized] == [
+        ("x", 64, 128, 1),
+        ("y", 32, None, 8),
     ]
 
 

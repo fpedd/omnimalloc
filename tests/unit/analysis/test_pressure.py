@@ -125,6 +125,15 @@ def test_closure_pressure_total_size_overflow_raises() -> None:
         closure_pressure_per_allocation(allocations)
 
 
+def test_pressure_ignores_pin_heights_and_alignment_padding() -> None:
+    allocations = (
+        Allocation(id=0, size=1, start=0, end=2, offset=2**63 - 2),
+        Allocation(id=1, size=1, start=0, end=2, alignment=2**62),
+    )
+    assert antichain_pressure_per_allocation(allocations) == {0: 2, 1: 2}
+    assert closure_pressure_per_allocation(allocations) == {0: 2, 1: 2}
+
+
 def test_pressure_unbudgeted_empty_is_zero() -> None:
     assert antichain_pressure((), work_budget=None) == 0
 

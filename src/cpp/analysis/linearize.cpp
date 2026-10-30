@@ -227,7 +227,8 @@ std::optional<std::vector<Allocation>> try_linearize(
   for (size_t i = 0; i < allocations.size(); ++i) {
     const Allocation& a = allocations[i];
     linearized.emplace_back(a.id(), a.size(), (*times)[i].first,
-                            (*times)[i].second, a.offset(), a.kind());
+                            (*times)[i].second, a.offset(), a.kind(),
+                            a.alignment());
   }
   return linearized;
 }

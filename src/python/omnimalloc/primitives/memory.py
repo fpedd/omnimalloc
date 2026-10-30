@@ -70,7 +70,9 @@ def _place_pools(pools: tuple[Pool, ...]) -> tuple[Pool, ...]:
     """Stack the pools that carry no offset around the ones that do."""
     _ensure_pinned_bases_disjoint(pools)
     offsets = stack_around_pins(
-        [pool.size for pool in pools], [pool.offset for pool in pools]
+        [pool.size for pool in pools],
+        [pool.offset for pool in pools],
+        [pool.alignment for pool in pools],
     )
     return tuple(
         pool if pool.offset is not None else replace(pool, offset=offset)

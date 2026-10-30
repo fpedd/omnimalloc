@@ -228,6 +228,7 @@ def prefix_ids(pool: Pool) -> Pool:
                 end=alloc.end,
                 offset=alloc.offset,
                 kind=alloc.kind,
+                alignment=alloc.alignment,
             )
             for alloc in pool.allocations
         )

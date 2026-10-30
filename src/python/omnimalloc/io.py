@@ -59,14 +59,18 @@ def _parse_id(text: str) -> IdType:
 def _write_pool(pool: Pool, path: Path) -> Path:
     # Any placed allocation brings in the offset column (minimalloc's solution
     # format; unplaced rows leave the cell blank), so save/load round-trips
-    # placements instead of stripping them. A kind column appears the same way.
+    # placements instead of stripping them. Kind and alignment columns appear
+    # the same way.
     with_offsets = pool.any_allocated
     with_kinds = any(alloc.kind is not None for alloc in pool.allocations)
+    with_alignments = any(alloc.alignment != 1 for alloc in pool.allocations)
     fields = ("id", "lower", "upper", "size")
     if with_offsets:
         fields = (*fields, "offset")
     if with_kinds:
         fields = (*fields, "kind")
+    if with_alignments:
+        fields = (*fields, "alignment")
     with path.open("w", newline="") as csvfile:
         if pool.offset is not None:
             # Deviates from plain minimalloc: only unpinned saves interoperate
@@ -81,6 +85,8 @@ def _write_pool(pool: Pool, path: Path) -> Path:
                 row.append(alloc.offset)
             if with_kinds:
                 row.append(alloc.kind.name if alloc.kind is not None else None)
+            if with_alignments:
+                row.append(alloc.alignment)
             writer.writerow(row)
     return path
 
@@ -91,7 +97,7 @@ def save_allocation(
     """Save the entity's pools to disk as minimalloc-format CSV files.
 
     A `Pool` writes exactly `path`; a `Memory` or `System` fans out per pool.
-    Offsets, kinds, clocks, and a pinned pool base all round-trip. Unpinned
+    Offsets, kinds, alignments, clocks, and a pinned pool base all round-trip. Unpinned
     saves are pure minimalloc; the base's `# pool_offset` line deviates.
     """
     path_ = Path(path)
@@ -109,9 +115,9 @@ def save_allocation(
 def load_allocation(path: str | Path) -> Pool:
     """Load a minimalloc-format CSV file into a Pool.
 
-    Loading is pool-level: the pool takes the file stem as its id. `offset` and
-    `kind` columns and the `# pool_offset` base line restore a round-trip-equal
-    result.
+    Loading is pool-level: the pool takes the file stem as its id. `offset`,
+    `kind`, and `alignment` columns and the `# pool_offset` base line restore a
+    round-trip-equal result.
     """
     path_ = Path(path)
     allocations = []
@@ -130,6 +136,7 @@ def load_allocation(path: str | Path) -> Pool:
                 end=_parse_time(row["upper"]),
                 offset=int(row["offset"]) if row.get("offset") else None,
                 kind=AllocationKind[row["kind"]] if row.get("kind") else None,
+                alignment=int(row.get("alignment") or 1),
             )
             allocations.append(allocation)
     return Pool(id=path_.stem, allocations=tuple(allocations), offset=pool_offset)

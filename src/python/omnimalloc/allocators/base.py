@@ -15,6 +15,10 @@ if TYPE_CHECKING:
     from omnimalloc.primitives import Allocation, IdType
 
 
+def _misaligned(alloc: "Allocation") -> bool:
+    return alloc.offset is not None and alloc.offset % alloc.alignment != 0
+
+
 class BaseAllocator(Registered):
     """Base class for allocators with automatic registry."""
 
@@ -31,6 +35,10 @@ class BaseAllocator(Registered):
     # allocation keeps that address and the rest pack around it. Subclasses that
     # re-place everything leave it False, and `allocate` rejects pinned input.
     supports_pinned: ClassVar[bool] = False
+
+    # True for allocators that place every allocation at a multiple of its
+    # `alignment`; `allocate` rejects any alignment above 1 for the rest.
+    supports_alignment: ClassVar[bool] = False
 
     def __repr__(self) -> str:
         params = inspect.signature(type(self).__init__).parameters
@@ -82,7 +90,7 @@ class BaseAllocator(Registered):
         ...
 
     def supports(self, allocations: tuple["Allocation", ...]) -> bool:
-        """Whether `allocate` accepts these allocations' clock dims and pins."""
+        """Whether `allocate` accepts these allocations' dims, pins, alignments."""
         try:
             self.ensure_supported(allocations)
         except ValueError:
@@ -90,7 +98,7 @@ class BaseAllocator(Registered):
         return True
 
     def ensure_supported(self, allocations: tuple["Allocation", ...]) -> None:
-        """Raise if these allocations' clock dimensions or pins aren't supported."""
+        """Raise if these allocations' dims, pins, or alignments aren't supported."""
         if not self.supports_vector_time and any(
             alloc.dim != 1 for alloc in allocations
         ):
@@ -106,10 +114,23 @@ class BaseAllocator(Registered):
                 f"{self.name()} cannot honor pinned offsets; clear them first "
                 f"or pick an allocator whose supports_pinned is True"
             )
+        if not self.supports_alignment and any(
+            alloc.alignment != 1 for alloc in allocations
+        ):
+            raise ValueError(
+                f"{self.name()} cannot honor alignments; pick an allocator "
+                f"whose supports_alignment is True"
+            )
 
     def _ensure_pins_placeable(self, allocations: tuple["Allocation", ...]) -> None:
         """Pins that already collide admit no placement, so say so up front."""
         pinned = tuple(alloc for alloc in allocations if alloc.is_allocated)
+        misaligned = next((a for a in pinned if _misaligned(a)), None)
+        if misaligned is not None:
+            raise ValueError(
+                f"pinned allocation {misaligned.id!r} at offset "
+                f"{misaligned.offset} breaks its alignment {misaligned.alignment}"
+            )
         collision = find_collision(pinned)
         if collision is not None:
             first, second = collision
@@ -130,10 +151,19 @@ class BaseAllocator(Registered):
     def _ensure_placed(
         self, placed: tuple["Allocation", ...], pins: dict["IdType", int | None]
     ) -> None:
-        """Every allocation comes back placed, and every pin comes back put."""
+        """Every allocation comes back placed, aligned, and pins come back put."""
         unplaced = next((alloc for alloc in placed if alloc.offset is None), None)
         if unplaced is not None:
             raise ValueError(f"{self.name()} left allocation {unplaced.id!r} unplaced")
+        # Every result pays this scan, so skip the call at alignment 1
+        misaligned = next(
+            (a for a in placed if a.alignment != 1 and _misaligned(a)), None
+        )
+        if misaligned is not None:
+            raise ValueError(
+                f"{self.name()} placed allocation {misaligned.id!r} at offset "
+                f"{misaligned.offset}, breaking its alignment {misaligned.alignment}"
+            )
         if not pins:
             return
         for alloc in placed:

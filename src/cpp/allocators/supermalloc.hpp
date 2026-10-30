@@ -136,6 +136,8 @@ class Partition {
     std::vector<std::pair<int, int>>
         section_spans;                 // alloc_idx -> (first, last)
     std::vector<int> sym_predecessor;  // alloc_idx -> interchangeable pred, -1
+    std::vector<int64_t> alloc_alignments;
+    std::vector<int64_t> section_alignments;  // section_idx -> least alignment
   };
 
   Partition(std::shared_ptr<const SharedData> data,
@@ -148,7 +150,7 @@ class Partition {
   [[nodiscard]] static std::shared_ptr<SharedData> build_shared_data(
       std::vector<Allocation> allocations);
 
-  // Assemble a SharedData, deriving `sym_predecessor` from `allocations`.
+  // Assemble a SharedData, deriving `sym_predecessor` and the alignments.
   [[nodiscard]] static std::shared_ptr<SharedData> make_shared_data(
       std::vector<Allocation> allocations, std::vector<int64_t> alloc_sizes,
       std::vector<std::vector<int>> sections,
